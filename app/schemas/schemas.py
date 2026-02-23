@@ -24,7 +24,8 @@ class ChallanType(str, Enum):
 
 # Auth Schemas
 class UserLogin(BaseModel):
-    username: str
+    username: Optional[str] = None
+    email: Optional[str] = None
     password: str
 
 

@@ -4,6 +4,7 @@ from .member_routes import router as member_router
 from .challan_routes import router as challan_router
 from .campaign_routes import router as campaign_router
 from .notification_routes import router as notification_router
+from .file_routes import router as file_router
 
 __all__ = [
     "auth_router",
@@ -12,4 +13,5 @@ __all__ = [
     "challan_router",
     "campaign_router",
     "notification_router",
+    "file_router",
 ]

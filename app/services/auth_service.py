@@ -11,13 +11,23 @@ class AuthService:
     
     @staticmethod
     def login(db: Session, user_login: UserLogin):
-        """Authenticate user and return user object."""
-        user = db.query(User).filter(User.username == user_login.username).first()
+        """Authenticate user with username OR email."""
+        # Try to find user by username or email
+        user = None
+        if user_login.username:
+            user = db.query(User).filter(User.username == user_login.username).first()
+        elif user_login.email:
+            user = db.query(User).filter(User.email == user_login.email).first()
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username or email required",
+            )
         
         if not user or not verify_password(user_login.password, user.password_hash):
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid username or password",
+                detail="Invalid credentials",
             )
         
         if not user.is_active:

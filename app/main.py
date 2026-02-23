@@ -10,6 +10,7 @@ from app.routes import (
     challan_router,
     campaign_router,
     notification_router,
+    file_router,
 )
 
 # Import models to ensure they are registered with Base
@@ -48,6 +49,7 @@ app.include_router(member_router)
 app.include_router(challan_router)
 app.include_router(campaign_router)
 app.include_router(notification_router)
+app.include_router(file_router)
 
 # Health check endpoints
 @app.get("/")
