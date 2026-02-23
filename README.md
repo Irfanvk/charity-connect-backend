@@ -1,203 +1,182 @@
-# Charity Connect – Backend API
+# 🎗️ Charity Connect Backend
 
-Backend service for **Charity Connect**, a membership and donation management system.
+Welcome to the **Charity Connect** backend API – the engine powering donation management, member tracking, and administrative workflows for a socially-driven community platform.
 
-This API handles:
-
-- Authentication (JWT-based)
-- Invite-only registration
-- Member management
-- Monthly challans
-- Campaign (urgent donation) management
-- Payment proof uploads
-- Admin approvals
-- Notifications
-- Reporting
-- Audit logs
+> _A secure, invite-only system where giving meets governance._
 
 ---
 
-## Tech Stack
+## 🚀 What It Does
 
-- FastAPI (Python 3.11+)
-- PostgreSQL
-- SQLAlchemy 2.0
-- JWT Authentication
-- Pydantic Validation
-- Uvicorn ASGI server
+This service handles everything necessary for membership and donation operations:
 
----
-
-# 1. Project Architecture
-
-Frontend (React + Vite + PWA)
-        |
-FastAPI Backend
-        |
-PostgreSQL
-        |
-Local file storage (proof uploads)
+- 🔐 JWT-based authentication & role control
+- 📨 Invite-only user registration
+- 👥 Member creation and management
+- 💰 Monthly challan tracking
+- 🚨 Urgent campaign coordination
+- 📸 Payment proof uploads with storage
+- ✅ Admin approvals for actions
+- 🔔 Notifications and alerts
+- 📊 Reporting dashboards
+- 📝 Audit logs for accountability
 
 ---
 
-# 2. Repository Structure
+## 🛠️ Technology Stack
 
+| Component        | Details                    |
+|------------------|----------------------------|
+| Framework        | FastAPI (Python 3.11+)     |
+| Database         | PostgreSQL                 |
+| ORM              | SQLAlchemy 2.0             |
+| Auth             | JWT + role-based policies  |
+| Validation       | Pydantic                   |
+| Server           | Uvicorn (ASGI)             |
 
-app/
-├── main.py
-├── config.py
-├── database.py
-├── models/
-├── schemas/
-├── routes/
-├── services/
-└── utils/
-
-.env
-requirements.txt
-.gitignore
-README.md
-
+> Fully containerizable and production-ready.
 
 ---
 
-# 3. Local Development Setup
+## 📁 Repository Layout
 
-## Requirements
-
-- Python 3.11+
-- PostgreSQL
-- Git
-- VS Code (recommended)
+```
+charity-connect-backend/
+├── app/
+│   ├── main.py              # entrypoint
+│   ├── config.py            # settings & env loader
+│   ├── database.py          # SQLAlchemy engine/session
+│   ├── models/              # ORM models
+│   ├── schemas/             # Pydantic schemas
+│   ├── routes/              # FastAPI routers
+│   ├── services/            # business logic
+│   └── utils/               # helpers & misc
+├── .env                     # local environment (ignored)
+├── requirements.txt         # pinned dependencies
+├── README.md                # this file
+└── .gitignore
+```
 
 ---
 
-## Clone Repository
+## ⚡ Local Development
+
+### Prerequisites
+
+- Python **3.11+**
+- PostgreSQL server
+- Git (for repo cloning)
+- VS Code (recommended, with Python extension)
+
+### Get Started
 
 ```bash
+# clone
 git clone https://github.com/Irfanvk/charity-connect-backend.git
 cd charity-connect-backend
 
-Create Virtual Environment
-
-Windows:
+# create & activate virtual environment
 python -m venv venv
+# Windows:
 venv\Scripts\activate
-
-Mac/Linux:
-
-python -m venv venv
+# macOS/Linux:
 source venv/bin/activate
 
-Install Dependencies
+# install dependencies
 pip install -r requirements.txt
+```
 
+_If you haven't generated `requirements.txt` yet:_
 
-If requirements.txt not yet created:
-
-pip install fastapi uvicorn sqlalchemy psycopg2-binary python-jose passlib[bcrypt] python-multipart pydantic-settings python-dotenv
+```bash
+pip install fastapi uvicorn sqlalchemy psycopg2-binary python-jose passlib[bcrypt] \
+    python-multipart pydantic-settings python-dotenv
 pip freeze > requirements.txt
+```
 
-4. PostgreSQL Setup
+### Database Setup
 
-Login to PostgreSQL:
+1. Log in to PostgreSQL:
+   ```bash
+   psql -U postgres
+   ```
+2. Create the project database:
+   ```sql
+   CREATE DATABASE charity_connect;
+   ```
+3. Exit with `\q`.
 
-psql -U postgres
+### Environment Variables
 
+Create a `.env` file in project root with:
 
-Create database:
-
-CREATE DATABASE charity_connect;
-
-
-Exit:
-
-\q
-
-5. Environment Variables
-
-Create .env file in project root:
-
+```
 DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/charity_connect
-SECRET_KEY=replace_with_secure_random_string
+SECRET_KEY=<secure-random-string>
 ACCESS_TOKEN_EXPIRE_MINUTES=60
+```
 
+> **Never** commit `.env` to source control.
 
-Never commit .env.
+### Running the Server
 
-6. Run Backend
+```bash
 uvicorn app.main:app --reload
+```
 
+- Open the API: `http://127.0.0.1:8000`
+- Explore docs: `http://127.0.0.1:8000/docs`
 
-Open in browser:
+---
 
-http://127.0.0.1:8000
+## 🛣️ Roadmap
 
+### Phase 1 – Infrastructure
 
-Swagger Docs:
+- FastAPI project scaffolding
+- PostgreSQL connectivity
+- Alembic migrations (TODO)
 
-http://127.0.0.1:8000/docs
+### Phase 2 – Authentication & Authorization
 
-7. Development Roadmap
-Phase 1 – Infrastructure
+- bcrypt password hashing
+- JWT token handling
+- Login / logout / current-user endpoints
+- Role-based access: `superadmin`, `admin`, `member`
 
-FastAPI setup
+### Phase 3 – Invite-Only Registration
 
-PostgreSQL connection
-
-Alembic migrations
-
-Phase 2 – Authentication
-
-Password hashing (bcrypt)
-
-JWT token generation
-
-Login endpoint
-
-Logout endpoint
-
-Current user endpoint
-
-Role-based access control
+- Admin generates invite codes
+- Codes attach to email/phone & expiry
+- Registration endpoint validates invite and marks as used
 
 Endpoints:
+```
+POST /invites             # create invite
+POST /invites/validate    # check invite
+POST /auth/register       # register with invite
+```
 
-POST /auth/login
+### Phase 4 – Member System
 
-POST /auth/logout
+- Sequential member codes
+- Profile management
+- (more to come...)
 
-GET /auth/me
+---
 
-Roles:
+## 💡 Tips & Notes
 
-superadmin
+- Use a tool like `pgAdmin` or `psql` to inspect data.
+- Add tests under `tests/` as features stabilize.
+- Consider Dockerizing for deployment.
 
-admin
+---
 
-member
+Thanks for contributing! 🎉
 
-Phase 3 – Invite System
+Let’s make charity simple and transparent.
 
-Admin creates invite code
-
-Invite has email/phone + expiry
-
-User registers using invite
-
-Invite marked used
-
-Endpoints:
-
-POST /invites
-
-POST /invites/validate
-
-POST /auth/register
-
-Phase 4 – Member System
-
-member_code (sequential suggestion)
 
 monthly_amount
 
