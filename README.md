@@ -1,107 +1,104 @@
-Charity Connect – Backend API
+# Charity Connect – Backend API
 
-Backend service for Charity Connect, a membership and donation management system.
+Backend service for **Charity Connect**, a membership and donation management system.
 
 This API handles:
 
-Authentication (JWT-based)
+- Authentication (JWT-based)
+- Invite-only registration
+- Member management
+- Monthly challans
+- Campaign (urgent donation) management
+- Payment proof uploads
+- Admin approvals
+- Notifications
+- Reporting
+- Audit logs
 
-Invite-only registration
+---
 
-Member management
+## Tech Stack
 
-Monthly challans
+- FastAPI (Python 3.11+)
+- PostgreSQL
+- SQLAlchemy 2.0
+- JWT Authentication
+- Pydantic Validation
+- Uvicorn ASGI server
 
-Campaign (urgent donation) management
+---
 
-Payment proof uploads
+# 1. Project Architecture
 
-Admin approvals
-
-Notifications
-
-Reporting
-
-Audit logs
-
-Built with:
-
-FastAPI (Python 3.11+)
-
-PostgreSQL
-
-SQLAlchemy 2.0
-
-JWT Authentication
-
-Pydantic Validation
-
-1. Project Architecture
 Frontend (React + Vite + PWA)
-        |
         |
 FastAPI Backend
         |
-        |
 PostgreSQL
-        |
         |
 Local file storage (proof uploads)
 
-2. Repository Structure
-app/
- ├── main.py              # Application entrypoint
- ├── config.py            # Environment settings
- ├── database.py          # DB engine and session
- ├── models/              # SQLAlchemy models
- ├── schemas/             # Pydantic schemas
- ├── routes/              # API route modules
- ├── services/            # Business logic
- └── utils/               # Utilities (auth, hashing, etc.)
+---
 
-.env                      # Local environment variables (NOT committed)
+# 2. Repository Structure
+
+
+app/
+├── main.py
+├── config.py
+├── database.py
+├── models/
+├── schemas/
+├── routes/
+├── services/
+└── utils/
+
+.env
 requirements.txt
 .gitignore
+README.md
 
-3. Local Development Setup
-3.1 Requirements
 
-Python 3.11+
+---
 
-PostgreSQL installed
+# 3. Local Development Setup
 
-Git
+## Requirements
 
-VS Code (recommended)
+- Python 3.11+
+- PostgreSQL
+- Git
+- VS Code (recommended)
 
-3.2 Clone Repository
+---
+
+## Clone Repository
+
+```bash
 git clone https://github.com/Irfanvk/charity-connect-backend.git
 cd charity-connect-backend
 
-3.3 Create Virtual Environment
+Create Virtual Environment
+
+Windows:
 python -m venv venv
-
-
-Activate (Windows):
-
 venv\Scripts\activate
 
+Mac/Linux:
 
-Activate (Mac/Linux):
-
+python -m venv venv
 source venv/bin/activate
 
-3.4 Install Dependencies
+Install Dependencies
 pip install -r requirements.txt
 
 
-If requirements file not present:
+If requirements.txt not yet created:
 
 pip install fastapi uvicorn sqlalchemy psycopg2-binary python-jose passlib[bcrypt] python-multipart pydantic-settings python-dotenv
 pip freeze > requirements.txt
 
 4. PostgreSQL Setup
-4.1 Create Database
 
 Login to PostgreSQL:
 
@@ -117,9 +114,9 @@ Exit:
 
 \q
 
-4.2 Create .env File
+5. Environment Variables
 
-Create .env in root:
+Create .env file in project root:
 
 DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/charity_connect
 SECRET_KEY=replace_with_secure_random_string
@@ -128,11 +125,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES=60
 
 Never commit .env.
 
-5. Run Backend
+6. Run Backend
 uvicorn app.main:app --reload
 
 
-Visit:
+Open in browser:
 
 http://127.0.0.1:8000
 
@@ -141,48 +138,16 @@ Swagger Docs:
 
 http://127.0.0.1:8000/docs
 
+7. Development Roadmap
+Phase 1 – Infrastructure
 
-Database test endpoint (if enabled):
+FastAPI setup
 
-http://127.0.0.1:8000/test-db
+PostgreSQL connection
 
-6. Git Collaboration Rules
-Branch Strategy
+Alembic migrations
 
-Never push directly to main.
-
-Create feature branches:
-
-feature/auth-system
-feature/member-model
-feature/invite-system
-feature/challan-system
-feature/campaigns
-feature/notifications
-
-
-Workflow:
-
-git checkout -b feature/xyz
-git commit -m "Add xyz"
-git push origin feature/xyz
-
-
-Then open Pull Request.
-
-7. Backend Development Roadmap
-Phase 1 – Core Infrastructure
-
- FastAPI setup
-
- PostgreSQL connection
-
- Base model configuration
-
- Alembic migrations setup
-
-Phase 2 – Authentication System
-Features:
+Phase 2 – Authentication
 
 Password hashing (bcrypt)
 
@@ -192,16 +157,17 @@ Login endpoint
 
 Logout endpoint
 
-Get current user endpoint
+Current user endpoint
 
 Role-based access control
 
 Endpoints:
 
 POST /auth/login
-POST /auth/logout
-GET  /auth/me
 
+POST /auth/logout
+
+GET /auth/me
 
 Roles:
 
@@ -213,35 +179,25 @@ member
 
 Phase 3 – Invite System
 
-Admins create invite codes.
+Admin creates invite code
 
-Flow:
+Invite has email/phone + expiry
 
-Admin generates invite
+User registers using invite
 
-Invite contains:
-
-email or phone
-
-invite code
-
-expiry date
-
-User registers using invite code
-
-Invite marked as used
+Invite marked used
 
 Endpoints:
 
 POST /invites
+
 POST /invites/validate
+
 POST /auth/register
 
 Phase 4 – Member System
 
-Each member has:
-
-member_code (auto-suggested sequential)
+member_code (sequential suggestion)
 
 monthly_amount
 
@@ -251,58 +207,52 @@ status
 
 Endpoints:
 
-GET    /members
-POST   /members
-PUT    /members/{id}
+GET /members
+
+POST /members
+
+PUT /members/{id}
+
 DELETE /members/{id}
 
 Phase 5 – Campaign System
-
-For urgent donations.
-
-Fields:
 
 title
 
 description
 
-target amount
+target_amount
 
-start date
+start_date
 
-end date
+end_date
 
 active status
 
 Endpoints:
 
-GET    /campaigns
-POST   /campaigns
-PUT    /campaigns/{id}
+GET /campaigns
+
+POST /campaigns
+
+PUT /campaigns/{id}
+
 DELETE /campaigns/{id}
 
 Phase 6 – Challan System
 
-Supports:
-
-Monthly dues
-
-Campaign donations
-
-Status flow:
-
-generated → pending → approved/rejected
-
+Status Flow:
+generated → pending → approved / rejected
 
 Fields:
 
 member_id
 
-type
+type (monthly / campaign)
 
 campaign_id (optional)
 
-month (for monthly payments)
+month (for monthly)
 
 amount
 
@@ -316,17 +266,17 @@ approved_by
 
 Endpoints:
 
-POST   /challans/generate
-POST   /challans/{id}/upload-proof
-PUT    /challans/{id}/approve
-PUT    /challans/{id}/reject
-GET    /challans
+POST /challans/generate
+
+POST /challans/{id}/upload-proof
+
+PUT /challans/{id}/approve
+
+PUT /challans/{id}/reject
+
+GET /challans
 
 Phase 7 – Notifications
-
-Admin-created posts.
-
-Fields:
 
 title
 
@@ -336,65 +286,45 @@ target_role (optional)
 
 Endpoints:
 
-GET  /notifications
+GET /notifications
+
 POST /notifications
-
-Phase 8 – Reports
-
-Monthly collection summary
-
-Member payment statement
-
-Campaign performance
-
-Export-ready endpoints
 
 8. File Upload Strategy
 
-Proof uploads:
+Store proofs in:
 
 /uploads/proofs/
 
 
 Rules:
 
-Max size: 5MB
+Max 5MB
 
-Allowed: jpg, png, pdf
+jpg, png, pdf only
 
-Store relative path in DB
+Save relative path in database
 
 Validate MIME type
 
-Later upgrade:
+9. Security
 
-Move to S3-compatible storage
+Hash all passwords
 
-9. Security Rules
+Protect admin routes
 
-Always hash passwords
-
-Never expose SECRET_KEY
+Validate all inputs
 
 Use HTTPS in production
 
-Validate all input via Pydantic
-
-Restrict admin endpoints via role check
-
-Implement audit logs for:
-
-Approvals
-
-Member edits
-
-Invite creation
+Log important actions (audit logs)
 
 10. Deployment Plan (Budget-Friendly)
 
 Recommended:
+Single VPS
 
-Single VPS:
+Minimum:
 
 2 vCPU
 
@@ -410,70 +340,19 @@ PostgreSQL
 
 Nginx
 
-Uvicorn (systemd service)
+Uvicorn
 
 Let's Encrypt SSL
 
-Estimated cost:
 
-$10–15 per month
+Goal
 
-11. Immediate Next Tasks
+Build a stable, scalable backend powering Charity Connect that:
 
-Next development priority:
+Replaces Excel workflows
 
-Create User model
+Reduces admin workload
 
-Implement password hashing utility
+Maintains clean financial records
 
-Implement JWT token creation
-
-Implement /auth/login
-
-Protect routes with dependency injection
-
-After auth works, move to Invite system.
-
-12. Development Principles
-
-Keep code modular
-
-Keep routes thin
-
-Put logic in services
-
-Use migrations (Alembic)
-
-Do not over-engineer
-
-Test endpoints in Swagger first
-
-Commit small changes frequently
-
-13. Long-Term Enhancements
-
-Email reminders
-
-WhatsApp notifications
-
-Payment gateway integration
-
-Multi-organization support
-
-Multi-language UI
-
-Automated backups
-
-Role expansion
-
-End Goal
-
-Deliver a stable, scalable, secure backend powering Charity Connect:
-
-Replace Excel workflows
-
-Reduce admin workload
-
-Maintain accurate donation records
-
-Support long-term growth
+Supports long-term growth
