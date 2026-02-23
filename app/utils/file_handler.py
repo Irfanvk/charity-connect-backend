@@ -31,7 +31,7 @@ def save_file(file_content: bytes, subfolder: str, filename: str) -> str:
     return f"uploads/{subfolder}/{final_filename}"
 
 
-def validate_file(file_content: bytes, filename: str, max_size_mb: int = 5) -> bool:
+def validate_file(file_content: bytes, filename: str, max_size_mb: int = 3) -> bool:
     """
     Validate file size and type.
     

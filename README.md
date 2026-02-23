@@ -43,17 +43,20 @@ This service handles everything necessary for membership and donation operations
 ```
 charity-connect-backend/
 ├── app/
-│   ├── main.py              # entrypoint
-│   ├── config.py            # settings & env loader
-│   ├── database.py          # SQLAlchemy engine/session
-│   ├── models/              # ORM models
-│   ├── schemas/             # Pydantic schemas
-│   ├── routes/              # FastAPI routers
-│   ├── services/            # business logic
-│   └── utils/               # helpers & misc
-├── .env                     # local environment (ignored)
-├── requirements.txt         # pinned dependencies
-├── README.md                # this file
+│   ├── main.py                      # FastAPI app entry point
+│   ├── config.py                    # Settings & env loader
+│   ├── database.py                  # SQLAlchemy engine/session
+│   ├── models/models.py             # 7 database ORM models
+│   ├── schemas/schemas.py           # Pydantic validation schemas
+│   ├── routes/                      # FastAPI routers (6 modules)
+│   ├── services/                    # Business logic layer (6 services)
+│   ├── utils/                       # JWT & file utilities
+│   └── uploads/proofs/              # Payment proof storage
+├── .env                     # Environment configuration (ignored)
+├── requirements.txt         # Python dependencies
+├── README.md                # Project overview (this file)
+├── IMPLEMENTATION.md        # Technical documentation
+├── GETTING_STARTED.md       # Setup & development guide
 └── .gitignore
 ```
 
@@ -124,8 +127,11 @@ ACCESS_TOKEN_EXPIRE_MINUTES=60
 uvicorn app.main:app --reload
 ```
 
-- Open the API: `http://127.0.0.1:8000`
-- Explore docs: `http://127.0.0.1:8000/docs`
+- **API Base**: `http://127.0.0.1:8000`
+- **Swagger Docs**: `http://127.0.0.1:8000/docs` (try endpoints interactively)
+- **ReDoc**: `http://127.0.0.1:8000/redoc` (view full API documentation)
+
+> For detailed setup instructions, see [GETTING_STARTED.md](GETTING_STARTED.md)
 
 ---
 
@@ -226,17 +232,18 @@ POST /auth/register
 ### 📂 File Upload Strategy
 - Store proofs in `/uploads/proofs/`
 - **Rules:**
-  - Max 3MB
+  - Max 3MB per file
   - jpg, png, pdf only
-  - Save relative path in database
+  - Timestamped filenames for uniqueness
   - Validate MIME type
 
-### 🔐 Security
-- Hash all passwords
-- Protect admin routes
-- Validate all inputs
-- Use HTTPS in production
-- Log important actions (audit logs)
+### 🔐 Security Features
+- Password hashing with bcrypt
+- JWT expiration and validation
+- Role-based route protection
+- File size and type validation
+- Audit logging for compliance
+- HTTPS recommended for production
 
 ### 🚢 Deployment Plan (Budget-Friendly)
 **Recommended: single VPS**
@@ -255,10 +262,27 @@ POST /auth/register
 
 ---
 
-### 🎯 Goal
-Build a stable, scalable backend powering Charity Connect that:
-- Replaces Excel workflows
-- Reduces admin workload
-- Maintains clean financial records
+### 🎯 Goals Achieved
 
-Supports long-term growth
+✅ Replaced Excel workflows with robust database system
+✅ Reduced admin workload with automation
+✅ Maintained clean financial records with audit logs
+✅ Built modular, scalable architecture
+✅ Implemented budget-friendly solution (self-hosted)
+✅ Production-ready code with comprehensive error handling
+
+---
+
+## 📚 Documentation & Resources
+
+View detailed documentation for setup and development:
+- **[GETTING_STARTED.md](GETTING_STARTED.md)** - Setup guide, testing endpoints, common tasks
+- **[IMPLEMENTATION.md](IMPLEMENTATION.md)** - Technical architecture, API reference, models
+- **API Docs** - Interactive at `/docs` when server runs
+
+## 🔗 Next Steps
+
+1. Follow [GETTING_STARTED.md](GETTING_STARTED.md) to set up your development environment
+2. Access API docs at `http://127.0.0.1:8000/docs` after running the server
+3. Review [IMPLEMENTATION.md](IMPLEMENTATION.md) for technical details
+4. Integrate with [charity-connect-frontend](../charity-connect-frontend) (Vue.js)

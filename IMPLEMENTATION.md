@@ -213,7 +213,7 @@ API Docs: `http://127.0.0.1:8000/docs`
 Files stored at: `app/uploads/proofs/`
 
 Validation:
-- Max 5MB per file
+- Max 3MB per file
 - Allowed: `.jpg`, `.png`, `.pdf`
 - MIME type validation
 - Timestamp added to filename
