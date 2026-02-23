@@ -1,253 +1,479 @@
-# Charity Connect -- Backend API
+Charity Connect – Backend API
 
-## Project Overview
+Backend service for Charity Connect, a membership and donation management system.
 
-Charity Connect is a Membership & Donation Management System designed
-for charity organizations to manage:
+This API handles:
 
--   Members
--   Monthly Membership Payments
--   Urgent / Campaign Donations
--   Challans
--   Proof Uploads
--   Admin Approval Workflow
--   Notifications
--   Reports
+Authentication (JWT-based)
 
-This backend is built using:
+Invite-only registration
 
--   FastAPI (Python 3.11+)
--   PostgreSQL
--   SQLAlchemy ORM
--   JWT Authentication
--   Role-Based Access Control
+Member management
 
-------------------------------------------------------------------------
+Monthly challans
 
-# Architecture
+Campaign (urgent donation) management
 
-Frontend (React + Vite + PWA) | FastAPI Backend (Python) |
-PostgreSQL Database | File Storage (Local → Cloud Later)
+Payment proof uploads
 
-------------------------------------------------------------------------
+Admin approvals
 
-# Technology Stack
+Notifications
 
-Backend Framework: FastAPI\
-Database: PostgreSQL\
-ORM: SQLAlchemy\
-Authentication: JWT + Passlib (bcrypt)\
-Server: Uvicorn\
-Environment Config: Pydantic Settings\
-Deployment: VPS (Ubuntu)
+Reporting
 
-------------------------------------------------------------------------
+Audit logs
 
-# Folder Structure
+Built with:
 
-app/ 
-├── main.py 
-├── config.py 
-├── database.py 
-├── models/ 
-├── schemas/
-├── routes/ 
-├── services/ 
-└── utils/
+FastAPI (Python 3.11+)
 
-------------------------------------------------------------------------
+PostgreSQL
 
-# Local Development Setup
+SQLAlchemy 2.0
 
-## 1. Clone Repository
+JWT Authentication
 
-git clone `<repo-url>`{=html} cd charity-connect-backend
+Pydantic Validation
 
-## 2. Create Virtual Environment
+1. Project Architecture
+Frontend (React + Vite + PWA)
+        |
+        |
+FastAPI Backend
+        |
+        |
+PostgreSQL
+        |
+        |
+Local file storage (proof uploads)
 
-python -m venv venv venv`\Scripts`{=tex}`\activate`{=tex}
+2. Repository Structure
+app/
+ ├── main.py              # Application entrypoint
+ ├── config.py            # Environment settings
+ ├── database.py          # DB engine and session
+ ├── models/              # SQLAlchemy models
+ ├── schemas/             # Pydantic schemas
+ ├── routes/              # API route modules
+ ├── services/            # Business logic
+ └── utils/               # Utilities (auth, hashing, etc.)
 
-## 3. Install Dependencies
+.env                      # Local environment variables (NOT committed)
+requirements.txt
+.gitignore
 
+3. Local Development Setup
+3.1 Requirements
+
+Python 3.11+
+
+PostgreSQL installed
+
+Git
+
+VS Code (recommended)
+
+3.2 Clone Repository
+git clone https://github.com/Irfanvk/charity-connect-backend.git
+cd charity-connect-backend
+
+3.3 Create Virtual Environment
+python -m venv venv
+
+
+Activate (Windows):
+
+venv\Scripts\activate
+
+
+Activate (Mac/Linux):
+
+source venv/bin/activate
+
+3.4 Install Dependencies
 pip install -r requirements.txt
 
-## 4. Create .env File
 
-Create a .env file in root:
+If requirements file not present:
 
-DATABASE_URL=postgresql://postgres:YOURPASSWORD@localhost:5432/charity_connect
-SECRET_KEY=change_this_to_secure_key ACCESS_TOKEN_EXPIRE_MINUTES=60
+pip install fastapi uvicorn sqlalchemy psycopg2-binary python-jose passlib[bcrypt] python-multipart pydantic-settings python-dotenv
+pip freeze > requirements.txt
 
-## 5. Run Development Server
+4. PostgreSQL Setup
+4.1 Create Database
 
+Login to PostgreSQL:
+
+psql -U postgres
+
+
+Create database:
+
+CREATE DATABASE charity_connect;
+
+
+Exit:
+
+\q
+
+4.2 Create .env File
+
+Create .env in root:
+
+DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/charity_connect
+SECRET_KEY=replace_with_secure_random_string
+ACCESS_TOKEN_EXPIRE_MINUTES=60
+
+
+Never commit .env.
+
+5. Run Backend
 uvicorn app.main:app --reload
 
-Access: http://127.0.0.1:8000 Swagger Docs: http://127.0.0.1:8000/docs
 
-------------------------------------------------------------------------
+Visit:
 
-# Database Schema (Planned)
+http://127.0.0.1:8000
 
-## users
 
--   id (uuid)
--   username
--   email
--   phone
--   password_hash
--   role (superadmin, admin, member)
--   is_active
--   created_at
+Swagger Docs:
 
-## members
+http://127.0.0.1:8000/docs
 
--   id
--   user_id
--   member_code
--   address
--   monthly_amount
--   joined_at
--   status
 
-## invites
+Database test endpoint (if enabled):
 
--   id
--   email_or_phone
--   invite_code
--   is_used
--   expires_at
--   created_by
--   created_at
+http://127.0.0.1:8000/test-db
 
-## campaigns
+6. Git Collaboration Rules
+Branch Strategy
 
--   id
--   title
--   description
--   target_amount
--   start_date
--   end_date
--   is_active
+Never push directly to main.
 
-## challans
+Create feature branches:
 
--   id
--   member_id
--   type (monthly / campaign)
--   campaign_id (nullable)
--   amount
--   status (generated, pending, approved, rejected)
--   payment_method
--   proof_path
--   month
--   created_at
--   approved_by
--   approved_at
+feature/auth-system
+feature/member-model
+feature/invite-system
+feature/challan-system
+feature/campaigns
+feature/notifications
 
-## notifications
 
--   id
--   title
--   message
--   target_role
--   created_by
--   created_at
+Workflow:
 
-------------------------------------------------------------------------
+git checkout -b feature/xyz
+git commit -m "Add xyz"
+git push origin feature/xyz
 
-# Development Roadmap
 
-## Phase 1 -- Core Infrastructure
+Then open Pull Request.
 
--   Database connection
--   User model
--   Password hashing
--   JWT authentication
--   Role-based access control
+7. Backend Development Roadmap
+Phase 1 – Core Infrastructure
 
-## Phase 2 -- Invite System
+ FastAPI setup
 
--   Admin creates invite
--   User registers with invite code
--   Member ID assignment
+ PostgreSQL connection
 
-## Phase 3 -- Member Management
+ Base model configuration
 
--   CRUD operations
--   Monthly membership setup
+ Alembic migrations setup
 
-## Phase 4 -- Campaigns & Donations
+Phase 2 – Authentication System
+Features:
 
--   Campaign CRUD
--   Challan generation
--   Payment proof upload
--   Admin approval workflow
+Password hashing (bcrypt)
 
-## Phase 5 -- Notifications
+JWT token generation
 
--   Admin post system
--   Role-based visibility
+Login endpoint
 
-## Phase 6 -- Reports
+Logout endpoint
 
--   Member statements
--   Monthly collections
--   Export endpoints
+Get current user endpoint
 
-------------------------------------------------------------------------
+Role-based access control
 
-# Git Workflow (For Collaboration)
+Endpoints:
 
-Branch Strategy:
+POST /auth/login
+POST /auth/logout
+GET  /auth/me
 
-main → Production-ready code\
-dev → Integration branch\
-feature/\* → New features\
-hotfix/\* → Emergency fixes
 
-Never push directly to main. Use Pull Requests.
+Roles:
 
-------------------------------------------------------------------------
+superadmin
 
-# Hosting Plan
+admin
 
-Recommended VPS: - 2 vCPU - 2--4 GB RAM - 40--80 GB SSD - Ubuntu 22.04
+member
 
-Estimated cost: \$8--15/month
+Phase 3 – Invite System
 
-Use: - Nginx - Gunicorn or Uvicorn workers - Let's Encrypt SSL - Daily
-PostgreSQL backups
+Admins create invite codes.
 
-------------------------------------------------------------------------
+Flow:
 
-# Security Best Practices
+Admin generates invite
 
--   Never commit .env
--   Use strong SECRET_KEY
--   Hash passwords with bcrypt
--   Enforce HTTPS in production
--   Limit file upload size (max 5MB)
--   Implement audit logs
+Invite contains:
 
-------------------------------------------------------------------------
+email or phone
 
-# Future Enhancements
+invite code
 
--   SMS/WhatsApp notifications
--   Payment gateway integration
--   Multi-language support
--   Multi-organization support
--   Cloud storage (S3)
--   CI/CD pipeline
--   Automated backups
+expiry date
 
-------------------------------------------------------------------------
+User registers using invite code
 
-# Contributors
+Invite marked as used
 
-Project Owner: Abdul Latheef\
-Backend Developer: Mr. Simsar
+Endpoints:
 
-------------------------------------------------------------------------
+POST /invites
+POST /invites/validate
+POST /auth/register
 
-Charity Connect -- Building Transparent & Accountable Charity Systems
+Phase 4 – Member System
+
+Each member has:
+
+member_code (auto-suggested sequential)
+
+monthly_amount
+
+join date
+
+status
+
+Endpoints:
+
+GET    /members
+POST   /members
+PUT    /members/{id}
+DELETE /members/{id}
+
+Phase 5 – Campaign System
+
+For urgent donations.
+
+Fields:
+
+title
+
+description
+
+target amount
+
+start date
+
+end date
+
+active status
+
+Endpoints:
+
+GET    /campaigns
+POST   /campaigns
+PUT    /campaigns/{id}
+DELETE /campaigns/{id}
+
+Phase 6 – Challan System
+
+Supports:
+
+Monthly dues
+
+Campaign donations
+
+Status flow:
+
+generated → pending → approved/rejected
+
+
+Fields:
+
+member_id
+
+type
+
+campaign_id (optional)
+
+month (for monthly payments)
+
+amount
+
+payment_method
+
+proof_path
+
+status
+
+approved_by
+
+Endpoints:
+
+POST   /challans/generate
+POST   /challans/{id}/upload-proof
+PUT    /challans/{id}/approve
+PUT    /challans/{id}/reject
+GET    /challans
+
+Phase 7 – Notifications
+
+Admin-created posts.
+
+Fields:
+
+title
+
+message
+
+target_role (optional)
+
+Endpoints:
+
+GET  /notifications
+POST /notifications
+
+Phase 8 – Reports
+
+Monthly collection summary
+
+Member payment statement
+
+Campaign performance
+
+Export-ready endpoints
+
+8. File Upload Strategy
+
+Proof uploads:
+
+/uploads/proofs/
+
+
+Rules:
+
+Max size: 5MB
+
+Allowed: jpg, png, pdf
+
+Store relative path in DB
+
+Validate MIME type
+
+Later upgrade:
+
+Move to S3-compatible storage
+
+9. Security Rules
+
+Always hash passwords
+
+Never expose SECRET_KEY
+
+Use HTTPS in production
+
+Validate all input via Pydantic
+
+Restrict admin endpoints via role check
+
+Implement audit logs for:
+
+Approvals
+
+Member edits
+
+Invite creation
+
+10. Deployment Plan (Budget-Friendly)
+
+Recommended:
+
+Single VPS:
+
+2 vCPU
+
+2–4 GB RAM
+
+40+ GB SSD
+
+Install:
+
+Ubuntu
+
+PostgreSQL
+
+Nginx
+
+Uvicorn (systemd service)
+
+Let's Encrypt SSL
+
+Estimated cost:
+
+$10–15 per month
+
+11. Immediate Next Tasks
+
+Next development priority:
+
+Create User model
+
+Implement password hashing utility
+
+Implement JWT token creation
+
+Implement /auth/login
+
+Protect routes with dependency injection
+
+After auth works, move to Invite system.
+
+12. Development Principles
+
+Keep code modular
+
+Keep routes thin
+
+Put logic in services
+
+Use migrations (Alembic)
+
+Do not over-engineer
+
+Test endpoints in Swagger first
+
+Commit small changes frequently
+
+13. Long-Term Enhancements
+
+Email reminders
+
+WhatsApp notifications
+
+Payment gateway integration
+
+Multi-organization support
+
+Multi-language UI
+
+Automated backups
+
+Role expansion
+
+End Goal
+
+Deliver a stable, scalable, secure backend powering Charity Connect:
+
+Replace Excel workflows
+
+Reduce admin workload
+
+Maintain accurate donation records
+
+Support long-term growth
