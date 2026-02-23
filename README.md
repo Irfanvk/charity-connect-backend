@@ -132,206 +132,133 @@ uvicorn app.main:app --reload
 ## 🛣️ Roadmap
 
 ### Phase 1 – Infrastructure
+- FastAPI setup
+- PostgreSQL connection
+- Alembic migrations
 
-- FastAPI project scaffolding
-- PostgreSQL connectivity
-- Alembic migrations (TODO)
+### Phase 2 – Authentication
+- Password hashing (bcrypt)
+- JWT token generation
+- Login endpoint
+- Logout endpoint
+- Current user endpoint
+- Role-based access control
+  - **Endpoints:**
+    - `POST /auth/login`
+    - `POST /auth/logout`
+    - `GET /auth/me`
+  - **Roles:**
+    - superadmin
+    - admin
+    - member
 
-### Phase 2 – Authentication & Authorization
-
-- bcrypt password hashing
-- JWT token handling
-- Login / logout / current-user endpoints
-- Role-based access: `superadmin`, `admin`, `member`
-
-### Phase 3 – Invite-Only Registration
-
-- Admin generates invite codes
-- Codes attach to email/phone & expiry
-- Registration endpoint validates invite and marks as used
+### Phase 3 – Invite System
+- Admin creates invite code
+- Invite has email/phone + expiry
+- User registers using invite
+- Invite marked used
+  - **Endpoints:**
+    - `POST /invites`
+    - `POST /invites/validate`
+    - `POST /auth/register`
 
 Endpoints:
-```
-POST /invites             # create invite
-POST /invites/validate    # check invite
-POST /auth/register       # register with invite
-```
+
+POST /invites
+
+POST /invites/validate
+
+POST /auth/register
 
 ### Phase 4 – Member System
+- member_code (sequential suggestion)
+- monthly_amount
+- join date
+- status
+  - **Endpoints:**
+    - `GET /members`
+    - `POST /members`
+    - `PUT /members/{id}`
+    - `DELETE /members/{id}`
 
-- Sequential member codes
-- Profile management
-- (more to come...)
+### Phase 5 – Campaign System
+- title
+- description
+- target_amount
+- start_date
+- end_date
+- active status
+  - **Endpoints:**
+    - `GET /campaigns`
+    - `POST /campaigns`
+    - `PUT /campaigns/{id}`
+    - `DELETE /campaigns/{id}`
+
+### Phase 6 – Challan System
+- **Status Flow:** generated → pending → approved / rejected
+- **Fields:**
+  - member_id
+  - type (monthly / campaign)
+  - campaign_id (optional)
+  - month (for monthly)
+  - amount
+  - payment_method
+  - proof_path
+  - status
+  - approved_by
+  - **Endpoints:**
+    - `POST /challans/generate`
+    - `POST /challans/{id}/upload-proof`
+    - `PUT /challans/{id}/approve`
+    - `PUT /challans/{id}/reject`
+    - `GET /challans`
+
+### Phase 7 – Notifications
+- title
+- message
+- target_role (optional)
+  - **Endpoints:**
+    - `GET /notifications`
+    - `POST /notifications`
 
 ---
 
-## 💡 Tips & Notes
+### 📂 File Upload Strategy
+- Store proofs in `/uploads/proofs/`
+- **Rules:**
+  - Max 5MB
+  - jpg, png, pdf only
+  - Save relative path in database
+  - Validate MIME type
 
-- Use a tool like `pgAdmin` or `psql` to inspect data.
-- Add tests under `tests/` as features stabilize.
-- Consider Dockerizing for deployment.
+### 🔐 Security
+- Hash all passwords
+- Protect admin routes
+- Validate all inputs
+- Use HTTPS in production
+- Log important actions (audit logs)
+
+### 🚢 Deployment Plan (Budget-Friendly)
+**Recommended: single VPS**
+
+- **Minimum specs:**
+  - 2 vCPU
+  - 2–4 GB RAM
+  - 40+ GB SSD
+- **Stack:**
+  - Ubuntu
+  - PostgreSQL
+  - Nginx
+  - Uvicorn
+  - Let’s Encrypt SSL
+- **Estimated cost:** $10–15 per month
 
 ---
 
-Thanks for contributing! 🎉
-
-Let’s make charity simple and transparent.
-
-
-monthly_amount
-
-join date
-
-status
-
-Endpoints:
-
-GET /members
-
-POST /members
-
-PUT /members/{id}
-
-DELETE /members/{id}
-
-Phase 5 – Campaign System
-
-title
-
-description
-
-target_amount
-
-start_date
-
-end_date
-
-active status
-
-Endpoints:
-
-GET /campaigns
-
-POST /campaigns
-
-PUT /campaigns/{id}
-
-DELETE /campaigns/{id}
-
-Phase 6 – Challan System
-
-Status Flow:
-generated → pending → approved / rejected
-
-Fields:
-
-member_id
-
-type (monthly / campaign)
-
-campaign_id (optional)
-
-month (for monthly)
-
-amount
-
-payment_method
-
-proof_path
-
-status
-
-approved_by
-
-Endpoints:
-
-POST /challans/generate
-
-POST /challans/{id}/upload-proof
-
-PUT /challans/{id}/approve
-
-PUT /challans/{id}/reject
-
-GET /challans
-
-Phase 7 – Notifications
-
-title
-
-message
-
-target_role (optional)
-
-Endpoints:
-
-GET /notifications
-
-POST /notifications
-
-8. File Upload Strategy
-
-Store proofs in:
-
-/uploads/proofs/
-
-
-Rules:
-
-Max 5MB
-
-jpg, png, pdf only
-
-Save relative path in database
-
-Validate MIME type
-
-9. Security
-
-Hash all passwords
-
-Protect admin routes
-
-Validate all inputs
-
-Use HTTPS in production
-
-Log important actions (audit logs)
-
-10. Deployment Plan (Budget-Friendly)
-
-Recommended:
-Single VPS
-
-Minimum:
-
-2 vCPU
-
-2–4 GB RAM
-
-40+ GB SSD
-
-Install:
-
-Ubuntu
-
-PostgreSQL
-
-Nginx
-
-Uvicorn
-
-Let's Encrypt SSL
-
-
-Goal
-
+### 🎯 Goal
 Build a stable, scalable backend powering Charity Connect that:
-
-Replaces Excel workflows
-
-Reduces admin workload
-
-Maintains clean financial records
+- Replaces Excel workflows
+- Reduces admin workload
+- Maintains clean financial records
 
 Supports long-term growth
