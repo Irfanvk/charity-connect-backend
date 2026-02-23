@@ -226,7 +226,7 @@ POST /auth/register
 ### 📂 File Upload Strategy
 - Store proofs in `/uploads/proofs/`
 - **Rules:**
-  - Max 5MB
+  - Max 3MB
   - jpg, png, pdf only
   - Save relative path in database
   - Validate MIME type
