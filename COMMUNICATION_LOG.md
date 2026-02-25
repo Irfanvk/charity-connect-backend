@@ -84,16 +84,16 @@
 
 ## Backend Readiness Checklist
 
-- [ ] Backend server running on http://localhost:8000
-- [ ] Swagger UI accessible at http://localhost:8000/docs
-- [ ] Database reachable and tables created
-- [ ] Admin test user available
-- [ ] Member test user available
-- [ ] Valid invite code available
-- [ ] /auth/login accepts email or username
-- [ ] /auth/register creates user + member with invite
-- [ ] /files/upload accepts JPG/PNG/PDF under 3MB
-- [ ] CORS allows http://localhost:5173
+- [x] Backend server running on http://localhost:8000
+- [x] Swagger UI accessible at http://localhost:8000/docs
+- [ ] Database reachable and test data seeded (admin, member, invite code)
+- [ ] Admin test user created (admin@charityconnect.com / Admin@123)
+- [ ] Member test user created (member@charityconnect.com / Member@123)
+- [ ] Valid invite code created (INVITE2026TEST)
+- [x] /auth/login accepts email or username
+- [x] /auth/register creates user + member with invite
+- [x] /files/upload accepts JPG/PNG/PDF under 3MB
+- [x] CORS allows http://localhost:5173
 - [ ] Logs monitored during integration tests
 
 ---
@@ -112,15 +112,17 @@
 Admin User:
   Email: admin@charityconnect.com
   Username: admin
-  Password: [TO BE SEEDED - Backend will provide]
+  Password: Admin@123
 
 Member User:
   Email: member@charityconnect.com
   Username: testmember
-  Password: [TO BE SEEDED - Backend will provide]
+  Password: Member@123
 
-Valid Invite Code: [TO BE SEEDED - Backend will provide]
+Valid Invite Code: INVITE2026TEST
 ```
+
+**NOTE:** Backend team should ensure these test users exist in the database before frontend testing begins.
 
 **Endpoint Contracts:**
 
@@ -154,13 +156,13 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 - Include header in all protected endpoint requests
 
 **Next Steps:**
-1. Backend team will seed test users and invite code (ETA: within 1 hour)
-2. Backend will share actual credentials via this log
-3. Frontend can begin testing sequence from INTEGRATION_TESTING_GUIDE.md:
-   - T1: Login with Email
-   - T2: User Registration
-   - T3: File Upload with Proof
-4. Schedule 2-hour joint testing session for real-time issue resolution
+1. ✅ Backend credentials shared above
+2. ⏳ Backend team to seed database with test users (see credentials above)
+3. ⏳ Frontend can begin testing sequence from INTEGRATION_TESTING_GUIDE.md once database is seeded:
+   - T1: Login with Email (test with admin@charityconnect.com / Admin@123)
+   - T2: User Registration (use invite code: INVITE2026TEST)
+   - T3: File Upload with Proof (upload JPG/PNG/PDF < 3MB)
+4. ⏳ Schedule 2-hour joint testing session for real-time issue resolution
 
 **Questions or Blockers?**
 - Add them to "Open Questions" section below
@@ -169,6 +171,32 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ## Open Questions
 - None for Phase 1.
+
+---
+
+## Backend Setup Notes (2026-02-24)
+
+**Database Setup Required:**
+1. Ensure PostgreSQL is running on localhost:5432 (or update .env for SQLite)
+2. Run migrations to create tables (if using Alembic) or let SQLAlchemy auto-create
+3. Use `seed_test_data.py` script to create test users and invite codes
+4. Verify test users exist before sharing with frontend
+
+**Current Status:**
+- ✅ Seed script created at `seed_test_data.py`
+- ⏳ Database connection needs to be established
+- ⏳ Test data needs to be seeded using the script
+
+**Quick Start for Database Seeding:**
+```bash
+# Option 1: Use PostgreSQL (production-like)
+# Ensure PostgreSQL is running, then:
+python seed_test_data.py
+
+# Option 2: Use SQLite (easier for testing) 
+# Update .env: DATABASE_URL=sqlite:///./charity_connect_test.db
+python seed_test_data.py
+```
 
 ---
 
