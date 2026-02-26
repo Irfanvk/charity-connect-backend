@@ -3,7 +3,7 @@
 **Project:** CharityConnect  
 **Purpose:** Decisions, meeting minutes, and action items  
 **Owner:** Integration Lead  
-**Last Updated:** 2026-02-24
+**Last Updated:** 2026-02-26
 
 ---
 
@@ -11,6 +11,10 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-02-26 | Frontend auth redirect handled by context state (not global 401 hard redirect) | Frontend | ✅ | Prevents login loop and session bounce |
+| 2026-02-26 | Login success flow updates context session immediately | Frontend | ✅ | Removes race between login and auth guard |
+| 2026-02-26 | Logout action must be visible in app shell for authenticated users | Frontend | ✅ | Added header-level logout button |
+| 2026-02-26 | Public app settings call is optional when app_id missing | Frontend | ✅ | Skip endpoint to avoid 404 noise |
 | 2026-02-24 | Use resource-specific API routes (no generic /entities) | Backend | ✅ | Avoid abstraction mismatch |
 | 2026-02-24 | Login accepts email and username | Backend | ✅ | Aligns with frontend Login.jsx |
 | 2026-02-24 | Add /files/upload endpoint | Backend | ✅ | Matches frontend proof upload flow |
@@ -84,16 +88,16 @@
 
 ## Backend Readiness Checklist
 
-- [x] Backend server running on http://localhost:8000
-- [x] Swagger UI accessible at http://localhost:8000/docs
-- [ ] Database reachable and test data seeded (admin, member, invite code)
-- [ ] Admin test user created (admin@charityconnect.com / Admin@123)
-- [ ] Member test user created (member@charityconnect.com / Member@123)
-- [ ] Valid invite code created (INVITE2026TEST)
-- [x] /auth/login accepts email or username
-- [x] /auth/register creates user + member with invite
-- [x] /files/upload accepts JPG/PNG/PDF under 3MB
-- [x] CORS allows http://localhost:5173
+- [ ] Backend server running on http://localhost:8000
+- [ ] Swagger UI accessible at http://localhost:8000/docs
+- [ ] Database reachable and tables created
+- [ ] Admin test user available
+- [ ] Member test user available
+- [ ] Valid invite code available
+- [ ] /auth/login accepts email or username
+- [ ] /auth/register creates user + member with invite
+- [ ] /files/upload accepts JPG/PNG/PDF under 3MB
+- [ ] CORS allows http://localhost:5173
 - [ ] Logs monitored during integration tests
 
 ---
@@ -112,17 +116,15 @@
 Admin User:
   Email: admin@charityconnect.com
   Username: admin
-  Password: Admin@123
+  Password: [TO BE SEEDED - Backend will provide]
 
 Member User:
   Email: member@charityconnect.com
   Username: testmember
-  Password: Member@123
+  Password: [TO BE SEEDED - Backend will provide]
 
-Valid Invite Code: INVITE2026TEST
+Valid Invite Code: [TO BE SEEDED - Backend will provide]
 ```
-
-**NOTE:** Backend team should ensure these test users exist in the database before frontend testing begins.
 
 **Endpoint Contracts:**
 
@@ -156,13 +158,13 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 - Include header in all protected endpoint requests
 
 **Next Steps:**
-1. ✅ Backend credentials shared above
-2. ⏳ Backend team to seed database with test users (see credentials above)
-3. ⏳ Frontend can begin testing sequence from INTEGRATION_TESTING_GUIDE.md once database is seeded:
-   - T1: Login with Email (test with admin@charityconnect.com / Admin@123)
-   - T2: User Registration (use invite code: INVITE2026TEST)
-   - T3: File Upload with Proof (upload JPG/PNG/PDF < 3MB)
-4. ⏳ Schedule 2-hour joint testing session for real-time issue resolution
+1. Backend team will seed test users and invite code (ETA: within 1 hour)
+2. Backend will share actual credentials via this log
+3. Frontend can begin testing sequence from INTEGRATION_TESTING_GUIDE.md:
+   - T1: Login with Email
+   - T2: User Registration
+   - T3: File Upload with Proof
+4. Schedule 2-hour joint testing session for real-time issue resolution
 
 **Questions or Blockers?**
 - Add them to "Open Questions" section below
@@ -170,33 +172,75 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ---
 
 ## Open Questions
-- None for Phase 1.
+- Backend: confirm canonical login token key (`access_token` preferred) and keep backward compatibility for existing key variants during transition.
+- Backend: confirm `/auth/me` returns a full user object for valid token in all environments.
+- Backend: confirm `/health` endpoint availability and expected lightweight response.
 
 ---
 
-## Backend Setup Notes (2026-02-24)
+## 2026-02-26 - Frontend to Backend Communication (Auth Stabilization)
 
-**Database Setup Required:**
-1. Ensure PostgreSQL is running on localhost:5432 (or update .env for SQLite)
-2. Run migrations to create tables (if using Alembic) or let SQLAlchemy auto-create
-3. Use `seed_test_data.py` script to create test users and invite codes
-4. Verify test users exist before sharing with frontend
+**Summary:** Frontend patch 1.1 resolved login-loop/logout-visibility issues and now requests contract confirmations below.
 
-**Current Status:**
-- ✅ Seed script created at `seed_test_data.py`
-- ⏳ Database connection needs to be established
-- ⏳ Test data needs to be seeded using the script
+### Items to Communicate to Backend
 
-**Quick Start for Database Seeding:**
-```bash
-# Option 1: Use PostgreSQL (production-like)
-# Ensure PostgreSQL is running, then:
-python seed_test_data.py
+1. **Token response contract alignment**
+   - Frontend now accepts `access_token`, `accessToken`, `token`, and nested `data.*` variants.
+   - Request backend to standardize on `access_token` as canonical response key.
 
-# Option 2: Use SQLite (easier for testing) 
-# Update .env: DATABASE_URL=sqlite:///./charity_connect_test.db
-python seed_test_data.py
-```
+2. **/auth/me reliability requirement**
+   - If token is valid: return full user payload.
+   - If invalid/expired: return `401` only.
+   - Avoid returning `200` with null body for authenticated checks.
+
+3. **Public settings by app id behavior**
+   - Frontend now skips `GET /api/apps/public/prod/public-settings/by-id/{appId}` when app id is not configured.
+   - Request backend to document expected response for missing/invalid app id.
+
+4. **Health endpoint contract**
+   - Frontend startup checks `GET /health`.
+   - Request backend to keep this endpoint stable and unauthenticated for reachability checks.
+
+### Frontend Validation Completed
+
+- `npm run lint` → ✅ Pass
+- `npm run build` → ✅ Pass
+
+---
+
+## 2026-02-26 - Backend Contract Follow-up (Post-Review)
+
+**Status:** Backend updated for auth contract alignment.
+
+### Backend Changes Applied
+
+1. **`POST /auth/register` response aligned**
+   - Now returns token payload shape:
+     - `access_token`
+     - `token_type`
+     - `user`
+   - Status code set to `201`.
+
+2. **Register request backward compatibility improved**
+   - `full_name` is now accepted as an optional field in register payload (ignored by backend for now).
+
+3. **Conflict responses standardized for registration**
+   - Duplicate username → `409`.
+   - Duplicate email → `409`.
+
+4. **`GET /auth/me` invalid-auth behavior tightened**
+   - Missing/invalid/stale token now returns `401` (no null/200 fallback).
+
+### What Frontend Should Do
+
+1. Prefer `access_token` as canonical key (existing fallback handling can remain temporarily).
+2. For registration flow, consume returned token directly after successful `201`.
+3. Handle `409` in registration UI for duplicate username/email.
+
+### Notes
+
+- `/health` remains stable and unauthenticated.
+- `/files/upload` contract remains aligned (`file_url`, `filename`; JPG/PNG/PDF up to 3MB).
 
 ---
 

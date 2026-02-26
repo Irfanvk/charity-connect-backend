@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas import UserLogin, UserRegisterWithInvite, UserResponse, TokenResponse
@@ -18,7 +18,7 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
     
     access_token_expires = timedelta(minutes=60)
     access_token = create_access_token(
-        data={"sub": user.id, "role": user.role},
+        data={"sub": str(user.id), "role": user.role},
         expires_delta=access_token_expires,
     )
     
@@ -29,13 +29,24 @@ def login(credentials: UserLogin, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/register", response_model=UserResponse)
+@router.post("/register", response_model=TokenResponse, status_code=201)
 def register(registration: UserRegisterWithInvite, db: Session = Depends(get_db)):
     """
     Register new user with valid invite code.
     """
     user = AuthService.register_with_invite(db, registration)
-    return user
+
+    access_token_expires = timedelta(minutes=60)
+    access_token = create_access_token(
+        data={"sub": str(user.id), "role": user.role},
+        expires_delta=access_token_expires,
+    )
+
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user": user,
+    }
 
 
 @router.get("/me", response_model=UserResponse)

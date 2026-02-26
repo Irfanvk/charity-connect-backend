@@ -10,7 +10,7 @@ from fastapi.security import HTTPBearer
 
 # Configuration
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-http_bearer = HTTPBearer()
+http_bearer = HTTPBearer(auto_error=False)
 
 # Get from config
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
@@ -80,11 +80,26 @@ def verify_token(token: str) -> dict:
 
 async def get_current_user(credentials = Depends(http_bearer)):
     """Get current user from token."""
+    if credentials is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     token = credentials.credentials
     payload = verify_token(token)
     user_id = payload.get("sub")
     
     if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token",
+        )
+
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",

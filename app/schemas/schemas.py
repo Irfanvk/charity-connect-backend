@@ -33,6 +33,7 @@ class UserRegisterWithInvite(BaseModel):
     invite_code: str
     username: str
     password: str
+    full_name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None

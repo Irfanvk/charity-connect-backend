@@ -82,9 +82,18 @@ class AuthService:
         existing_user = db.query(User).filter(User.username == registration.username).first()
         if existing_user:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_409_CONFLICT,
                 detail="Username already taken",
             )
+
+        # Check email doesn't exist (if provided)
+        if registration.email:
+            existing_email_user = db.query(User).filter(User.email == registration.email).first()
+            if existing_email_user:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Email already taken",
+                )
         
         # Create user
         new_user = User(
@@ -138,4 +147,12 @@ class AuthService:
     @staticmethod
     def get_current_user(db: Session, user_id: int):
         """Get current authenticated user details."""
-        return AuthService.get_user(db, user_id)
+        user = db.query(User).filter(User.id == user_id).first()
+
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+            )
+
+        return user
