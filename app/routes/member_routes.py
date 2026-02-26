@@ -35,19 +35,6 @@ def get_my_profile(
     return member
 
 
-@router.get("/{member_id}", response_model=MemberResponse)
-def get_member(
-    member_id: int,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    """
-    Get member details by ID.
-    """
-    member = MemberService.get_member(db, member_id)
-    return member
-
-
 @router.get("/code/{member_code}", response_model=MemberResponse)
 def get_member_by_code(
     member_code: str,
@@ -58,6 +45,24 @@ def get_member_by_code(
     Get member details by member code (Admin only).
     """
     member = MemberService.get_member_by_code(db, member_code)
+    return member
+
+
+@router.get("/{member_id}", response_model=MemberResponse)
+def get_member(
+    member_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    member = MemberService.get_member(db, member_id)
+
+    # Allow only admin OR owner
+    if not current_user.get("is_admin") and member.user_id != current_user["user_id"]:
+        raise HTTPException(
+            status_code=403,
+            detail="You are not allowed to access this profile"
+        )
+
     return member
 
 
