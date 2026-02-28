@@ -11,6 +11,10 @@ from typing import List, Optional
 router = APIRouter(prefix="/challans", tags=["Challans"])
 
 
+def _is_admin(current_user: dict) -> bool:
+    return current_user.get("role") in ["admin", "superadmin"]
+
+
 # ------------------------------------------------------------------
 # CREATE CHALLAN (MEMBER)
 # ------------------------------------------------------------------
@@ -97,7 +101,10 @@ def get_member_challans(
     """
     member = MemberService.get_member_for_user(db, current_user["user_id"])
 
-    if not current_user.get("is_admin") and member.id != member_id:
+    if member is None:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    if not _is_admin(current_user) and member.id != member_id:
         raise HTTPException(status_code=403, detail="Access denied")
 
     return ChallanService.get_member_challans(db, member_id, skip, limit)
@@ -117,8 +124,10 @@ def get_challan(
     """
     challan = ChallanService.get_challan(db, challan_id)
 
-    if not current_user.get("is_admin"):
+    if not _is_admin(current_user):
         member = MemberService.get_member_for_user(db, current_user["user_id"])
+        if member is None:
+            raise HTTPException(status_code=404, detail="Member not found")
         if challan.member_id != member.id:
             raise HTTPException(status_code=403, detail="Access denied")
 

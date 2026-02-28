@@ -3,7 +3,7 @@
 **Project:** CharityConnect  
 **Purpose:** Decisions, meeting minutes, and action items  
 **Owner:** Integration Lead  
-**Last Updated:** 2026-02-26
+**Last Updated:** 2026-03-01
 
 ---
 
@@ -241,6 +241,47 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 - `/health` remains stable and unauthenticated.
 - `/files/upload` contract remains aligned (`file_url`, `filename`; JPG/PNG/PDF up to 3MB).
+
+---
+
+## 2026-03-01 - Backend to Frontend Communication (Unauthorized Triage)
+
+**Summary:** Frontend reported `Unauthorized`. Backend reviewed and aligned auth/authorization behavior to match frontend expectations and role-based route access.
+
+### Backend Findings
+
+1. **Service reachability affects auth checks**
+   - If backend is down/unreachable on `http://localhost:8000`, frontend may surface auth-like failures.
+   - `GET /health` remains the first startup verification endpoint.
+
+2. **Role check mismatch fixed in backend routes**
+   - Some route logic was checking `current_user.is_admin` (non-existent in JWT payload).
+   - Updated to role-based checks using JWT `role` (`admin`/`superadmin`).
+
+3. **Current token payload contract (canonical)**
+   - `access_token` contains JWT with `sub` and `role` claims.
+   - Frontend should continue using `Authorization: Bearer <token>` for protected endpoints.
+
+### Frontend Contract Alignment (Actionable)
+
+1. **Use role-appropriate endpoints**
+   - Member self profile: `GET /members/me`.
+   - Member attempting `GET /members/` should expect authorization denial (admin-only route).
+
+2. **Auth error handling expectation**
+   - Invalid/missing/expired token: backend returns `401` with `{ "detail": "Invalid token" }`.
+   - Permission mismatch (valid token, wrong role): backend returns `403`.
+
+3. **Startup check sequence**
+   - Step 1: Confirm `GET /health` is reachable.
+   - Step 2: Perform `POST /auth/login` and store `access_token`.
+   - Step 3: Confirm session via `GET /auth/me`.
+
+### Status for Frontend Team
+
+- Backend auth contract remains: canonical token key is `access_token`.
+- Register flow remains: `POST /auth/register` returns `201` with token payload.
+- Unauthorized triage fix is applied on backend side for member/challan role checks.
 
 ---
 

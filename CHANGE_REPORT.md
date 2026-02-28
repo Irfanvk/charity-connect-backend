@@ -51,3 +51,16 @@
 - [Inform] Treat `access_token` as canonical key in auth responses.
 - [Inform] Handle registration conflict responses using HTTP `409` for duplicate username/email.
 - [Inform] Frontend can use token returned from register success directly (no forced separate login step required).
+
+---
+
+## 2026-03-01
+
+### Backend
+- [Fixed] Authorization checks in member/challan routes now rely on JWT `role` (`admin`/`superadmin`) instead of non-existent `is_admin` field.
+- [Fixed] Added missing `HTTPException` import in member routes to prevent runtime errors in access-control branches.
+- [Changed] Added null-member guards in challan ownership checks for safer protected endpoint behavior.
+
+### Impact
+- Prevents incorrect access failures on protected routes after valid login.
+- Clarifies role-based behavior: admin-only endpoints still return authorization errors for member tokens by design.

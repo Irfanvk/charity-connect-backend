@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas import MemberResponse, MemberUpdate
@@ -7,6 +7,10 @@ from app.utils import get_current_user, get_current_admin
 from typing import List
 
 router = APIRouter(prefix="/members", tags=["Members"])
+
+
+def _is_admin(current_user: dict) -> bool:
+    return current_user.get("role") in ["admin", "superadmin"]
 
 
 @router.get("/", response_model=List[MemberResponse])
@@ -57,7 +61,7 @@ def get_member(
     member = MemberService.get_member(db, member_id)
 
     # Allow only admin OR owner
-    if not current_user.get("is_admin") and member.user_id != current_user["user_id"]:
+    if not _is_admin(current_user) and member.user_id != current_user["user_id"]:
         raise HTTPException(
             status_code=403,
             detail="You are not allowed to access this profile"
