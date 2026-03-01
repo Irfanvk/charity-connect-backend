@@ -76,7 +76,7 @@ class ChallanService:
                 detail="Challan not found",
             )
         
-        if challan.status not in [ChallanStatus.GENERATED, ChallanStatus.PENDING]:
+        if challan.status not in [ChallanStatus.GENERATED, ChallanStatus.PENDING, ChallanStatus.REJECTED]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Cannot upload proof for this challan status",
@@ -92,6 +92,9 @@ class ChallanService:
         challan.proof_path = proof_path
         challan.proof_uploaded_at = datetime.utcnow()
         challan.status = ChallanStatus.PENDING
+        challan.rejection_reason = None
+        challan.approved_by_admin_id = None
+        challan.approved_at = None
         
         db.commit()
         db.refresh(challan)

@@ -148,6 +148,7 @@ class CampaignResponse(BaseModel):
 
 # Challan Schemas
 class ChallanCreate(BaseModel):
+    member_id: Optional[int] = None
     type: ChallanType
     month: Optional[str] = None  # YYYY-MM format
     campaign_id: Optional[int] = None

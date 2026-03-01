@@ -64,3 +64,15 @@
 ### Impact
 - Prevents incorrect access failures on protected routes after valid login.
 - Clarifies role-based behavior: admin-only endpoints still return authorization errors for member tokens by design.
+
+### Frontend Coordination
+- [Inform] `401` indicates missing/invalid/expired token; `403` indicates valid token but insufficient role/permission.
+- [Inform] Member clients should use self routes (e.g., `GET /members/me`) and should not expect `GET /members/` access.
+- [Inform] Frontend should run startup health check (`GET /health`) before authenticated request flow.
+
+### Validation Notes
+- [Observed] Frontend-reported `Unauthorized` can also occur when backend service is unreachable.
+- [Action] Triage guidance and endpoint-role expectations were added to `COMMUNICATION_LOG.md` for frontend handoff.
+
+### Docs
+- [Changed] `COMMUNICATION_LOG.md` updated with `2026-03-01 - Backend to Frontend Communication (Unauthorized Triage)` section.

@@ -25,12 +25,26 @@ def create_challan(
     db: Session = Depends(get_db),
 ):
     """
-    Create a new challan (member creates for themselves).
+    Create a new challan.
+    - Member: can create only for self
+    - Admin/Superadmin: can create for any member via member_id
     """
-    member = MemberService.get_member_for_user(db, current_user["user_id"])
+    if _is_admin(current_user):
+        if challan_data.member_id is None:
+            raise HTTPException(status_code=400, detail="member_id is required for admin challan creation")
+
+        member = MemberService.get_member(db, challan_data.member_id)
+    else:
+        member = MemberService.get_member_for_user(db, current_user["user_id"])
+
+        if challan_data.member_id is not None and challan_data.member_id != member.id:
+            raise HTTPException(status_code=403, detail="Not authorized to create challan for another member")
 
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
+
+    if member.status != "active":
+        raise HTTPException(status_code=400, detail="Cannot create challan for inactive member")
 
     return ChallanService.create_challan(db, member.id, challan_data)
 
@@ -46,13 +60,16 @@ def upload_proof(
     db: Session = Depends(get_db),
 ):
     """
-    Upload payment proof for a challan (owner only).
+    Upload payment proof for a challan.
+    - Member: owner only
+    - Admin/Superadmin: any member challan
     """
     challan = ChallanService.get_challan(db, challan_id)
-    member = MemberService.get_member_for_user(db, current_user["user_id"])
 
-    if challan.member_id != member.id:
-        raise HTTPException(status_code=403, detail="Not authorized to upload proof")
+    if not _is_admin(current_user):
+        member = MemberService.get_member_for_user(db, current_user["user_id"])
+        if challan.member_id != member.id:
+            raise HTTPException(status_code=403, detail="Not authorized to upload proof")
 
     # File validation
     allowed_types = ["image/jpeg", "image/png", "application/pdf"]
@@ -74,7 +91,7 @@ def get_all_challans(
     skip: int = 0,
     limit: int = 100,
     status_filter: Optional[ChallanStatus] = None,
-    current_user: dict = Depends(get_current_admin),
+    _current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
     """
@@ -99,13 +116,10 @@ def get_member_challans(
     """
     Get challans for a member (admin or self).
     """
-    member = MemberService.get_member_for_user(db, current_user["user_id"])
-
-    if member is None:
-        raise HTTPException(status_code=404, detail="Member not found")
-
-    if not _is_admin(current_user) and member.id != member_id:
-        raise HTTPException(status_code=403, detail="Access denied")
+    if not _is_admin(current_user):
+        member = MemberService.get_member_for_user(db, current_user["user_id"])
+        if member.id != member_id:
+            raise HTTPException(status_code=403, detail="Access denied")
 
     return ChallanService.get_member_challans(db, member_id, skip, limit)
 
@@ -141,7 +155,7 @@ def get_challan(
 def approve_challan(
     challan_id: int,
     approve_data: ChallanApprove,
-    current_user: dict = Depends(get_current_admin),
+    _current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
     challan = ChallanService.get_challan(db, challan_id)
@@ -162,7 +176,7 @@ def approve_challan(
 def reject_challan(
     challan_id: int,
     reject_data: ChallanReject,
-    current_user: dict = Depends(get_current_admin),
+    _current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
     challan = ChallanService.get_challan(db, challan_id)

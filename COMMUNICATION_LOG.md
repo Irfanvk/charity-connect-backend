@@ -11,6 +11,11 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-03-01 | Non-admin users get a dedicated member dashboard view | Frontend | ✅ | Member profile, challan insights, upcoming dues, campaign participation |
+| 2026-03-01 | Dashboard render path split by role (`superadmin` / `admin` / `member`) | Frontend | ✅ | Prevents mixed admin/member UI exposure |
+| 2026-03-01 | Challans UI derives "Proof Uploaded" from `pending + proof_uploaded_at` | Frontend | ✅ | Keeps UI readable while preserving backend status model |
+| 2026-03-01 | Non-admin challan visibility constrained to linked member record (fallback: creator email) | Frontend | ✅ | Access-scope hardening in Challans page |
+| 2026-03-01 | Rejected challans support proof re-upload for authorized users | Frontend | ✅ | Requires backend to keep transition-to-pending behavior |
 | 2026-02-26 | Frontend auth redirect handled by context state (not global 401 hard redirect) | Frontend | ✅ | Prevents login loop and session bounce |
 | 2026-02-26 | Login success flow updates context session immediately | Frontend | ✅ | Removes race between login and auth guard |
 | 2026-02-26 | Logout action must be visible in app shell for authenticated users | Frontend | ✅ | Added header-level logout button |
@@ -282,6 +287,118 @@ Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 - Backend auth contract remains: canonical token key is `access_token`.
 - Register flow remains: `POST /auth/register` returns `201` with token payload.
 - Unauthorized triage fix is applied on backend side for member/challan role checks.
+
+---
+
+## 2026-03-01 - Frontend to Backend Communication (Challans Integration)
+
+**Summary:** Frontend challan workflow was aligned with role-based visibility and direct resource APIs. No hard blocker, but contract confirmations are needed.
+
+### Items to Communicate to Backend
+
+1. **Proof-upload state contract**
+   - Frontend treats uploaded proof as:
+     - `status = pending`
+     - `proof_uploaded_at` populated
+   - Please confirm this remains the canonical behavior.
+
+2. **Rejected → Re-upload transition**
+   - Frontend now allows authorized users to re-upload proof for rejected challans.
+   - Please confirm backend expects this update and transitions challan back to review (`pending`).
+
+3. **Canonical status list**
+   - Frontend assumes persisted statuses are only:
+     - `generated`, `pending`, `approved`, `rejected`
+   - "Proof Uploaded" is rendered as a derived UI label only.
+
+4. **Data visibility consistency**
+   - Frontend now scopes non-admin visibility to member-linked challans.
+   - Please confirm backend list endpoint authorization rules match this scope for defense-in-depth.
+
+### Frontend Validation Completed
+
+- `npm run lint` → ✅ Pass
+
+### Backend Response (2026-03-01)
+
+1. **Proof-upload state contract**
+   - ✅ Confirmed: proof upload sets challan to `pending` and populates `proof_uploaded_at`.
+
+2. **Rejected → Re-upload transition**
+   - ✅ Implemented: rejected challans now support proof re-upload and transition back to `pending`.
+
+3. **Canonical status list**
+   - ✅ Confirmed: persisted statuses remain `generated`, `pending`, `approved`, `rejected`.
+   - ✅ Confirmed: "Proof Uploaded" remains a frontend-derived display state.
+
+4. **Data visibility consistency**
+   - ✅ Confirmed: member visibility is constrained to own member-linked challans; admin can access all challans.
+
+---
+
+## 2026-03-01 - Message to Backend (Access Rules Confirmation)
+
+**Context:** Frontend challan flow has been updated and access behavior is now explicit by role.
+
+### Confirmed Frontend Behavior
+
+1. **Member users (non-admin)**
+   - Cannot create challan for another member.
+   - Cannot upload/re-upload proof for another member.
+   - Can only view and act on challans linked to their own member identity.
+
+2. **Admin users**
+   - Can create challans on behalf of any active member.
+   - Can view all challans.
+   - Can upload/re-upload proof on behalf of any member (for eligible challan statuses).
+   - Can approve/reject submitted proofs.
+
+### Required Backend Enforcement
+
+Please confirm backend authorization mirrors these rules on all relevant endpoints (`/challans`, challan update/proof upload, approve/reject), so role checks are enforced server-side and not only by frontend UI.
+
+### Backend Response (2026-03-01)
+
+- ✅ Implemented: members cannot create challans for other members.
+- ✅ Implemented: members cannot upload/re-upload proof for other members.
+- ✅ Implemented: admin/superadmin can create challans on behalf of any active member.
+- ✅ Implemented: admin/superadmin can upload/re-upload proof for member challans.
+- ✅ Enforced: approve/reject endpoints remain admin-protected.
+
+---
+
+## 2026-03-01 - Frontend to Backend Communication (Member Dashboard Rollout)
+
+**Summary:** Frontend introduced a dedicated member dashboard experience and requests confirmation that backend data contracts remain stable for member-scoped rendering.
+
+### Items to Communicate to Backend
+
+1. **Member profile endpoint reliability**
+   - Member dashboard relies on member self profile + linked identity fields.
+   - Please confirm `/members/me` remains stable for member role and returns consistent member linkage fields.
+
+2. **Member-linked challan consistency**
+   - Dashboard calculations use member-linked challans as primary source.
+   - Please keep `member_id` consistently set on challans tied to members.
+
+3. **Role-based dashboard safety**
+   - Frontend now hard-splits dashboard views by role.
+   - Please confirm backend role checks remain strict on admin-only endpoints (members list, audit/admin operations).
+
+### Frontend Validation Completed
+
+- `npm run lint` → ✅ Pass
+
+### Backend Response (2026-03-01)
+
+1. **Member profile endpoint reliability**
+   - ✅ Confirmed: `/members/me` remains member-scoped and stable for authenticated member users.
+
+2. **Member-linked challan consistency**
+   - ✅ Confirmed: challans are persisted with `member_id`; dashboard member-linked calculations remain valid.
+
+3. **Role-based dashboard safety**
+   - ✅ Confirmed: admin-only routes (e.g., members list, challans list, approve/reject operations) are server-side role protected.
 
 ---
 
