@@ -5,11 +5,18 @@ from app.schemas import InviteCreate, InviteValidate
 from app.schemas.schemas import InviteUpdate
 from app.utils import generate_invite_code
 from fastapi import HTTPException, status
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 class InviteService:
     """Invite management service."""
+
+    @staticmethod
+    def _to_utc_naive(dt: datetime) -> datetime:
+        """Convert datetime to UTC-naive for consistent DB comparisons/storage."""
+        if dt.tzinfo is None:
+            return dt
+        return dt.astimezone(timezone.utc).replace(tzinfo=None)
     
     @staticmethod
     def create_invite(db: Session, invite_data: InviteCreate, admin_id: int):
@@ -36,6 +43,8 @@ class InviteService:
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="expiry_date or expires_at is required",
             )
+
+        expiry_date = InviteService._to_utc_naive(expiry_date)
 
         if expiry_date < datetime.utcnow():
             raise HTTPException(
@@ -71,7 +80,8 @@ class InviteService:
         if invite.is_used:
             return {"valid": False, "message": "Invite code already used"}
         
-        if invite.expiry_date < datetime.utcnow():
+        invite_expiry = InviteService._to_utc_naive(invite.expiry_date)
+        if invite_expiry < datetime.utcnow():
             return {"valid": False, "message": "Invite code expired"}
         
         # Check if email or phone matches
@@ -137,6 +147,7 @@ class InviteService:
 
         expiry_date = update_data.expiry_date or update_data.expires_at
         if expiry_date is not None:
+            expiry_date = InviteService._to_utc_naive(expiry_date)
             if expiry_date < datetime.utcnow():
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
