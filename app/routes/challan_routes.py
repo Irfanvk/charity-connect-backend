@@ -153,8 +153,8 @@ def get_challan(
 # ------------------------------------------------------------------
 @router.patch("/{challan_id}/approve", response_model=ChallanResponse)
 def approve_challan(
-    challan_id: int,
     approve_data: ChallanApprove,
+    challan_id: int,
     _current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
@@ -174,8 +174,8 @@ def approve_challan(
 # ------------------------------------------------------------------
 @router.patch("/{challan_id}/reject", response_model=ChallanResponse)
 def reject_challan(
-    challan_id: int,
     reject_data: ChallanReject,
+    challan_id: int,
     _current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):

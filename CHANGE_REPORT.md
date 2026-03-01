@@ -76,3 +76,47 @@
 
 ### Docs
 - [Changed] `COMMUNICATION_LOG.md` updated with `2026-03-01 - Backend to Frontend Communication (Unauthorized Triage)` section.
+
+---
+
+## 2026-03-01 (Contract Freeze + Admin API Expansion)
+
+### Backend
+- [Added] Versioned OpenAPI contract endpoint: `GET /openapi/v1.json`.
+- [Changed] Standardized error responses for 4xx/5xx to `detail[]` shape (`type`, `loc`, `msg`, `input`).
+- [Changed] Invite create contract now accepts canonical `expiry_date` plus backward-compatible alias `expires_at` (transition window).
+- [Added] Admin invite management endpoints:
+	- `GET /invites/` (filters/sort/pagination)
+	- `GET /invites/{invite_id}`
+	- `PUT /invites/{invite_id}`
+- [Added] Admin utility endpoints:
+	- `GET /users/`
+	- `GET /audit-logs/`
+	- `POST /audit-logs/`
+- [Added] Notification admin management:
+	- `PUT /notifications/{notification_id}`
+	- `DELETE /notifications/{notification_id}`
+- [Added] Deprecated transition alias: `POST /notifications/send` (canonical remains `POST /notifications/`).
+- [Changed] Challan action contract finalized on `PATCH` methods:
+	- `PATCH /challans/{challan_id}/approve`
+	- `PATCH /challans/{challan_id}/reject`
+- [Changed] Challan role flows aligned:
+	- Admin can create challans on behalf of active members.
+	- Admin can upload/re-upload proof on behalf of members.
+	- Rejected challans now support proof re-upload and transition back to `pending`.
+
+### Docs
+- [Added] `API_CONTRACT_BASELINE.md` as frontend/backend source of truth for v1 contract.
+- [Added] `API_CHANGELOG.md` for path/method and compatibility history.
+- [Changed] `ALIGNMENT_REPORT.md` updated with current endpoint inventory and counts.
+- [Changed] `COMMUNICATION_LOG.md` updated with:
+	- frontend migration checklist
+	- contract freeze guidance
+	- reference links to baseline/changelog docs
+
+### Frontend Coordination
+- [Inform] Frontend should migrate to canonical fields/paths this cycle:
+	- invites: prefer `expiry_date`
+	- notifications: use `POST /notifications/`
+	- challan actions: use `PATCH` approve/reject endpoints
+- [Inform] Backward compatibility retained temporarily for one release (`expires_at`, `/notifications/send`).

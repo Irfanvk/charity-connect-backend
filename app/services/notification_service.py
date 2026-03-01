@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 from app.models import Notification, User
-from app.schemas import NotificationCreate
+from app.schemas import NotificationCreate, NotificationAdminUpdate
 from fastapi import HTTPException, status
 from datetime import datetime
 
@@ -9,7 +9,7 @@ class NotificationService:
     """Notification service."""
     
     @staticmethod
-    def create_notification(db: Session, notification_data: NotificationCreate):
+    def create_notification(db: Session, notification_data: NotificationCreate, _admin_id: int = None):
         """Create and send notification."""
         
         if notification_data.user_id:
@@ -57,6 +57,45 @@ class NotificationService:
         db.commit()
         
         return {"message": "Notification sent successfully"}
+
+    @staticmethod
+    def update_notification(db: Session, notification_id: int, update_data: NotificationAdminUpdate):
+        """Update notification (admin use-case)."""
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+
+        if not notification:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification not found",
+            )
+
+        update_fields = update_data.dict(exclude_unset=True)
+        for key, value in update_fields.items():
+            setattr(notification, key, value)
+
+        if update_fields.get("is_read") is True and notification.read_at is None:
+            notification.read_at = datetime.utcnow()
+        if update_fields.get("is_read") is False:
+            notification.read_at = None
+
+        db.commit()
+        db.refresh(notification)
+        return notification
+
+    @staticmethod
+    def delete_notification(db: Session, notification_id: int):
+        """Delete notification (admin use-case)."""
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+
+        if not notification:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Notification not found",
+            )
+
+        db.delete(notification)
+        db.commit()
+        return {"message": "Notification deleted"}
     
     @staticmethod
     def get_user_notifications(db: Session, user_id: int, skip: int = 0, limit: int = 50):

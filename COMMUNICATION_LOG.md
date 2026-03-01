@@ -402,6 +402,82 @@ Please confirm backend authorization mirrors these rules on all relevant endpoin
 
 ---
 
+## 2026-03-01 - Backend to Frontend Communication (Invite Payload Compatibility)
+
+**Summary:** Frontend invite creation request returned `422` because payload used `expires_at` while backend previously required `expiry_date`.
+
+### Backend Fix Applied
+
+1. **Accepted invite expiry aliases**
+   - ✅ Backend now accepts both `expiry_date` and `expires_at` in invite create payload.
+
+2. **Backward compatibility for extra fields**
+   - ✅ Backend now ignores extra frontend fields in invite create request payload (does not fail validation).
+
+3. **Validation behavior**
+   - ✅ If neither `expiry_date` nor `expires_at` is provided, backend returns clear validation error.
+   - ✅ Expiry must be a future datetime.
+
+### Frontend Guidance
+
+- `expiry_date` remains the canonical field for future consistency.
+- Existing frontend requests using `expires_at` will continue to work.
+
+---
+
+## 2026-03-01 - Frontend Migration Checklist (API Contract Freeze v1)
+
+**Goal:** Move frontend to canonical endpoints/fields and avoid future 422/405 regressions.
+
+### Required Endpoint/Method Usage
+
+1. **Invite create payload**
+   - ✅ Canonical: `expiry_date`
+   - ⚠️ Temporary compatibility: `expires_at` (supported for one release window)
+
+2. **Challan admin actions**
+   - ✅ Canonical: `PATCH /challans/{challan_id}/approve`
+   - ✅ Canonical: `PATCH /challans/{challan_id}/reject`
+
+3. **Notification create**
+   - ✅ Canonical: `POST /notifications/`
+   - ⚠️ Deprecated alias: `POST /notifications/send` (transition only)
+
+4. **Admin invite management**
+   - ✅ Use `GET /invites/` for all invites (supports filters/sort/pagination)
+   - ✅ Keep `GET /invites/pending` only for pending-focused workflows
+   - ✅ Invite detail/edit available: `GET /invites/{invite_id}`, `PUT /invites/{invite_id}`
+
+5. **Admin utility endpoints now available**
+   - ✅ `GET /users/`
+   - ✅ `GET /audit-logs/`
+   - ✅ `POST /audit-logs/`
+   - ✅ `PUT /notifications/{notification_id}`
+   - ✅ `DELETE /notifications/{notification_id}`
+
+### Error Handling Contract
+
+- ✅ All 4xx/5xx now normalized to `detail[]` structure with:
+  - `type`
+  - `loc`
+  - `msg`
+  - `input`
+
+### Source of Truth
+
+- ✅ OpenAPI v1: `/openapi/v1.json`
+- ✅ Contract baseline doc: `API_CONTRACT_BASELINE.md`
+- ✅ Change history: `API_CHANGELOG.md`
+
+### Transition Window
+
+- `expires_at` and `/notifications/send` remain temporarily supported for one release window.
+- Frontend should migrate to canonical contract in this cycle and remove fallback usage after confirmation.
+
+---
+
 ## Reference Links
 - INTEGRATION_TESTING_GUIDE.md
 - CHANGE_REPORT.md
+- API_CONTRACT_BASELINE.md
+- API_CHANGELOG.md

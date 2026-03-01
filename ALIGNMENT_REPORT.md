@@ -8,7 +8,7 @@
 |-------------|---------|-------------|--------|
 | **Authentication** | JWT + role-based | ✅ JWT + 3 roles (superadmin, admin, member) | ✓ Complete |
 | **Member Management** | User profiles, member codes | ✅ Sequential codes (MEM001...), join dates, status | ✓ Complete |
-| **Payments/Challans** | Monthly + campaigns | ✅ Both with workflow (Generated→Pending→Approved) | ✓ Complete |
+| **Payments/Challans** | Monthly + campaigns | ✅ Both with workflow (Generated→Pending→Approved/Rejected) | ✓ Complete |
 | **Invite System** | Phone/email invites | ✅ Code-based with validation, expiry | ✓ Complete |
 | **Proof Upload** | File validation | ✅ 3MB max, jpg/png/pdf, MIME validation | ✓ Complete |
 | **Admin Approvals** | Approval workflow | ✅ Approve/reject with tracking | ✓ Complete |
@@ -27,7 +27,9 @@
 Project Documentation:
 ├── README.md                ✅ Updated with implementation status
 ├── IMPLEMENTATION.md        ✅ Technical architecture guide
-└── GETTING_STARTED.md       ✅ Setup and development workflow
+├── GETTING_STARTED.md       ✅ Setup and development workflow
+├── API_CONTRACT_BASELINE.md ✅ Frontend/backend source of truth (v1)
+└── API_CHANGELOG.md         ✅ Method/path and compatibility changes
 ```
 
 ### Code Structure
@@ -42,13 +44,16 @@ app/
 │   └── models.py            ✅ 7 database models (User, Member, Invite, Campaign, Challan, Notification, AuditLog)
 ├── schemas/
 │   └── schemas.py           ✅ Pydantic validation schemas
-├── routes/                  ✅ 6 route modules
+├── routes/                  ✅ 9 route modules
 │   ├── auth_routes.py
 │   ├── invite_routes.py
 │   ├── member_routes.py
 │   ├── challan_routes.py
 │   ├── campaign_routes.py
-│   └── notification_routes.py
+│   ├── notification_routes.py
+│   ├── file_routes.py
+│   ├── user_routes.py
+│   └── audit_log_routes.py
 ├── services/                ✅ 6 service modules (business logic)
 │   ├── auth_service.py
 │   ├── invite_service.py
@@ -91,48 +96,70 @@ app/
 
 ## 📊 API Endpoints Summary
 
-### Implemented Endpoints (30+)
+### Implemented Endpoints (43 Total)
 
-**Authentication (3)**
+**App Core (3)**
+- GET /
+- GET /health
+- GET /test-db
+
+**Authentication (4)**
 - POST /auth/login
 - POST /auth/register
 - GET /auth/me
+- POST /auth/logout
 
-**Invites (4)**
-- POST /invites
+**Invites (7)**
+- POST /invites/
+- GET /invites/
 - GET /invites/pending
 - POST /invites/validate
-- DELETE /invites/{id}
+- DELETE /invites/{invite_id}
+- GET /invites/{invite_id}
+- PUT /invites/{invite_id}
 
 **Members (5)**
-- GET /members
+- GET /members/
 - GET /members/me
-- GET /members/{id}
-- GET /members/code/{code}
-- PUT /members/{id}
+- GET /members/{member_id}
+- GET /members/code/{member_code}
+- PUT /members/{member_id}
 
-**Challans (8)**
-- POST /challans
-- POST /challans/{id}/upload-proof
-- GET /challans
-- GET /challans/{id}
-- GET /challans/member/{id}
-- PUT /challans/{id}/approve
-- PUT /challans/{id}/reject
+**Challans (7)**
+- POST /challans/
+- POST /challans/{challan_id}/upload-proof
+- GET /challans/
+- GET /challans/{challan_id}
+- GET /challans/member/{member_id}
+- PATCH /challans/{challan_id}/approve
+- PATCH /challans/{challan_id}/reject
 
 **Campaigns (5)**
-- GET /campaigns
-- POST /campaigns
-- GET /campaigns/{id}
-- PUT /campaigns/{id}
-- DELETE /campaigns/{id}
+- GET /campaigns/
+- POST /campaigns/
+- GET /campaigns/{campaign_id}
+- PUT /campaigns/{campaign_id}
+- DELETE /campaigns/{campaign_id}
 
-**Notifications (5)**
-- POST /notifications
-- GET /notifications
+**Notifications (8)**
+- POST /notifications/
+- POST /notifications/send (deprecated)
+- GET /notifications/
 - GET /notifications/unread/count
-- PUT /notifications/{id}/read
+- PUT /notifications/{notification_id}/read
 - POST /notifications/mark-all-read
+- PUT /notifications/{notification_id}
+- DELETE /notifications/{notification_id}
+
+**Files (1)**
+- POST /files/upload
+
+**Users (1)**
+- GET /users/
+
+**Audit Logs (2)**
+- GET /audit-logs/
+- POST /audit-logs/
 
 ---
 
@@ -168,7 +195,7 @@ app/
 ### ✅ Complete
 - Backend API fully implemented
 - All 7 phases from project plan done
-- 30+ endpoints operational
+- 43 endpoints operational
 - Database models with relationships
 - Authentication & authorization
 - File upload system

@@ -92,7 +92,11 @@ class MemberResponse(BaseModel):
 class InviteCreate(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
-    expiry_date: datetime
+    expiry_date: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
+
+    class Config:
+        extra = "ignore"
 
 
 class InviteResponse(BaseModel):
@@ -111,6 +115,13 @@ class InviteResponse(BaseModel):
 class InviteValidate(BaseModel):
     invite_code: str
     email_or_phone: str
+
+
+class InviteUpdate(BaseModel):
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    expiry_date: Optional[datetime] = None
+    expires_at: Optional[datetime] = None
 
 
 # Campaign Schemas
@@ -199,6 +210,12 @@ class NotificationUpdate(BaseModel):
     is_read: bool
 
 
+class NotificationAdminUpdate(BaseModel):
+    title: Optional[str] = None
+    message: Optional[str] = None
+    is_read: Optional[bool] = None
+
+
 class NotificationResponse(BaseModel):
     id: int
     user_id: int
@@ -226,3 +243,13 @@ class AuditLogResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AuditLogCreate(BaseModel):
+    user_id: Optional[int] = None
+    action: str
+    entity_type: str
+    entity_id: int
+    old_values: Optional[str] = None
+    new_values: Optional[str] = None
+    ip_address: Optional[str] = None

@@ -1,6 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from app.database import engine, Base
 from app.config import settings
 from app.routes import (
@@ -11,23 +14,17 @@ from app.routes import (
     campaign_router,
     notification_router,
     file_router,
+    user_router,
+    audit_log_router,
 )
 
-# Import models to ensure they are registered with Base
-from app.models import (
-    User,
-    Member,
-    Invite,
-    Campaign,
-    Challan,
-    Notification,
-    AuditLog,
-)
+import app.models as _models
 
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
     description="Backend API for Charity Connect - Membership and Donation Management System",
+    openapi_url="/openapi/v1.json",
 )
 
 # Create all tables
@@ -50,6 +47,58 @@ app.include_router(challan_router)
 app.include_router(campaign_router)
 app.include_router(notification_router)
 app.include_router(file_router)
+app.include_router(user_router)
+app.include_router(audit_log_router)
+
+
+def _ensure_detail_list(detail, default_loc=None, default_type="error"):
+    loc = default_loc or ["request"]
+
+    if isinstance(detail, list):
+        normalized = []
+        for item in detail:
+            if isinstance(item, dict):
+                normalized.append(
+                    {
+                        "type": item.get("type", default_type),
+                        "loc": list(item.get("loc", loc)),
+                        "msg": item.get("msg") or item.get("detail") or str(item),
+                        "input": item.get("input"),
+                    }
+                )
+            else:
+                normalized.append({"type": default_type, "loc": loc, "msg": str(item), "input": None})
+        return normalized
+
+    if isinstance(detail, dict):
+        return [
+            {
+                "type": detail.get("type", default_type),
+                "loc": list(detail.get("loc", loc)),
+                "msg": detail.get("msg") or detail.get("detail") or str(detail),
+                "input": detail.get("input"),
+            }
+        ]
+
+    return [{"type": default_type, "loc": loc, "msg": str(detail), "input": None}]
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(_request: Request, exc: RequestValidationError):
+    detail = _ensure_detail_list(exc.errors(), default_loc=["body"], default_type="validation_error")
+    return JSONResponse(status_code=422, content={"detail": detail})
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_request: Request, exc: HTTPException):
+    detail = _ensure_detail_list(exc.detail, default_type="http_error")
+    return JSONResponse(status_code=exc.status_code, content={"detail": detail}, headers=exc.headers)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(_request: Request, _exc: Exception):
+    detail = _ensure_detail_list("Internal server error", default_type="server_error")
+    return JSONResponse(status_code=500, content={"detail": detail})
 
 # Health check endpoints
 @app.get("/")
@@ -74,6 +123,6 @@ def test_db():
         with engine.connect() as connection:
             result = connection.execute(text("SELECT 1"))
             return {"database_status": "connected", "result": result.scalar()}
-    except Exception as e:
+    except SQLAlchemyError as e:
         return {"database_status": "error", "message": str(e)}
 
