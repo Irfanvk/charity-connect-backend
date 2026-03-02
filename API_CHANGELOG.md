@@ -1,5 +1,19 @@
 # API Changelog
 
+## 2026-03-02
+
+### Changed
+- Notification create is treated as canonical on `POST /notifications/` (admin-only).
+- Notification ownership scope is enforced for:
+  - `GET /notifications/{notification_id}`
+  - `PUT /notifications/{notification_id}/read`
+- Non-owned notification access returns `404` by design.
+- `POST /notifications/mark-all-read` returns `{ marked_read, message }`.
+- `GET /notifications/unread/count` uses SQL count-based lookup.
+
+### Removed
+- `POST /notifications/send` is no longer considered available in active integration flows.
+
 ## 2026-03-01
 
 ### Added

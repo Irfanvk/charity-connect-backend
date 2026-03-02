@@ -504,10 +504,10 @@ Please confirm backend authorization mirrors these rules on all relevant endpoin
 - [ ] Frontend migrate invite payload fully to canonical `expiry_date` (drop `expires_at` usage after transition window).  
    **Owner:** Frontend | **Target:** current release cycle
 
-- [ ] Frontend migrate notification create fully to `POST /notifications/` (drop `/notifications/send` usage after transition window).  
+- [ ] Frontend migrate notification create fully to `POST /notifications/` (treat `/notifications/send` as unavailable).  
    **Owner:** Frontend | **Target:** current release cycle
 
-- [ ] Backend announce deprecation removal date for `expires_at` alias and `/notifications/send`.  
+- [ ] Backend announce deprecation removal date for `expires_at` alias.  
    **Owner:** Backend | **Target:** next changelog entry
 
 - [ ] Frontend validate all new admin APIs in integration QA (`/users/`, `/audit-logs/`, full `/invites/` management, notification edit/delete).  
@@ -518,6 +518,40 @@ Please confirm backend authorization mirrors these rules on all relevant endpoin
 
 - [ ] Confirm production env readiness separately (database reachability, server run command consistency, CORS + health check uptime).  
    **Owner:** Backend | **Target:** pre-release checklist
+
+---
+
+## 2026-03-02 - Backend to Frontend Communication (Notification Contract Sync)
+
+**Summary:** Notification route/service updates are now reflected in active backend behavior and should be treated as the current contract.
+
+### Backend State Confirmed
+
+1. **Create notification endpoint**
+   - ✅ Use `POST /notifications/` (admin-only) for notification creation.
+
+2. **Notification admin controls**
+   - ✅ `PUT /notifications/{notification_id}` available for admin update.
+   - ✅ `DELETE /notifications/{notification_id}` available for admin deletion.
+
+3. **User-scope protection**
+   - ✅ `GET /notifications/{notification_id}` is ownership-scoped.
+   - ✅ `PUT /notifications/{notification_id}/read` is ownership-scoped.
+   - ✅ Non-owned notification IDs return `404`.
+
+4. **Performance/behavior updates**
+   - ✅ Unread count uses SQL `COUNT`.
+   - ✅ Mark-all-read uses bulk update and returns `{ marked_read, message }`.
+
+### Frontend Guidance
+
+- Use `POST /notifications/` as canonical create path in all active UI flows.
+- Keep notification detail/read actions scoped to the authenticated user.
+- Treat `/notifications/send` as unavailable in current integration runs.
+
+### Contract Reference
+
+- See `API_CHANGELOG.md` → `2026-03-02` for the matching notification contract update record.
 
 ---
 

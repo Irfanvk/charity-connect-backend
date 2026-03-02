@@ -143,3 +143,22 @@
 - [Changed] `API_CONTRACT_BASELINE.md` updated with registration + invite contract details (2-step flow, field set, invite validity rules).
 - [Changed] `API_CHANGELOG.md` updated with invite code format alignment note.
 - [Changed] `COMMUNICATION_LOG.md` updated with backend acknowledgment section for registration/invite contract handoff.
+
+---
+
+## 2026-03-02 (Notification API Update)
+
+### Backend
+- [Changed] Notification create API is now canonical on `POST /notifications/` (admin only).
+- [Changed] Notification route set includes admin update/delete endpoints: `PUT /notifications/{notification_id}` and `DELETE /notifications/{notification_id}`.
+- [Changed] Notification read APIs are user-scoped and ownership-checked (`GET /notifications/{notification_id}`, `PUT /notifications/{notification_id}/read`).
+- [Changed] Service-level mark-all-read now uses a bulk update and returns `{ marked_read, message }`.
+- [Changed] Service-level unread count uses SQL `COUNT` for efficient polling.
+
+### Frontend Coordination
+- [Inform] Use `POST /notifications/` as the only create endpoint in active flows.
+- [Inform] Keep notification detail/read requests user-scoped; non-owned IDs return `404` by design.
+- [Inform] Update any remaining assumptions that `/notifications/send` is available.
+
+### Docs
+- [Changed] `CHANGE_REPORT.md` and `COMMUNICATION_LOG.md` updated to reflect current notification contract behavior.
