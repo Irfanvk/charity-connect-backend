@@ -162,3 +162,16 @@
 
 ### Docs
 - [Changed] `CHANGE_REPORT.md` and `COMMUNICATION_LOG.md` updated to reflect current notification contract behavior.
+
+---
+
+## 2026-03-02 (Frontend Communication Sync: Reports + Canonical Enforcement)
+
+### Backend
+- [Verified] No new backend endpoint is required for frontend reports module rebuild.
+- [Verified] Report data-source protections remain aligned for admin reporting flows (`GET /members/`, `GET /challans/` admin-protected).
+- [Verified] Canonical notification create path is enforced on frontend (`POST /notifications/` only).
+
+### Docs
+- [Changed] `COMMUNICATION_LOG.md` synced with frontend-shared March 1–2 communication items.
+- [Changed] Pending register updated to mark frontend canonical migration items as completed.

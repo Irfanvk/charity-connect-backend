@@ -11,6 +11,11 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-03-02 | Admin Reports page rebuilt into modular 3-tab reporting suite with per-report CSV export | Frontend | ✅ | Members/Donations/Challans tabs with period filters and tab-specific CSV schema |
+| 2026-03-02 | Frontend migrated to canonical notification and invite contract usage | Frontend | ✅ | Removed `/notifications/send` fallback; invite expiry display uses `expiry_date` |
+| 2026-03-01 | Active frontend flows migrated from deprecated `entities.*` to resource APIs | Frontend | ✅ | Aligns runtime behavior with resource client contract |
+| 2026-03-01 | Notifications page switched to supported notification methods with compatibility aliases | Frontend | ✅ | Resolved `Notification.create is not a function` runtime issue |
+| 2026-03-01 | Dashboard render hardened against undefined datasets post-login | Frontend | ✅ | Prevents post-login blank-screen crash |
 | 2026-03-01 | Non-admin users get a dedicated member dashboard view | Frontend | ✅ | Member profile, challan insights, upcoming dues, campaign participation |
 | 2026-03-01 | Dashboard render path split by role (`superadmin` / `admin` / `member`) | Frontend | ✅ | Prevents mixed admin/member UI exposure |
 | 2026-03-01 | Challans UI derives "Proof Uploaded" from `pending + proof_uploaded_at` | Frontend | ✅ | Keeps UI readable while preserving backend status model |
@@ -501,10 +506,10 @@ Please confirm backend authorization mirrors these rules on all relevant endpoin
 
 **Purpose:** Single list of active pending items across backend/frontend integration.
 
-- [ ] Frontend migrate invite payload fully to canonical `expiry_date` (drop `expires_at` usage after transition window).  
+- [x] Frontend migrate invite payload fully to canonical `expiry_date` in active UI flows.  
    **Owner:** Frontend | **Target:** current release cycle
 
-- [ ] Frontend migrate notification create fully to `POST /notifications/` (treat `/notifications/send` as unavailable).  
+- [x] Frontend migrate notification create fully to `POST /notifications/` and treat `/notifications/send` as unavailable.  
    **Owner:** Frontend | **Target:** current release cycle
 
 - [ ] Backend announce deprecation removal date for `expires_at` alias.  
@@ -552,6 +557,39 @@ Please confirm backend authorization mirrors these rules on all relevant endpoin
 ### Contract Reference
 
 - See `API_CHANGELOG.md` → `2026-03-02` for the matching notification contract update record.
+
+---
+
+## 2026-03-02 - Frontend to Backend Communication (Canonical Contract Enforcement + Reports)
+
+**Summary:** Frontend confirmed canonical notification/invite usage and completed reports module rebuild; backend reviewed API impact.
+
+### Frontend Updates Acknowledged
+
+1. **Canonical contract enforcement**
+   - ✅ Frontend removed deprecated notification create fallback and now uses only `POST /notifications/`.
+   - ✅ Frontend invite expiry rendering uses canonical `expiry_date`.
+
+2. **Reports module rebuild**
+   - ✅ Frontend rebuilt admin reports into tabbed modules (`Members`, `Donations`, `Challans`) with period filters and per-tab CSV export.
+
+### Backend Assessment (API/Feature Impact)
+
+1. **New APIs required**
+   - ✅ None required for current frontend rollout.
+
+2. **Role/access coverage for report data sources**
+   - ✅ `GET /members/` is admin-protected.
+   - ✅ `GET /challans/` is admin-protected.
+   - ✅ `GET /campaigns/` remains authenticated-user readable by design; frontend reports remain admin-only at UI level.
+
+3. **Audit logging note**
+   - ✅ Existing `POST /audit-logs/` is available for best-effort export audit events.
+
+### Backend Action Items
+
+- [ ] Publish deprecation removal date for `expires_at` compatibility alias in `API_CHANGELOG.md`.
+- [ ] Keep monitoring integration for any reports-related payload edge cases; add dedicated report endpoints only if scale/performance requires.
 
 ---
 
