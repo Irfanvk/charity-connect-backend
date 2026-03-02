@@ -593,6 +593,30 @@ Please confirm backend authorization mirrors these rules on all relevant endpoin
 
 ---
 
+## 2026-03-02 - Backend to Frontend Communication (Dashboard Welcome Name Fix)
+
+**Summary:** Backend updated auth/member response payloads so dashboard welcome messaging can render a concrete user name instead of generic fallback text.
+
+### Backend Changes Applied
+
+1. **Response schema extension**
+   - ✅ `UserResponse` now includes optional `full_name`.
+   - ✅ `MemberResponse` now includes optional `full_name`.
+
+2. **Fallback behavior for name resolution**
+   - ✅ Backend now resolves `full_name` from username when a dedicated full-name field is not persisted.
+
+3. **Endpoint impact**
+   - ✅ `GET /auth/me` now returns `full_name`.
+   - ✅ `GET /members/me` now returns `full_name`.
+
+### Frontend Guidance
+
+- Prefer welcome label resolution order: `full_name` → `username`.
+- Keep existing fallback text only as last resort if both fields are absent.
+
+---
+
 ## Reference Links
 - INTEGRATION_TESTING_GUIDE.md
 - CHANGE_REPORT.md

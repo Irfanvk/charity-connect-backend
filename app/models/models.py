@@ -47,6 +47,10 @@ class User(Base):
     notifications = relationship("Notification", back_populates="user")
     audit_logs = relationship("AuditLog", back_populates="user")
 
+    @property
+    def full_name(self):
+        return self.username
+
 
 class Member(Base):
     __tablename__ = "members"
@@ -64,6 +68,12 @@ class Member(Base):
     # Relationships
     user = relationship("User", back_populates="member")
     challans = relationship("Challan", back_populates="member")
+
+    @property
+    def full_name(self):
+        if self.user:
+            return self.user.username
+        return None
 
 
 class Invite(Base):

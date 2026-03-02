@@ -10,6 +10,7 @@
 - Non-owned notification access returns `404` by design.
 - `POST /notifications/mark-all-read` returns `{ marked_read, message }`.
 - `GET /notifications/unread/count` uses SQL count-based lookup.
+- Auth/member profile responses now include `full_name` (`GET /auth/me`, `GET /members/me`) for dashboard welcome-name rendering.
 
 ### Removed
 - `POST /notifications/send` is no longer considered available in active integration flows.

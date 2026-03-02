@@ -175,3 +175,18 @@
 ### Docs
 - [Changed] `COMMUNICATION_LOG.md` synced with frontend-shared March 1–2 communication items.
 - [Changed] Pending register updated to mark frontend canonical migration items as completed.
+
+---
+
+## 2026-03-02 (Dashboard Welcome Name Payload Fix)
+
+### Backend
+- [Changed] Added `full_name` to `UserResponse` and `MemberResponse` payloads.
+- [Changed] Added model-level fallback properties so `full_name` resolves safely from username when no dedicated name field exists.
+
+### Impact
+- [Fixed] Prevents dashboard greeting fallback to generic `User` when frontend expects a display-name field.
+- [Verified] `/auth/me` and `/members/me` now return `full_name` for welcome-message rendering.
+
+### Docs
+- [Changed] `CHANGE_REPORT.md` and `COMMUNICATION_LOG.md` updated with payload-contract note for frontend team.

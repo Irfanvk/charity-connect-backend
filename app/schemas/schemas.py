@@ -43,6 +43,7 @@ class UserRegisterWithInvite(BaseModel):
 class UserResponse(BaseModel):
     id: int
     username: str
+    full_name: Optional[str] = None
     email: Optional[str]
     phone: Optional[str]
     role: UserRole
@@ -76,6 +77,7 @@ class MemberUpdate(BaseModel):
 class MemberResponse(BaseModel):
     id: int
     user_id: int
+    full_name: Optional[str] = None
     member_code: str
     monthly_amount: float
     address: Optional[str]
