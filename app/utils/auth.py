@@ -29,9 +29,10 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def generate_invite_code() -> str:
-    """Generate a random invite code."""
+    """Generate invite code in INV-XXXXXX format."""
     characters = string.ascii_uppercase + string.digits
-    return ''.join(secrets.choice(characters) for _ in range(12))
+    suffix = ''.join(secrets.choice(characters) for _ in range(6))
+    return f"INV-{suffix}"
 
 
 def generate_member_code(last_member_code: Optional[str] = None) -> str:

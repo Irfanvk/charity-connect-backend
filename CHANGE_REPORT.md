@@ -120,3 +120,26 @@
 	- notifications: use `POST /notifications/`
 	- challan actions: use `PATCH` approve/reject endpoints
 - [Inform] Backward compatibility retained temporarily for one release (`expires_at`, `/notifications/send`).
+
+---
+
+## 2026-03-02
+
+### Backend
+- [Fixed] Resolved `POST /invites/` runtime `500` caused by timezone-aware vs timezone-naive datetime comparison.
+- [Changed] Invite expiry handling now normalizes datetime values to UTC-naive before validation/storage.
+- [Changed] Invite validation flow now safely compares normalized expiry timestamps (prevents aware/naive comparison crash).
+- [Changed] Invite code generation aligned to frontend display/usage format: `INV-XXXXXX`.
+
+### Impact
+- Prevents invite-creation failures when frontend sends ISO datetimes with `Z` timezone suffix.
+- Keeps frontend payload compatibility intact (`expiry_date` canonical with temporary `expires_at` fallback).
+
+### Frontend Coordination
+- [Inform] No immediate frontend payload change required for timezone format; backend now handles timezone-aware values safely.
+- [Inform] Frontend should continue using canonical `expiry_date` field for long-term contract stability.
+
+### Docs
+- [Changed] `API_CONTRACT_BASELINE.md` updated with registration + invite contract details (2-step flow, field set, invite validity rules).
+- [Changed] `API_CHANGELOG.md` updated with invite code format alignment note.
+- [Changed] `COMMUNICATION_LOG.md` updated with backend acknowledgment section for registration/invite contract handoff.

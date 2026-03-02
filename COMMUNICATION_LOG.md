@@ -3,7 +3,7 @@
 **Project:** CharityConnect  
 **Purpose:** Decisions, meeting minutes, and action items  
 **Owner:** Integration Lead  
-**Last Updated:** 2026-03-01
+**Last Updated:** 2026-03-02
 
 ---
 
@@ -473,6 +473,51 @@ Please confirm backend authorization mirrors these rules on all relevant endpoin
 
 - `expires_at` and `/notifications/send` remain temporarily supported for one release window.
 - Frontend should migrate to canonical contract in this cycle and remove fallback usage after confirmation.
+
+---
+
+## 2026-03-02 - Backend Acknowledgment (Registration + Invite Contract)
+
+**Summary:** Frontend handoff for registration/invite flow is acknowledged and reflected in backend contract baseline.
+
+### Confirmed Contract
+
+1. **Registration flow**
+   - ✅ 2-step model accepted: invite verification in UI, then `POST /auth/register`.
+   - ✅ Register payload fields supported: `invite_code`, `username`, `password`, `email`, `full_name`, `phone`, `address`, `monthly_amount`.
+
+2. **Invite behavior**
+   - ✅ Invite code format aligned to `INV-XXXXXX` for newly generated invites.
+   - ✅ Canonical expiry field remains `expiry_date`.
+   - ✅ `expires_at` remains temporarily supported as a compatibility alias.
+   - ✅ Backend enforces invite validity (pending/unused, unexpired, single-use).
+
+3. **Contract governance**
+   - ✅ Any method/path changes will be recorded in `API_CHANGELOG.md` before rollout.
+
+---
+
+## 2026-03-02 - Pending Register (Open Items)
+
+**Purpose:** Single list of active pending items across backend/frontend integration.
+
+- [ ] Frontend migrate invite payload fully to canonical `expiry_date` (drop `expires_at` usage after transition window).  
+   **Owner:** Frontend | **Target:** current release cycle
+
+- [ ] Frontend migrate notification create fully to `POST /notifications/` (drop `/notifications/send` usage after transition window).  
+   **Owner:** Frontend | **Target:** current release cycle
+
+- [ ] Backend announce deprecation removal date for `expires_at` alias and `/notifications/send`.  
+   **Owner:** Backend | **Target:** next changelog entry
+
+- [ ] Frontend validate all new admin APIs in integration QA (`/users/`, `/audit-logs/`, full `/invites/` management, notification edit/delete).  
+   **Owner:** Frontend | **Target:** integration test pass
+
+- [ ] Joint session to close legacy action items from 2026-02-24 checklist and mark completed items.  
+   **Owner:** Both teams | **Target:** next sync meeting
+
+- [ ] Confirm production env readiness separately (database reachability, server run command consistency, CORS + health check uptime).  
+   **Owner:** Backend | **Target:** pre-release checklist
 
 ---
 

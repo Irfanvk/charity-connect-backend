@@ -15,6 +15,7 @@
 ### Changed
 - OpenAPI contract path is now versioned at `/openapi/v1.json`.
 - Invite create (`POST /invites/`) supports `expiry_date` (canonical) and `expires_at` (compatibility alias).
+- Invite code generation format aligned to `INV-XXXXXX`.
 - Challan action routes canonicalized to:
   - `PATCH /challans/{id}/approve`
   - `PATCH /challans/{id}/reject`
