@@ -17,19 +17,8 @@ def create_notification(
 ):
     """
     Create and send notification (Admin only).
-    """
-    return NotificationService.create_notification(db, notification_data, current_user["user_id"])
-
-
-@router.post("/send", status_code=status.HTTP_201_CREATED, deprecated=True)
-def create_notification_legacy(
-    notification_data: NotificationCreate,
-    current_user: dict = Depends(get_current_admin),
-    db: Session = Depends(get_db),
-):
-    """
-    Deprecated alias for notification creation.
-    Use POST /notifications/ instead.
+    Returns sent_count and a message.
+    Supports: single user (user_id), role broadcast (target_role), or all users.
     """
     return NotificationService.create_notification(db, notification_data, current_user["user_id"])
 
@@ -42,10 +31,9 @@ def get_my_notifications(
     db: Session = Depends(get_db),
 ):
     """
-    Get current user's notifications.
+    Get current user's notifications, newest first.
     """
-    notifications = NotificationService.get_user_notifications(db, current_user["user_id"], skip, limit)
-    return notifications
+    return NotificationService.get_user_notifications(db, current_user["user_id"], skip, limit)
 
 
 @router.get("/unread/count")
@@ -54,41 +42,52 @@ def get_unread_count(
     db: Session = Depends(get_db),
 ):
     """
-    Get count of unread notifications.
+    Get count of unread notifications for current user.
     """
     count = NotificationService.get_unread_notifications_count(db, current_user["user_id"])
     return {"unread_count": count}
 
 
-@router.put("/{notification_id}/read", response_model=NotificationResponse)
-def mark_as_read(
+@router.get("/{notification_id}", response_model=NotificationResponse)
+def get_notification(
     notification_id: int,
-    _current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Mark notification as read.
+    Get a single notification by ID (must belong to current user).
     """
-    notification = NotificationService.mark_as_read(db, notification_id)
-    return notification
+    return NotificationService.get_notification_by_id(db, notification_id, current_user["user_id"])
+
+
+@router.put("/{notification_id}/read", response_model=NotificationResponse)
+def mark_as_read(
+    notification_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Mark a notification as read (must belong to current user).
+    """
+    return NotificationService.mark_as_read(db, notification_id, current_user["user_id"])
 
 
 @router.post("/mark-all-read")
 def mark_all_as_read(
-    _current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Mark all notifications as read.
+    Mark all of current user's unread notifications as read.
     """
-    return NotificationService.mark_all_as_read(db, _current_user["user_id"])
+    return NotificationService.mark_all_as_read(db, current_user["user_id"])
 
 
 @router.put("/{notification_id}", response_model=NotificationResponse)
 def update_notification(
     notification_id: int,
     update_data: NotificationAdminUpdate,
-    _current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
     """
@@ -97,13 +96,13 @@ def update_notification(
     return NotificationService.update_notification(db, notification_id, update_data)
 
 
-@router.delete("/{notification_id}")
+@router.delete("/{notification_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_notification(
     notification_id: int,
-    _current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
     """
-    Delete notification (Admin only).
+    Delete a notification (Admin only).
     """
-    return NotificationService.delete_notification(db, notification_id)
+    NotificationService.delete_notification(db, notification_id)

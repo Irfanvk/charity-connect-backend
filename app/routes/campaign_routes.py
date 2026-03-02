@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas import CampaignCreate, CampaignResponse, CampaignUpdate
@@ -12,65 +12,89 @@ router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
 @router.post("/", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
 def create_campaign(
     campaign_data: CampaignCreate,
-    current_user: dict = Depends(get_current_admin),
+    _: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
     """
     Create new campaign (Admin only).
     """
-    campaign = CampaignService.create_campaign(db, campaign_data, current_user["user_id"])
-    return campaign
+    try:
+        campaign = CampaignService.create_campaign(db, campaign_data, _["user_id"])
+        return campaign
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create campaign")
 
 
 @router.get("/", response_model=List[CampaignResponse])
 def get_all_campaigns(
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(default=0, ge=0, description="Number of records to skip"),
+    limit: int = Query(default=100, ge=1, le=500, description="Maximum number of records to return"),
     active_only: bool = False,
-    current_user: dict = Depends(get_current_user),
+    _: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Get all campaigns.
+    Get all campaigns. Supports pagination via skip/limit.
     """
-    campaigns = CampaignService.get_all_campaigns(db, skip, limit, active_only)
-    return campaigns
+    try:
+        campaigns = CampaignService.get_all_campaigns(db, skip, limit, active_only)
+        return campaigns
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to fetch campaigns")
 
 
 @router.get("/{campaign_id}", response_model=CampaignResponse)
 def get_campaign(
     campaign_id: int,
-    current_user: dict = Depends(get_current_user),
+    _: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Get campaign details.
+    Get campaign details by ID.
     """
     campaign = CampaignService.get_campaign(db, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id} not found")
     return campaign
 
 
-@router.put("/{campaign_id}", response_model=CampaignResponse)
+@router.patch("/{campaign_id}", response_model=CampaignResponse)
 def update_campaign(
     campaign_id: int,
     update_data: CampaignUpdate,
-    current_user: dict = Depends(get_current_admin),
+    _: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
     """
-    Update campaign (Admin only).
+    Partially update a campaign (Admin only).
     """
-    campaign = CampaignService.update_campaign(db, campaign_id, update_data)
-    return campaign
+    campaign = CampaignService.get_campaign(db, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id} not found")
+    try:
+        updated = CampaignService.update_campaign(db, campaign_id, update_data)
+        return updated
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to update campaign")
 
 
-@router.delete("/{campaign_id}")
+@router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_campaign(
     campaign_id: int,
-    current_user: dict = Depends(get_current_admin),
+    _: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
     """
-    Delete campaign (Admin only).
+    Delete a campaign (Admin only).
     """
-    return CampaignService.delete_campaign(db, campaign_id)
+    campaign = CampaignService.get_campaign(db, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id} not found")
+    try:
+        CampaignService.delete_campaign(db, campaign_id)
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete campaign")
