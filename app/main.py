@@ -11,6 +11,7 @@ from app.routes import (
     invite_router,
     member_router,
     challan_router,
+    bulk_challan_router,
     campaign_router,
     notification_router,
     file_router,
@@ -44,6 +45,7 @@ app.include_router(auth_router)
 app.include_router(invite_router)
 app.include_router(member_router)
 app.include_router(challan_router)
+app.include_router(bulk_challan_router)
 app.include_router(campaign_router)
 app.include_router(notification_router)
 app.include_router(file_router)

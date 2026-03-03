@@ -255,3 +255,127 @@ class AuditLogCreate(BaseModel):
     old_values: Optional[str] = None
     new_values: Optional[str] = None
     ip_address: Optional[str] = None
+
+# Bulk Challan Schemas (v1.1)
+class BulkChallanCreate(BaseModel):
+    months: list[str]  # List of YYYY-MM format months
+    amount_per_month: float
+    proof_file_id: str
+    member_id: Optional[int] = None  # Optional for members (uses current user), required for admins
+    notes: Optional[str] = None
+
+
+class BulkChallanLinkedChallan(BaseModel):
+    challan_id: int
+    month: str
+    amount: float
+    status: str
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class BulkChallanResponse(BaseModel):
+    bulk_group_id: str
+    member_id: int
+    created_challans: int
+    challan_ids: list[int]
+    months: list[str]
+    total_amount: float
+    proof_file_id: str
+    status: str
+    created_at: datetime
+    notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BulkChallanListItem(BaseModel):
+    bulk_group_id: str
+    member_id: int
+    member_name: Optional[str] = None
+    member_email: Optional[str] = None
+    months: list[str]
+    months_count: int
+    total_amount: float
+    amount_per_month: float
+    proof_file_id: str
+    proof_url: Optional[str] = None
+    status: str
+    created_at: datetime
+    created_by_email: Optional[str] = None
+    notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BulkChallanListResponse(BaseModel):
+    pending: int
+    bulk_operations: list[BulkChallanListItem]
+
+    class Config:
+        from_attributes = True
+
+
+class BulkChallanApprove(BaseModel):
+    approved: bool
+    admin_notes: Optional[str] = None
+
+
+class BulkChallanApproveResponse(BaseModel):
+    bulk_group_id: str
+    status: str
+    approved_challans: int
+    challan_ids: list[int]
+    months_approved: list[str]
+    total_amount_approved: float
+    approved_by: Optional[str] = None
+    approved_at: datetime
+    admin_notes: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BulkChallanReject(BaseModel):
+    reason: str
+    action: str  # "delete"
+
+
+class BulkChallanRejectResponse(BaseModel):
+    bulk_group_id: str
+    status: str
+    rejected_challans: int
+    challan_ids: list[int]
+    rejected_at: datetime
+    reason: str
+    rejected_by: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BulkChallanDetails(BaseModel):
+    bulk_group_id: str
+    member_id: int
+    member_name: Optional[str] = None
+    member_email: Optional[str] = None
+    months: list[str]
+    total_amount: float
+    amount_per_month: float
+    proof_file_id: str
+    proof_url: Optional[str] = None
+    status: str
+    created_at: datetime
+    created_by_email: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    approved_by: Optional[str] = None
+    admin_notes: Optional[str] = None
+    notes: Optional[str] = None
+    linked_challans: list[BulkChallanLinkedChallan]
+
+    class Config:
+        from_attributes = True

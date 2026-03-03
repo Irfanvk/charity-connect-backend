@@ -127,6 +127,7 @@ class Challan(Base):
     status = Column(Enum(ChallanStatus), default=ChallanStatus.GENERATED, nullable=False)
     approved_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     rejection_reason = Column(Text, nullable=True)
+    bulk_group_id = Column(String(50), ForeignKey("challan_bulk_groups.bulk_group_id"), nullable=True, index=True)
     created_at = Column(DateTime, server_default=func.now())
     proof_uploaded_at = Column(DateTime, nullable=True)
     approved_at = Column(DateTime, nullable=True)
@@ -136,6 +137,36 @@ class Challan(Base):
     member = relationship("Member", back_populates="challans")
     campaign = relationship("Campaign", back_populates="challans")
     approved_by = relationship("User", foreign_keys=[approved_by_admin_id])
+    bulk_group = relationship("BulkChallanGroup", back_populates="challans")
+
+
+class BulkChallanGroup(Base):
+    __tablename__ = "challan_bulk_groups"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    bulk_group_id = Column(String(50), unique=True, nullable=False, index=True)
+    member_id = Column(Integer, ForeignKey("members.id"), nullable=False)
+    amount_per_month = Column(Float, nullable=False)
+    total_amount = Column(Float, nullable=False)
+    proof_file_id = Column(String(255), nullable=False)
+    status = Column(String(20), default="pending_approval", nullable=False)  # pending_approval, approved, rejected
+    months_list = Column(Text, nullable=False)  # JSON array of months
+    challan_ids_list = Column(Text, nullable=False)  # JSON array of challan IDs
+    admin_notes = Column(Text, nullable=True)
+    approved_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    approved_at = Column(DateTime, nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    notes = Column(Text, nullable=True)  # Member notes
+    
+    # Relationships
+    member = relationship("Member")
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    approved_by = relationship("User", foreign_keys=[approved_by_admin_id])
+    challans = relationship("Challan", back_populates="bulk_group")
 
 
 class Notification(Base):

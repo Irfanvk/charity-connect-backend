@@ -3,7 +3,7 @@
 **Project:** CharityConnect  
 **Purpose:** Decisions, meeting minutes, and action items  
 **Owner:** Integration Lead  
-**Last Updated:** 2026-03-02
+**Last Updated:** 2026-03-03
 
 ---
 
@@ -11,7 +11,9 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-03-03 | Bulk challan operations enable 200+ member scalability | Both | 🔄 | v1.1 enhancement: Month multi-select, single-action approval, 10x admin speedup |
 | 2026-03-02 | Admin Reports page rebuilt into modular 3-tab reporting suite with per-report CSV export | Frontend | ✅ | Members/Donations/Challans tabs with period filters and tab-specific CSV schema |
+| 2026-03-03 | Implement bulk challan creation and approval operations (v1.1) | Backend | 🔄 | Reduce admin workload from 5 min to 30 sec per bulk payment; handle 200+ members efficiently |
 | 2026-03-02 | Frontend migrated to canonical notification and invite contract usage | Frontend | ✅ | Removed `/notifications/send` fallback; invite expiry display uses `expiry_date` |
 | 2026-03-01 | Active frontend flows migrated from deprecated `entities.*` to resource APIs | Frontend | ✅ | Aligns runtime behavior with resource client contract |
 | 2026-03-01 | Notifications page switched to supported notification methods with compatibility aliases | Frontend | ✅ | Resolved `Notification.create is not a function` runtime issue |
@@ -617,8 +619,204 @@ Please confirm backend authorization mirrors these rules on all relevant endpoin
 
 ---
 
+## Backend Confirmation (2026-03-03) - Contract Alignment Points
+
+**Summary:** Backend reviewed frontend's 2026-03-03 contract alignment questions and confirms canonical behaviors below. Documentation updated to reflect confirmations.
+
+### Confirmed Backend Contract Points
+
+#### 1. Member Write Contract Completeness ✅
+- **Confirmed writable fields:** `monthly_amount`, `address`, `status`
+- **Read-only fields:** `full_name` (derived), `phone`/`email` (User record), `member_code` (generated)
+- **Not implemented:** `city`, `notes` (require schema extension)
+- **Frontend Action:** If admin edit requires additional fields, submit backend contract extension request
+
+#### 2. Notification Audience Model ✅
+- **List response:** User-scoped (per-user storage model)
+- **Audience metadata:** Not persisted in response; apply at creation time only
+- **Broadcast behavior:** System creates multiple records (one per eligible user)
+- **Frontend behavior:** Treat responses as inherently user-scoped for display/filtering
+
+#### 3. Audit Log Payload Keys ✅
+- **Canonical keys:** `action`, `entity_type`, `entity_id` (required)
+- **Optional keys:** `user_id`, `old_values`, `new_values`, `ip_address`
+- **Extra keys:** Safely ignored; no validation errors
+- **Frontend guidance:** Pre-stringify JSON value fields; map frontend schema to canonical keys
+
+#### 4. Challan Monthly Multi-Month Behavior ✅
+- **Single-month model:** Each challan = one month
+- **Multi-month submission:** Create separate challans or aggregate (frontend responsibility)
+- **Canonical field:** `month` (YYYY-MM): required for monthly type
+- **Frontend options:** Per-month separation (recommended) or frontend-side aggregation
+
+#### 5. Member Detail Endpoint Reliability ✅
+- **Guarantee:** Returns complete member record for admin edit forms
+- **Error handling:** Clear error responses (404/403/500) for surface-level admin feedback
+- **Fresh read:** Recommended before edit dialog opens to prevent stale values
+
+### Documentation Updates Applied
+
+- Updated [FRONTEND_API_REFERENCE.md](FRONTEND_API_REFERENCE.md) with new section "Frontend-Backend Contract Alignment (2026-03-03)"
+- Added detailed confirmations and implementation guidance for each alignment point
+- Clarified member edit field scope in `PUT /members/{id}` documentation
+- Documented challan single-month behavior explicitly
+
+### No Action Items for Backend
+
+All confirmed behaviors are already implemented and documented. Frontend can proceed with current contract.
+
+---
+
 ## Reference Links
 - INTEGRATION_TESTING_GUIDE.md
 - CHANGE_REPORT.md
+- FRONTEND_ALIGNMENT_COMPLETE.md - Full alignment summary (2026-03-03)
+- FRONTEND_ALIGNMENT_QUICK_REFERENCE.md - Alignment matrix and quick ref (2026-03-03)
+- BULK_OPERATIONS_SPEC.md - Bulk challan operations specification (v1.1)
+
+---
+
+## 2026-03-03 - ALIGNMENT COMPLETE ✅
+
+**Summary:** All frontend contract clarification requests processed, confirmed, and documented.
+
+### Frontend Questions Raised (2026-03-03)
+1. Member write contract completeness
+2. Notification audience model for list responses
+3. Audit log accepted payload keys
+4. Challan monthly multi-month behavior
+5. Member detail endpoint reliability for edit flows
+
+### Backend Confirmations & Documentation
+✅ All 5 questions answered and confirmed  
+✅ New alignment section added to FRONTEND_API_REFERENCE.md  
+✅ New COMMUNICATION_LOG section added  
+✅ New files created:
+- FRONTEND_ALIGNMENT_COMPLETE.md (comprehensive summary)
+- FRONTEND_ALIGNMENT_QUICK_REFERENCE.md (matrix + checklist)
+
+### Canonical Contracts (Locked)
+- ✅ Member writable fields: `monthly_amount`, `address`, `status` only
+- ✅ Notification responses: User-scoped, no persisted audience metadata
+- ✅ Audit log payload: Canonical keys + optional, extra keys safely ignored
+- ✅ Challan monthly: Single month per request (multi-month = separate requests)
+- ✅ Member detail: Complete record available for admin edit forms
+
+### Frontend Next Steps
+1. Review alignment section in [FRONTEND_API_REFERENCE.md](FRONTEND_API_REFERENCE.md)
+2. Update member edit form (restrict to canonical writable fields)
+3. Implement challan multi-month handling (choose Option A or B)
+4. Verify audit log payload mapping
+5. Test member detail fetch for edit flows
+
+### Status
+- Backend: ✅ Ready (no action items)
+- Frontend: ✅ Ready to implement with locked contracts
+- Documentation: ✅ Complete and locked
+
+**Integration Lead Sign-off:** All alignment confirmations documented and ready for frontend implementation.
 - API_CONTRACT_BASELINE.md
 - API_CHANGELOG.md
+
+---
+
+## 2026-03-03 - OPERATIONAL EFFICIENCY ENHANCEMENT (Bulk Challan Operations) 🎯
+
+### Problem Statement
+**Real-world operation:** 200+ members, 5 admins, bulk payments in single receipt
+- Member pays 500 Rs with one proof for 5 months (100 Rs × 5 months)
+- Current solution: Create 5 separate challans → Admin reviews same proof 5 times → 5 approve actions
+- **Admin time per bulk payment:** 5 minutes
+- **Scalability ceiling:** ~300 members (admin workload unsustainable)
+
+**Goal:** Reduce admin workflow from 5 minutes to 30 seconds while maintaining audit trail
+
+### Solution: Bulk Operations Backend Enhancement (v1.1)
+
+#### New Endpoints
+
+**1. POST /challans/bulk-create**
+- Create multiple challans linked to single proof
+- Request:
+  ```json
+  {
+    "months": ["2026-01", "2026-02", "2026-03", "2026-04", "2026-05"],
+    "amount_per_month": 100,
+    "proof_file_id": "uuid-proof-123",
+    "notes": "Q1 bulk payment"
+  }
+  ```
+- Response: `{ "bulk_group_id": "bulk-20260303-001", "created_challans": 5, "challan_ids": [...], "status": "pending_approval" }`
+
+**2. GET /admin/bulk-pending-review**
+- Admin dashboard of pending bulk operations
+- Response: Array of bulk groups with member info, months, total amount, proof, status
+- Filters: Created in last N days, pending vs approved, sort by member name
+
+**3. PATCH /admin/bulk/{bulk_group_id}/approve**
+- Single action approves all linked challans
+- Request: `{ "approved": true, "admin_notes": "Proof verified" }`
+- Response: `{ "status": "approved", "approved_challans": 5, "bulk_group_id": "..." }`
+
+**4. PATCH /admin/bulk/{bulk_group_id}/reject**
+- Single action rejects all linked challans
+- Request: `{ "reason": "Proof unclear", "action": "delete" }`
+- Response: Confirmation with bulk_group_id
+
+#### Database Changes
+
+**New Table: `challan_bulk_groups`**
+```sql
+CREATE TABLE challan_bulk_groups (
+    id SERIAL PRIMARY KEY,
+    bulk_group_id VARCHAR(50) UNIQUE,
+    member_id INT NOT NULL,
+    months TEXT[],
+    challan_ids INT[],
+    total_amount DECIMAL,
+    proof_file_id VARCHAR(255),
+    status VARCHAR(20),
+    admin_notes TEXT,
+    approved_by INT,
+    approved_at TIMESTAMP,
+    created_by INT,
+    created_at TIMESTAMP,
+    updated_at TIMESTAMP
+);
+
+ALTER TABLE challans ADD COLUMN bulk_group_id VARCHAR(50);
+```
+
+#### Admin Workflow (Frontend)
+
+1. Dashboard shows: "Ahmed Khan - 5 months, 500 Rs, pending"
+2. Click to view: Single proof preview + 5 months listed
+3. Click "Approve All" → One action updates all 5 challans
+4. Status changes to approved → Member notified
+
+#### Impact Analysis
+
+| Metric | Current | With Bulk | Improvement |
+|--------|---------|-----------|-------------|
+| Admin time per bulk payment | 5 min | 30 sec | **10x faster** |
+| Proof reviews per month | 5 | 1 | **80% reduction** |
+| 200 members @ 4 bulk/yr | 40 hours | 6.7 hours | **33 hours saved** |
+
+#### Implementation Status
+
+- [ ] Database migration created
+- [ ] Models updated (BulkChallanGroup)
+- [ ] Schemas created (BulkChallanCreate, BulkChallanResponse)
+- [ ] Routes implemented (bulk-create, bulk-pending-review, bulk-approve, bulk-reject)
+- [ ] Services updated (bulk_create logic, bulk_approve logic)
+- [ ] Audit logging added (bulk_* actions)
+- [ ] API documentation updated
+- [ ] Frontend integration guide updated (v1.1)
+
+### Next Phase
+
+1. Backend: Implement bulk operations endpoints
+2. Frontend: Add month multi-select + bulk create button
+3. Admin: New bulk approval dashboard
+4. Testing: Integration with 200+ mock members
+5. Release: v1.1.0
