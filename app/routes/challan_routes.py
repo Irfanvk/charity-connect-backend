@@ -84,22 +84,32 @@ def upload_proof(
 
 
 # ------------------------------------------------------------------
-# GET ALL CHALLANS (ADMIN ONLY)
+# GET CHALLANS (ADMIN: ALL, MEMBER: OWN)
 # ------------------------------------------------------------------
 @router.get("/", response_model=List[ChallanResponse])
-def get_all_challans(
+def get_challans(
     skip: int = 0,
     limit: int = 100,
     status_filter: Optional[ChallanStatus] = None,
-    _current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Get all challans (admin only).
+    Get challans:
+    - Admin: all challans
+    - Member: only their own challans
     """
-    return ChallanService.get_all_challans(
-        db, skip, limit, status_filter=status_filter
-    )
+    if _is_admin(current_user):
+        # Admin gets all challans
+        return ChallanService.get_all_challans(
+            db, skip, limit, status_filter=status_filter
+        )
+    else:
+        # Member gets only their own challans
+        member = MemberService.get_member_for_user(db, current_user["user_id"])
+        if not member:
+            raise HTTPException(status_code=404, detail="Member not found")
+        return ChallanService.get_member_challans(db, member.id, skip, limit)
 
 
 # ------------------------------------------------------------------
@@ -153,9 +163,9 @@ def get_challan(
 # ------------------------------------------------------------------
 @router.patch("/{challan_id}/approve", response_model=ChallanResponse)
 def approve_challan(
-    approve_data: ChallanApprove,
     challan_id: int,
-    _current_user: dict = Depends(get_current_admin),
+    approve_data: ChallanApprove,
+    current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
     challan = ChallanService.get_challan(db, challan_id)
@@ -166,7 +176,10 @@ def approve_challan(
             detail="Challan already processed"
         )
 
-    return ChallanService.approve_challan(db, challan_id, approve_data)
+    # Use current_user's ID if not provided in request
+    admin_id = approve_data.approved_by_admin_id or current_user.get("user_id")
+    
+    return ChallanService.approve_challan(db, challan_id, admin_id)
 
 
 # ------------------------------------------------------------------

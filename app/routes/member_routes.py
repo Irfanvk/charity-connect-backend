@@ -14,17 +14,26 @@ def _is_admin(current_user: dict) -> bool:
 
 
 @router.get("/", response_model=List[MemberResponse])
-def get_all_members(
+def get_members(
     skip: int = 0,
     limit: int = 100,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Get all members (Admin only).
+    Get members:
+    - Admin: all members
+    - Member: only their own profile (as list)
     """
-    members = MemberService.get_all_members(db, skip, limit)
-    return members
+    if _is_admin(current_user):
+        # Admin gets all members
+        return MemberService.get_all_members(db, skip, limit)
+    else:
+        # Member gets only their own profile (returned as list)
+        member = MemberService.get_member_for_user(db, current_user["user_id"])
+        if not member:
+            raise HTTPException(status_code=404, detail="Member profile not found")
+        return [member]
 
 
 @router.get("/me", response_model=MemberResponse)

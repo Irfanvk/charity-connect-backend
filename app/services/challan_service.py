@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from app.models import Challan, Member
 from app.models.models import ChallanStatus, ChallanType
-from app.schemas import ChallanCreate, ChallanApprove, ChallanReject
+from app.schemas import ChallanCreate, ChallanReject
 from app.utils.file_handler import save_file, validate_file
 from fastapi import HTTPException, status
 from datetime import datetime
@@ -102,7 +102,7 @@ class ChallanService:
         return challan
     
     @staticmethod
-    def approve_challan(db: Session, challan_id: int, approve_data: ChallanApprove):
+    def approve_challan(db: Session, challan_id: int, approved_by_admin_id: int):
         """Approve challan."""
         
         challan = db.query(Challan).filter(Challan.id == challan_id).first()
@@ -119,7 +119,7 @@ class ChallanService:
             )
         
         challan.status = ChallanStatus.APPROVED
-        challan.approved_by_admin_id = approve_data.approved_by_admin_id
+        challan.approved_by_admin_id = approved_by_admin_id
         challan.approved_at = datetime.utcnow()
         
         db.commit()

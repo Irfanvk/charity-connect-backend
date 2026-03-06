@@ -174,7 +174,7 @@ class ChallanProofUpload(BaseModel):
 
 
 class ChallanApprove(BaseModel):
-    approved_by_admin_id: int
+    approved_by_admin_id: Optional[int] = None
 
 
 class ChallanReject(BaseModel):

@@ -42,14 +42,7 @@ app = FastAPI(
 # Create all tables
 Base.metadata.create_all(bind=engine)
 
-# Add security middleware: TrustedHost
-if not settings.DEBUG:
-    app.add_middleware(
-        TrustedHostMiddleware,
-        allowed_hosts=settings.ALLOWED_HOSTS,
-    )
-
-# Add CORS middleware
+# Add CORS middleware FIRST (so it executes LAST, before TrustedHost)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.CORS_ORIGINS,
@@ -57,6 +50,13 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# Add security middleware: TrustedHost AFTER CORS (so it executes first)
+if not settings.DEBUG:
+    app.add_middleware(
+        TrustedHostMiddleware,
+        allowed_hosts=settings.ALLOWED_HOSTS,
+    )
 
 # Include routers
 app.include_router(auth_router)
