@@ -11,6 +11,7 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-03-04 | Campaign update endpoint now supports both PUT and PATCH methods | Backend | ✅ | Added PUT as alias to PATCH for frontend compatibility; PATCH remains canonical |
 | 2026-03-04 | Frontend implemented bulk challan v1.1 integration (create + pending review + approve/reject-all actions) | Frontend | ✅ | Dashboard tab and challan multi-month bulk-create routing completed |
 | 2026-03-03 | Backend implemented bulk challan operations v1.1 (models, schemas, routes, audit logging) | Backend | ✅ | Complete implementation: POST /challans/bulk-create, GET /admin/bulk-pending-review, PATCH approve/reject endpoints |
 | 2026-03-03 | Bulk challan operations enable 200+ member scalability | Both | ✅ | v1.1 enhancement: Month multi-select, single-action approval, 10x admin speedup |
@@ -823,6 +824,119 @@ ALTER TABLE challans ADD COLUMN bulk_group_id VARCHAR(50);
 ### Backend Implementation Complete (2026-03-03) ✅
 
 All v1.1 bulk operations implemented and ready for testing. See details in next section below.
+
+---
+
+## 2026-03-04 - Backend Response (Campaign Update Methods - PUT/PATCH Support)
+
+**Summary:** Backend updated campaign routes to support both PUT and PATCH for maximum frontend compatibility.
+
+### Frontend Issue Reported
+
+Frontend team reported campaign edit failures with "CORS Method Not Found" error when attempting to PATCH campaigns (observed while editing fields like `image_url`). Frontend implemented temporary workaround: PUT first with PATCH fallback.
+
+### Root Cause Analysis
+
+- **CORS Configuration:** Already correct - `allow_methods=["*"]` in middleware allows all HTTP methods including OPTIONS, PUT, PATCH
+- **Actual Issue:** Backend only had `@router.patch()` endpoint defined for campaign updates
+- **Result:** When frontend sent PUT request, backend returned 405 Method Not Allowed (endpoint doesn't exist)
+
+### Backend Fix Applied ✅
+
+**File:** [app/routes/campaign_routes.py](app/routes/campaign_routes.py)
+
+**Change:** Added dual method decorator support:
+```python
+@router.patch("/{campaign_id}", response_model=CampaignResponse)
+@router.put("/{campaign_id}", response_model=CampaignResponse)
+def update_campaign(campaign_id: int, update_data: CampaignUpdate, ...):
+    """
+    Update a campaign (Admin only).
+    
+    Supports both PUT and PATCH methods for compatibility.
+    PATCH is canonical for partial updates, but PUT is also accepted.
+    """
+```
+
+**What This Means:**
+- ✅ Both `PUT /campaigns/{id}` and `PATCH /campaigns/{id}` now work
+- ✅ Same function handles both methods
+- ✅ Same request/response schema (`CampaignUpdate` / `CampaignResponse`)
+- ✅ Frontend can use either method successfully
+
+### Canonical Method Confirmation
+
+**Recommendation for Frontend:**
+
+**Option A: Use PATCH (Recommended)**
+```javascript
+api.patch(`/campaigns/${id}`, updateData)
+```
+- Semantically correct for partial updates
+- RESTful standard for partial resource updates
+- Canonical method going forward
+
+**Option B: Use PUT (Also Supported)**
+```javascript
+api.put(`/campaigns/${id}`, updateData)
+```
+- Fully supported for compatibility
+- Same behavior as PATCH in our implementation
+
+**Frontend Action Items:**
+1. ✅ Can remove PUT-first-with-PATCH-fallback workaround
+2. ✅ Choose one method (PATCH recommended) and use consistently
+3. ✅ Both methods are now guaranteed to work
+
+### CORS Verification
+
+**Current CORS config in [app/main.py](app/main.py):**
+```python
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],        # ✅ Allows OPTIONS, GET, POST, PUT, PATCH, DELETE
+    allow_headers=["*"],        # ✅ Allows all headers
+)
+```
+
+**Confirmed working methods:**
+- ✅ OPTIONS (preflight)
+- ✅ GET
+- ✅ POST
+- ✅ PUT
+- ✅ PATCH
+- ✅ DELETE
+
+### Testing
+
+**Test with curl:**
+```bash
+# Test PATCH (canonical)
+curl -X PATCH http://localhost:8000/campaigns/1 \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Updated Title"}'
+
+# Test PUT (also works)
+curl -X PUT http://localhost:8000/campaigns/1 \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Updated Title"}'
+```
+
+**Expected:** Both return 200 with updated campaign object
+
+### Status
+
+- Backend fix: ✅ Complete
+- CORS config: ✅ Already correct
+- Routes updated: ✅ PUT and PATCH both supported
+- Documentation: ✅ Updated in this log
+- Frontend action: ✅ Can switch to single method (PATCH recommended)
+
+**Issue resolved. Campaign updates now work with both PUT and PATCH methods.** 🎯
 
 ---
 

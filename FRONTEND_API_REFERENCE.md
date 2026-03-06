@@ -737,14 +737,19 @@ GET /campaigns/?skip=0&limit=20&active_only=true
 ---
 
 ### 4. Update Campaign
-**PATCH** `/campaigns/{campaign_id}`
+**PATCH** `/campaigns/{campaign_id}` (Recommended)  
+**PUT** `/campaigns/{campaign_id}` (Also Supported)
 
-**Description:** Partially update campaign
+**Description:** Update campaign fields
 
 **Authorization:** Admin/Superadmin only
 
 **Path Parameters:**
 - `campaign_id` (integer, required): Campaign ID
+
+**Methods:**
+- **PATCH** (Recommended): Semantically correct for partial updates. Only send fields to update.
+- **PUT** (Also Supported): Accepted for compatibility. Same behavior as PATCH.
 
 **Request Body:**
 ```json
@@ -777,6 +782,8 @@ GET /campaigns/?skip=0&limit=20&active_only=true
 **Error Responses:**
 - **400 Bad Request:** Invalid data
 - **404 Not Found:** Campaign not found
+
+**Note:** Both PUT and PATCH methods work identically. Use PATCH for semantic correctness.
 
 ---
 

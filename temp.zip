@@ -1,0 +1,94 @@
+Charity Membership & Donation Management System (low budget project)
+Project Architecture & Development Plan
+1. Project Objective
+Build a web-based application for a charity organization to manage members, monthly membership payments, occasional donations, challan generation, payment proof uploads, admin approvals, dashboards, reports, and notifications. 
+The system will replace Excel-based tracking and support desktop, mobile browsers, and Progressive Web App (PWA) installation. 
+The project must remain budget-friendly, simple, and scalable for future enhancements.
+2. Target Users
+Super Admins (Developers)
+- Full system, server, database, and configuration access.
+
+Admins (Max 5)
+- Manage members, approve payments, create campaigns, export reports, post notifications.
+
+Members
+- View profile, create challans, upload proofs, view history, receive notifications.
+3. Core Modules
+Authentication (JWT, role-based)
+Member Management
+Payments & Challans
+Proof Upload
+Notifications (In‑App)
+Dashboards (Admin & Member)
+Reports & Exports
+Excel Import
+PWA Support
+4. Invitation & Registration Flow
+Admins invite users using phone number or email.
+System generates an Invite Code.
+New user enters Invite Code + Phone/Email.
+If matched, user proceeds to registration form.
+User fills username, password, address, etc.
+Member ID is assigned by Admin.
+System suggests next sequential Member ID based on last entry.
+5. Challan Logic
+Monthly Challans:
+- User generates for unpaid months only.
+- Fixed monthly amount.
+
+Occasional Donations:
+- Admin creates campaign.
+- Reflected on all member dashboards.
+- User can participate and generate challan.
+
+Status Flow:
+Generated → Proof Uploaded → Pending → Approved/Rejected
+6. Technology Stack (Budget Friendly)
+Frontend: Vue.js (Responsive + PWA)
+Backend: FastAPI or Flask
+Database: MongoDB or PostgreSQL (Self Hosted)
+Storage: Local → Cloud Later
+Hosting: VPS Linux Server
+Version Control: GitHub
+7. Security & Best Practices
+Password hashing (bcrypt)
+JWT expiration
+Role Based Access Control
+File validation & size limits
+HTTPS only
+Audit logs
+Database indexing
+Weekly backups
+Error logging
+8. Collaboration Workflow
+GitHub Branches:
+main – Production
+dev – Testing
+feature/* – New features
+hotfix/* – Urgent fixes
+
+Task Division:
+Developer A – Backend, APIs, DB
+Developer B – Frontend, UI, PWA
+9. Infrastructure Cost (Approx 2 Years)
+Domain: ~$30
+VPS Hosting: ~$300
+SSL: Free
+Database: Free (Self Hosted)
+Storage: Included
+Estimated Total: ~$330
+10. Future Enhancements
+Email/SMS notifications
+Payment gateway
+Cloud storage
+Multi-language support
+Advanced analytics
+Mobile native apps
+Multi‑organization support
+11. Backup Strategy
+Weekly database and file backups.
+Monthly restore testing.
+Later: automated daily backups.
+12. Guiding Principle
+Keep the system simple, modular, permission‑controlled, and scalable without over‑engineering.
+This plan provides a clear roadmap for developing the Charity Membership & Donation Management System while adhering to budget constraints and ensuring scalability for future growth.
