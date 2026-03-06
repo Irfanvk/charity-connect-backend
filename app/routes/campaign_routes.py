@@ -12,18 +12,18 @@ router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
 @router.post("/", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
 def create_campaign(
     campaign_data: CampaignCreate,
-    _: dict = Depends(get_current_admin),
+    current_admin: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
     """
     Create new campaign (Admin only).
     """
     try:
-        campaign = CampaignService.create_campaign(db, campaign_data, _["user_id"])
+        campaign = CampaignService.create_campaign(db, campaign_data, current_admin["user_id"])
         return campaign
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
-    except Exception as e:
+    except Exception:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to create campaign")
 
 
