@@ -61,6 +61,7 @@ def get_campaign(
 
 
 @router.patch("/{campaign_id}", response_model=CampaignResponse)
+@router.put("/{campaign_id}", response_model=CampaignResponse)
 def update_campaign(
     campaign_id: int,
     update_data: CampaignUpdate,
@@ -68,7 +69,10 @@ def update_campaign(
     db: Session = Depends(get_db),
 ):
     """
-    Partially update a campaign (Admin only).
+    Update a campaign (Admin only).
+    
+    Supports both PUT and PATCH methods for compatibility.
+    PATCH is canonical for partial updates, but PUT is also accepted.
     """
     campaign = CampaignService.get_campaign(db, campaign_id)
     if not campaign:
