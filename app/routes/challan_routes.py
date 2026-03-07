@@ -35,7 +35,14 @@ def create_challan(
 
         member = MemberService.get_member(db, challan_data.member_id)
     else:
-        member = MemberService.get_member_for_user(db, current_user["user_id"])
+        try:
+            member = MemberService.get_member_for_user(db, current_user["user_id"])
+        except HTTPException:
+            # Member record doesn't exist for this user
+            raise HTTPException(
+                status_code=404, 
+                detail="No member record found for your account. Please contact admin."
+            )
 
         if challan_data.member_id is not None and challan_data.member_id != member.id:
             raise HTTPException(status_code=403, detail="Not authorized to create challan for another member")
