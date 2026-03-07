@@ -7,6 +7,16 @@
   - `optimize_database.py` now contains embedded index optimization SQL (no external SQL dependency).
   - `fix_missing_members.ps1` now contains embedded migration SQL and runs without `fix_missing_members.sql`.
 - `fix_missing_members.ps1` role matching is now case-safe using `LOWER(role::text) = 'member'` for broader enum compatibility.
+- Notification delivery now guarantees sender-admin visibility:
+  - when admin sends a notification, a copy is also stored for the sending admin if they were not already a recipient.
+
+### Added
+- `GET /notifications/admin/sent`
+  - Admin panel endpoint for grouped sent-notification batches with audience diagnostics.
+  - Supports filters: `minutes`, `audience_filter` (`all|members|admins|superadmins`), `skip`, `limit`.
+- `DELETE /notifications/admin/sent`
+  - Admin panel endpoint to remove a sent batch by `batch_created_at + title + message`.
+  - Supports scoped deletion via `recipient_scope` (`all|members|admins|superadmins`).
 
 ### Removed
 - `fix_missing_members.sql` (replaced by self-contained PowerShell script logic).

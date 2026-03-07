@@ -246,6 +246,31 @@ class NotificationResponse(BaseModel):
         from_attributes = True
 
 
+class NotificationSentBatchResponse(BaseModel):
+    batch_created_at: datetime
+    title: str
+    message: str
+    target_role: Optional[UserRole] = None
+    audience_label: str
+    total_recipients: int
+    member_recipients: int
+    admin_recipients: int
+    superadmin_recipients: int
+    unread_count: int
+
+
+class NotificationSentDeleteRequest(BaseModel):
+    batch_created_at: datetime
+    title: str
+    message: str
+    recipient_scope: str = "all"  # all | members | admins | superadmins
+
+
+class NotificationSentDeleteResponse(BaseModel):
+    deleted_count: int
+    message: str
+
+
 # Audit Log Schemas
 class AuditLogResponse(BaseModel):
     id: int

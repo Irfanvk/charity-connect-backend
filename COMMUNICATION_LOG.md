@@ -11,6 +11,8 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-03-07 | Admin notification panel enhanced with sent-batch listing and scoped delete controls | Backend | ✅ | Added `/notifications/admin/sent` (list) and `DELETE /notifications/admin/sent` (members/admins/all scope removal) |
+| 2026-03-07 | Newly sent notifications now always reflect in sender-admin panel | Backend | ✅ | Sending admin receives an auto-included copy if they were not already in recipients |
 | 2026-03-07 | Repository hygiene pass completed for non-source artifacts | Backend | ✅ | Removed redundant archive markdown files and local test DB artifact from tracked repo files |
 | 2026-03-07 | Database setup artifacts consolidated to a single init SQL file | Backend | ✅ | Kept `init_db.sql`; moved fix/optimize SQL logic into self-contained scripts |
 | 2026-03-07 | Docx/extracted/temp artifacts moved to local-only storage and ignored in git | Backend | ✅ | Moved files under `.local_artifacts/`; updated `.gitignore` with docx/temp/db ignore rules |

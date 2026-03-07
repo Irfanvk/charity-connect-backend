@@ -485,7 +485,7 @@ const createMember = async (data: {
 // Get unread count
 const getUnreadCount = async (): Promise<number> => {
   const response = await api.get('/notifications/unread/count');
-  return response.data.count;
+  return response.data.unread_count;
 };
 
 // Get user's notifications
@@ -503,6 +503,53 @@ const markAsRead = async (notificationId: number) => {
 // Mark all as read
 const markAllAsRead = async () => {
   const response = await api.post('/notifications/mark-all-read');
+  return response.data;
+};
+
+// Admin panel: list sent notification batches
+type AudienceFilter = 'all' | 'members' | 'admins' | 'superadmins';
+
+const getAdminSentNotifications = async (params?: {
+  minutes?: number;
+  audience_filter?: AudienceFilter;
+  skip?: number;
+  limit?: number;
+}) => {
+  const response = await api.get('/notifications/admin/sent', {
+    params: {
+      minutes: params?.minutes ?? 10080,
+      audience_filter: params?.audience_filter ?? 'all',
+      skip: params?.skip ?? 0,
+      limit: params?.limit ?? 50,
+    },
+  });
+  return response.data;
+};
+
+// Admin panel: delete sent batch by recipient scope
+type RecipientScope = 'all' | 'members' | 'admins' | 'superadmins';
+
+const deleteAdminSentNotifications = async (payload: {
+  batch_created_at: string;
+  title: string;
+  message: string;
+  recipient_scope: RecipientScope;
+}) => {
+  const response = await api.delete('/notifications/admin/sent', {
+    data: payload,
+  });
+  return response.data;
+};
+
+// Admin panel helper: send + auto-visibility for sender admin
+const createNotification = async (payload: {
+  title: string;
+  message: string;
+  user_id?: number;
+  target_role?: 'member' | 'admin' | 'superadmin';
+}) => {
+  const response = await api.post('/notifications/', payload);
+  // Backend now auto-includes sender admin if not already in recipients.
   return response.data;
 };
 

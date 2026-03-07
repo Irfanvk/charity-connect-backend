@@ -96,6 +96,8 @@ Authorization: Bearer <access_token>
 |--------|----------|------|-------------|
 | POST | `/notifications/` | Admin | Send notification |
 | GET | `/notifications/` | User | Get my notifications |
+| GET | `/notifications/admin/sent` | Admin | List grouped sent notifications for admin panel |
+| DELETE | `/notifications/admin/sent` | Admin | Delete sent batch by scope (members/admins/all) |
 | GET | `/notifications/unread/count` | User | Get unread count |
 | GET | `/notifications/{id}` | User | Get notification |
 | PUT | `/notifications/{id}/read` | User | Mark as read |
@@ -153,6 +155,59 @@ Authorization: Bearer <access_token>
 #### Notification Management
 - Canonical endpoint: `POST /notifications/`
 - Deprecated alias: `POST /notifications/send`
+- Sender-admin visibility rule:
+  - when admin sends a notification to members/admins/specific user, backend ensures sender admin also gets a copy in their own list.
+
+### Admin Notification Panel
+
+#### List Sent Batches
+**GET** `/notifications/admin/sent`
+
+**Query Parameters:**
+- `minutes=10080` - time window in minutes (default 7 days)
+- `audience_filter=all` - `all | members | admins | superadmins`
+- `skip=0`, `limit=50`
+
+**Response (200):**
+```json
+[
+  {
+    "batch_created_at": "2026-03-07T17:21:52.713476",
+    "title": "Hello",
+    "message": "Notification visibility test",
+    "target_role": "member",
+    "audience_label": "members-only",
+    "total_recipients": 8,
+    "member_recipients": 7,
+    "admin_recipients": 1,
+    "superadmin_recipients": 0,
+    "unread_count": 8
+  }
+]
+```
+
+#### Delete Sent Batch By Scope
+**DELETE** `/notifications/admin/sent`
+
+**Request:**
+```json
+{
+  "batch_created_at": "2026-03-07T17:21:52.713476",
+  "title": "Hello",
+  "message": "Notification visibility test",
+  "recipient_scope": "members"
+}
+```
+
+`recipient_scope` allowed values: `all`, `members`, `admins`, `superadmins`.
+
+**Response (200):**
+```json
+{
+  "deleted_count": 7,
+  "message": "Deleted 7 notifications"
+}
+```
 
 ### Error Response Standard
 All 4xx/5xx responses normalized to:

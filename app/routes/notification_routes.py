@@ -1,7 +1,14 @@
 from fastapi import APIRouter, Depends, status, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.schemas import NotificationCreate, NotificationResponse, NotificationAdminUpdate
+from app.schemas import (
+    NotificationCreate,
+    NotificationResponse,
+    NotificationAdminUpdate,
+    NotificationSentBatchResponse,
+    NotificationSentDeleteRequest,
+    NotificationSentDeleteResponse,
+)
 from app.services import NotificationService
 from app.utils import get_current_user, get_current_admin
 from typing import List
@@ -46,6 +53,41 @@ def get_unread_count(
     """
     count = NotificationService.get_unread_notifications_count(db, current_user["user_id"])
     return {"unread_count": count}
+
+
+@router.get("/admin/sent", response_model=List[NotificationSentBatchResponse])
+def get_admin_sent_notifications(
+    minutes: int = Query(default=10080, ge=1, le=525600),
+    audience_filter: str = Query(default="all", pattern="^(all|members|admins|superadmins)$"),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    _current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin panel: list grouped sent-notification batches with audience identification."""
+    return NotificationService.get_admin_sent_notifications(
+        db,
+        minutes=minutes,
+        audience_filter=audience_filter,
+        skip=skip,
+        limit=limit,
+    )
+
+
+@router.delete("/admin/sent", response_model=NotificationSentDeleteResponse)
+def delete_admin_sent_notifications(
+    payload: NotificationSentDeleteRequest,
+    _current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin panel: delete notifications from a sent batch for members/admins/all scope."""
+    return NotificationService.delete_admin_sent_notifications(
+        db,
+        batch_created_at=payload.batch_created_at,
+        title=payload.title,
+        message=payload.message,
+        recipient_scope=payload.recipient_scope,
+    )
 
 
 @router.get("/{notification_id}", response_model=NotificationResponse)
