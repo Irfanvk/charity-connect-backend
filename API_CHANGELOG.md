@@ -1,5 +1,20 @@
 # API Changelog
 
+## 2026-03-07
+
+### Changed
+- Database maintenance tooling was consolidated to reduce repo artifacts:
+  - `optimize_database.py` now contains embedded index optimization SQL (no external SQL dependency).
+  - `fix_missing_members.ps1` now contains embedded migration SQL and runs without `fix_missing_members.sql`.
+- `fix_missing_members.ps1` role matching is now case-safe using `LOWER(role::text) = 'member'` for broader enum compatibility.
+
+### Removed
+- `fix_missing_members.sql` (replaced by self-contained PowerShell script logic).
+- `db_optimize_indexes.sql` (replaced by self-contained Python optimization script logic).
+
+### Notes
+- No external API route or payload contract changes were introduced in this entry.
+
 ## 2026-03-02
 
 ### Changed

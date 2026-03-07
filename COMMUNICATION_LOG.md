@@ -3,7 +3,7 @@
 **Project:** CharityConnect  
 **Purpose:** Decisions, meeting minutes, and action items  
 **Owner:** Integration Lead  
-**Last Updated:** 2026-03-03
+**Last Updated:** 2026-03-07
 
 ---
 
@@ -11,6 +11,9 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-03-07 | Repository hygiene pass completed for non-source artifacts | Backend | ✅ | Removed redundant archive markdown files and local test DB artifact from tracked repo files |
+| 2026-03-07 | Database setup artifacts consolidated to a single init SQL file | Backend | ✅ | Kept `init_db.sql`; moved fix/optimize SQL logic into self-contained scripts |
+| 2026-03-07 | Docx/extracted/temp artifacts moved to local-only storage and ignored in git | Backend | ✅ | Moved files under `.local_artifacts/`; updated `.gitignore` with docx/temp/db ignore rules |
 | 2026-03-04 | Campaign update endpoint now supports both PUT and PATCH methods | Backend | ✅ | Added PUT as alias to PATCH for frontend compatibility; PATCH remains canonical |
 | 2026-03-04 | Frontend implemented bulk challan v1.1 integration (create + pending review + approve/reject-all actions) | Frontend | ✅ | Dashboard tab and challan multi-month bulk-create routing completed |
 | 2026-03-03 | Backend implemented bulk challan operations v1.1 (models, schemas, routes, audit logging) | Backend | ✅ | Complete implementation: POST /challans/bulk-create, GET /admin/bulk-pending-review, PATCH approve/reject endpoints |
