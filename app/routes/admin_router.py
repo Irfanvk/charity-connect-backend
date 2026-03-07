@@ -21,12 +21,16 @@ from app.models.models import (
     Member,
     User,
     AuditLog,
-    UserRole,
 )
 from app.utils.auth import get_current_user
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _is_admin_role(current_user: dict) -> bool:
+    role = str(current_user.get("role", "")).lower()
+    return role in ["admin", "superadmin"]
 
 
 # GET PENDING BULK OPERATIONS (ADMIN ONLY)
@@ -38,7 +42,7 @@ def get_pending_bulk_operations(
     sort_by: str = "created_at",
     order: str = "desc",
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Get all pending bulk challan operations for admin review.
@@ -50,7 +54,7 @@ def get_pending_bulk_operations(
     - order: Sort order 'asc' or 'desc' (default: desc)
     """
     
-    if current_user.role not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+    if not _is_admin_role(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
     
     # Query pending bulk groups
@@ -138,7 +142,7 @@ def get_pending_bulk_operations(
 def get_bulk_challan_details(
     bulk_group_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Get detailed information about a specific bulk operation.
@@ -146,7 +150,7 @@ def get_bulk_challan_details(
     Admin only endpoint.
     """
     
-    if current_user.role not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+    if not _is_admin_role(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
     
     bulk_group = db.query(BulkChallanGroup).filter(
@@ -208,7 +212,7 @@ def approve_bulk_challans(
     bulk_group_id: str,
     request: BulkChallanApprove,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Approve all challans in a bulk group in a single action.
@@ -216,8 +220,11 @@ def approve_bulk_challans(
     Admin only endpoint.
     """
     
-    if current_user.role not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+    if not _is_admin_role(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
+
+    admin_user_id = current_user.get("user_id")
+    admin_user = db.query(User).filter(User.id == admin_user_id).first()
     
     if not request.approved:
         raise HTTPException(
@@ -246,12 +253,12 @@ def approve_bulk_challans(
             challan = db.query(Challan).filter(Challan.id == challan_id).first()
             if challan:
                 challan.status = ChallanStatus.APPROVED
-                challan.approved_by_admin_id = current_user.id
+                challan.approved_by_admin_id = admin_user_id
                 challan.approved_at = datetime.utcnow()
         
         # Update bulk group
         bulk_group.status = "approved"
-        bulk_group.approved_by_admin_id = current_user.id
+        bulk_group.approved_by_admin_id = admin_user_id
         bulk_group.approved_at = datetime.utcnow()
         bulk_group.admin_notes = request.admin_notes
         
@@ -260,7 +267,7 @@ def approve_bulk_challans(
         # Create audit log
         months = json.loads(bulk_group.months_list) if bulk_group.months_list else []
         audit_log = AuditLog(
-            user_id=current_user.id,
+            user_id=admin_user_id,
             action="bulk_approve",
             entity_type="BulkChallanGroup",
             entity_id=bulk_group.id,
@@ -281,7 +288,7 @@ def approve_bulk_challans(
             challan_ids=challan_ids,
             months_approved=months,
             total_amount_approved=bulk_group.total_amount,
-            approved_by=current_user.email,
+            approved_by=admin_user.email if admin_user else None,
             approved_at=datetime.utcnow(),
             admin_notes=request.admin_notes,
         )
@@ -296,7 +303,7 @@ def reject_bulk_challans(
     bulk_group_id: str,
     request: BulkChallanReject,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Reject all challans in a bulk group and delete associated records.
@@ -304,8 +311,11 @@ def reject_bulk_challans(
     Admin only endpoint.
     """
     
-    if current_user.role not in [UserRole.ADMIN, UserRole.SUPERADMIN]:
+    if not _is_admin_role(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
+
+    admin_user_id = current_user.get("user_id")
+    admin_user = db.query(User).filter(User.id == admin_user_id).first()
     
     if not request.reason:
         raise HTTPException(
@@ -349,7 +359,7 @@ def reject_bulk_challans(
         # Create audit log
         months = json.loads(bulk_group.months_list) if bulk_group.months_list else []
         audit_log = AuditLog(
-            user_id=current_user.id,
+            user_id=admin_user_id,
             action="bulk_reject",
             entity_type="BulkChallanGroup",
             entity_id=bulk_group.id,
@@ -369,7 +379,7 @@ def reject_bulk_challans(
             challan_ids=challan_ids,
             rejected_at=datetime.utcnow(),
             reason=request.reason,
-            rejected_by=current_user.email,
+            rejected_by=admin_user.email if admin_user else None,
         )
     except Exception as e:
         db.rollback()

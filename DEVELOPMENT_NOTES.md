@@ -344,6 +344,36 @@ Admin On-Behalf Flow:
 
 ## Change History
 
+### March 8, 2026 - Critical Bug Fixes & Security Enhancement
+**Fixed:**
+- Admin bulk operations 500 error: Fixed auth context mismatch in dict-based JWT (added `_is_admin_role()` helper)
+- Audit logs 422 validation error: Changed `user_id` parameter from Optional[int] to Optional[str] with normalization
+- Audit logs frontend: Enhanced query builder to filter empty params; added field normalizer for backend→frontend mapping
+
+**Changed:**
+- Authentication: Login now accepts username OR email (auto-detection)
+- Username validation: Added frontend real-time validation (3-30 chars, alphanumeric + underscore/hyphen)
+
+**Security:**
+- Enforced username uniqueness across all users (409 CONFLICT on duplicates)
+- Database UNIQUE constraint on users.username verified
+- Backend validation at lines 86-89 in auth_service.py
+
+**Testing:**
+- Comprehensive end-to-end test suite executed (20+ test scenarios)
+- All tests passed: admin operations, audit logs, login variants, registration with duplicate detection
+- Test users created: `newuser123` (ID 10), `anotheruser456` (ID 11)
+- Duplicate rejection confirmed: 409 CONFLICT returned correctly
+
+**Files Modified:**
+- Backend: `app/routes/admin_router.py`, `app/routes/audit_log_routes.py`, `app/services/auth_service.py`
+- Frontend: `src/pages/Login.jsx`, `src/pages/Register.jsx`, `src/pages/AuditLogs.jsx`, `src/api/charityClient.js`
+
+**Documentation:**
+- Updated API_CHANGELOG.md with all 2026-03-08 changes
+- Updated COMMUNICATION_LOG.md with 6 new decision log entries
+- Created comprehensive CHANGE_REPORT.md
+
 ### March 7, 2026 - E2E Alignment & Production Prep
 **Added:**
 - Member CRUD endpoints: `POST /members/`, `DELETE /members/{id}`

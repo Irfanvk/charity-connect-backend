@@ -24,8 +24,8 @@ class ChallanType(str, Enum):
 
 # Auth Schemas
 class UserLogin(BaseModel):
-    username: Optional[str] = None
-    email: Optional[str] = None
+    username: Optional[str] = None  # Can be username or email
+    email: Optional[str] = None     # Backward compatibility
     password: str
 
 
@@ -269,6 +269,39 @@ class NotificationSentDeleteRequest(BaseModel):
 class NotificationSentDeleteResponse(BaseModel):
     deleted_count: int
     message: str
+
+
+class RequestCreate(BaseModel):
+    request_type: str = "question"
+    subject: str
+    message: str
+    priority: str = "medium"
+
+
+class RequestUpdate(BaseModel):
+    status: Optional[str] = None
+    admin_response: Optional[str] = None
+    resolved_by: Optional[str] = None
+    resolved_at: Optional[datetime] = None
+
+
+class RequestResponse(BaseModel):
+    id: int
+    created_by_user_id: int
+    created_by: Optional[str] = None
+    request_type: str
+    subject: str
+    message: str
+    priority: str
+    status: str
+    admin_response: Optional[str] = None
+    resolved_by: Optional[str] = None
+    resolved_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
 
 
 # Audit Log Schemas

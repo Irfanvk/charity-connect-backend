@@ -16,6 +16,7 @@ from app.routes import (
     admin_router,
     campaign_router,
     notification_router,
+    request_router,
     file_router,
     user_router,
     audit_log_router,
@@ -67,6 +68,7 @@ app.include_router(bulk_challan_router)
 app.include_router(admin_router)
 app.include_router(campaign_router)
 app.include_router(notification_router)
+app.include_router(request_router)
 app.include_router(file_router)
 app.include_router(user_router)
 app.include_router(audit_log_router)

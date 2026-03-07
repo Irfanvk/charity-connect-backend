@@ -5,6 +5,7 @@ from .models import (
     Campaign,
     Challan,
     Notification,
+    Request,
     AuditLog,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "Campaign",
     "Challan",
     "Notification",
+    "Request",
     "AuditLog",
 ]

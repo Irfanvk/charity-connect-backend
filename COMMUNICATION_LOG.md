@@ -11,6 +11,11 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-03-08 | Fixed admin bulk operations 500 error (auth context mismatch in dict-based JWT) | Backend | ✅ | Root cause: admin routes using `current_user.role` attribute access on dict context; Fixed with `_is_admin_role()` helper; all 4 admin endpoints now return 200 |
+| 2026-03-08 | Fixed audit logs 422 validation error (empty query param handling) | Both | ✅ | Backend changed user_id from Optional[int] to Optional[str]; Frontend filters empty params; Normalizer maps backend fields to frontend format |
+| 2026-03-08 | Enhanced login authentication to accept username OR email (auto-detection) | Backend | ✅ | Single identifier field in backend login; auto-tries username first, then email; Frontend updated with "Username or Email" field |
+| 2026-03-08 | Enforced username uniqueness across all users with 409 CONFLICT response | Backend | ✅ | Database UNIQUE constraint on users.username; Registration returns 409 if duplicate; Frontend validation shows real-time feedback (3-30 chars, alphanumeric+underscore/hyphen) |
+| 2026-03-08 | Enhanced registration form with real-time username validation | Frontend | ✅ | Added validateUsername() function with format checking; Shows green/red feedback; Validates 3-30 chars and allowed special chars only |
 | 2026-03-07 | Admin notification panel enhanced with sent-batch listing and scoped delete controls | Backend | ✅ | Added `/notifications/admin/sent` (list) and `DELETE /notifications/admin/sent` (members/admins/all scope removal) |
 | 2026-03-07 | Newly sent notifications now always reflect in sender-admin panel | Backend | ✅ | Sending admin receives an auto-included copy if they were not already in recipients |
 | 2026-03-07 | Repository hygiene pass completed for non-source artifacts | Backend | ✅ | Removed redundant archive markdown files and local test DB artifact from tracked repo files |

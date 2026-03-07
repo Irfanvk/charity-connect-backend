@@ -346,7 +346,17 @@ Create multiple challans for different months with single proof file.
 ### Login
 **POST** `/auth/login`
 
-**Request:**
+**Note:** The `username` field accepts either a username or email address. The backend automatically detects which type is provided and authenticates accordingly.
+
+**Request (with username):**
+```json
+{
+  "username": "user1",
+  "password": "password123"
+}
+```
+
+**Request (with email):**
 ```json
 {
   "username": "user@example.com",
@@ -369,8 +379,17 @@ Create multiple challans for different months with single proof file.
 }
 ```
 
+**Error Responses:**
+- `401 Unauthorized`: Invalid username/email or password
+- `403 Forbidden`: User account is inactive
+
 ### Register
 **POST** `/auth/register`
+
+**Important:** 
+- Usernames must be unique across all users
+- Email addresses must be unique if provided
+- Password must be at least 8 characters
 
 **Request:**
 ```json
@@ -400,6 +419,11 @@ Create multiple challans for different months with single proof file.
   }
 }
 ```
+
+**Error Responses:**
+- `400 Bad Request`: Invalid/expired invite code, password too short
+- `409 Conflict`: Username or email already exists
+- `403 Forbidden`: Invite code email/phone mismatch
 
 ### Get Current User
 **GET** `/auth/me`

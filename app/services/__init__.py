@@ -4,6 +4,7 @@ from .member_service import MemberService
 from .campaign_service import CampaignService
 from .challan_service import ChallanService
 from .notification_service import NotificationService
+from .request_service import RequestService
 
 __all__ = [
     "AuthService",
@@ -12,4 +13,5 @@ __all__ = [
     "CampaignService",
     "ChallanService",
     "NotificationService",
+    "RequestService",
 ]

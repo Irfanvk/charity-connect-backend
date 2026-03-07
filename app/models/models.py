@@ -46,6 +46,7 @@ class User(Base):
     member = relationship("Member", back_populates="user", uselist=False)
     notifications = relationship("Notification", back_populates="user")
     audit_logs = relationship("AuditLog", back_populates="user")
+    requests = relationship("Request", back_populates="created_by_user")
 
     @property
     def full_name(self):
@@ -183,6 +184,26 @@ class Notification(Base):
     
     # Relationships
     user = relationship("User", back_populates="notifications")
+
+
+class Request(Base):
+    __tablename__ = "requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    request_type = Column(String(50), nullable=False, default="question")
+    subject = Column(String(255), nullable=False)
+    message = Column(Text, nullable=False)
+    priority = Column(String(20), nullable=False, default="medium")
+    status = Column(String(20), nullable=False, default="pending")
+    admin_response = Column(Text, nullable=True)
+    resolved_by = Column(String(255), nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # Relationships
+    created_by_user = relationship("User", back_populates="requests")
 
 
 class AuditLog(Base):

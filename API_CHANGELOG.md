@@ -1,5 +1,44 @@
 # API Changelog
 
+## 2026-03-08
+
+### Changed
+- **Authentication Enhancement**: Login now accepts either username OR email in the `username` field
+  - Backend automatically detects whether the provided value is a username or email
+  - Improved error messages: "Invalid username/email or password" instead of generic "Invalid credentials"
+  - Frontend updated: Single "Username or Email" field replaces separate email field
+  - File: `app/services/auth_service.py` - Updated login() method to accept single identifier field and try username first, then email
+  - File: `src/pages/Login.jsx` - Changed credentials state from email to username; updated label to "Username or Email"
+
+### Fixed
+- **Admin Bulk Operations**: Fixed 500 error on `GET /admin/bulk-pending-review`
+  - Root cause: Admin routes using `current_user.role` (attribute access) while auth middleware returns dict
+  - Solution: Added `_is_admin_role()` helper function to safely access dict-based role
+  - Applied consistent fix to all 4 admin endpoints: `get_pending_bulk_operations`, `get_bulk_challan_details`, `approve_bulk_challans`, `reject_bulk_challans`
+  - File: `app/routes/admin_router.py` - Refactored role checking to use helper function
+  - Status: GET /admin/bulk-pending-review now returns 200 with bulk operation data
+
+- **Audit Logs**: Fixed 422 validation error when frontend sends empty `user_id` query parameter
+  - Root cause: Frontend sends `user_id=` (empty string), FastAPI validation rejected with int_parsing error
+  - Solution: Changed `user_id` from `Optional[int]` to `Optional[str]`, added normalization logic
+  - Backend now skips empty/"all"/"null"/"undefined" values, returns 400 for non-numeric values
+  - Frontend query builder now filters out empty/null/undefined query parameters before URL building
+  - Audit log normalizer maps backend fields (`action`, `user_id`, `entity_type`) to frontend names (`action_type`, `performed_by_name`, `target_name`)
+  - File: `app/routes/audit_log_routes.py` - Updated user_id parameter handling
+  - File: `src/api/charityClient.js` - Enhanced buildUrl() and normalizeAuditLog() functions
+  - File: `src/pages/AuditLogs.jsx` - Hardened filter logic with null-safe access
+  - Status: GET /audit-logs now returns 200 with properly formatted audit records
+
+### Security
+- **Username Uniqueness**: Enforced unique username constraint across all users
+  - Backend: Database UNIQUE constraint on users.username column; registration returns `409 Conflict` if duplicate
+  - Validation: Lines 86-89 in `app/services/auth_service.py` check for existing username before creating user
+  - Frontend: Enhanced `src/pages/Register.jsx` with real-time username validation
+  - Features: 3-30 character limit, alphanumeric + underscore/hyphen only, real-time green/red feedback
+  - File: `src/pages/Register.jsx` - Added validateUsername() function and inline validation display
+  - Testing: Comprehensive end-to-end testing verified duplicate rejection returns 409 CONFLICT with "Username already taken" message
+  - Status: All 5 test scenarios passed; username uniqueness fully enforced
+
 ## 2026-03-07
 
 ### Changed
