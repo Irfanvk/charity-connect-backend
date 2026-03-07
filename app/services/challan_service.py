@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from app.models import Challan, Member
 from app.models.models import ChallanStatus, ChallanType
-from app.schemas import ChallanCreate, ChallanReject
+from app.schemas import ChallanCreate, ChallanReject, ChallanUpdate
 from app.utils.file_handler import save_file, validate_file
 from fastapi import HTTPException, status
 from datetime import datetime
@@ -9,6 +9,14 @@ from datetime import datetime
 
 class ChallanService:
     """Challan management service."""
+
+    SORTABLE_COLUMNS = {
+        "created_at": Challan.created_at,
+        "updated_at": Challan.updated_at,
+        "amount": Challan.amount,
+        "status": Challan.status,
+        "month": Challan.month,
+    }
     
     @staticmethod
     def create_challan(db: Session, member_id: int, challan_data: ChallanCreate):
@@ -151,6 +159,24 @@ class ChallanService:
         db.refresh(challan)
         
         return challan
+
+    @staticmethod
+    def update_challan(db: Session, challan_id: int, update_data: ChallanUpdate):
+        """Update mutable challan fields."""
+        challan = db.query(Challan).filter(Challan.id == challan_id).first()
+        if not challan:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Challan not found",
+            )
+
+        changes = update_data.dict(exclude_unset=True)
+        for key, value in changes.items():
+            setattr(challan, key, value)
+
+        db.commit()
+        db.refresh(challan)
+        return challan
     
     @staticmethod
     def get_challan(db: Session, challan_id: int):
@@ -166,18 +192,35 @@ class ChallanService:
         return challan
     
     @staticmethod
-    def get_member_challans(db: Session, member_id: int, skip: int = 0, limit: int = 100):
+    def get_member_challans(
+        db: Session,
+        member_id: int,
+        skip: int = 0,
+        limit: int = 100,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ):
         """Get all challans for a member."""
-        return db.query(Challan).filter(
-            Challan.member_id == member_id
-        ).offset(skip).limit(limit).all()
+        query = db.query(Challan).filter(Challan.member_id == member_id)
+        sort_column = ChallanService.SORTABLE_COLUMNS.get(sort_by, Challan.created_at)
+        query = query.order_by(sort_column.desc() if sort_order == "desc" else sort_column.asc())
+        return query.offset(skip).limit(limit).all()
     
     @staticmethod
-    def get_all_challans(db: Session, skip: int = 0, limit: int = 100, status_filter: str = None):
+    def get_all_challans(
+        db: Session,
+        skip: int = 0,
+        limit: int = 100,
+        status_filter: str = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
+    ):
         """Get all challans with optional filtering."""
         query = db.query(Challan)
         
         if status_filter:
             query = query.filter(Challan.status == status_filter)
-        
+
+        sort_column = ChallanService.SORTABLE_COLUMNS.get(sort_by, Challan.created_at)
+        query = query.order_by(sort_column.desc() if sort_order == "desc" else sort_column.asc())
         return query.offset(skip).limit(limit).all()

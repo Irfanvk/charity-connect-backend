@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas import NotificationCreate, NotificationResponse, NotificationAdminUpdate
@@ -25,8 +25,8 @@ def create_notification(
 
 @router.get("/", response_model=List[NotificationResponse])
 def get_my_notifications(
-    skip: int = 0,
-    limit: int = 50,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -93,6 +93,7 @@ def update_notification(
     """
     Update notification details (Admin only).
     """
+    _ = current_user
     return NotificationService.update_notification(db, notification_id, update_data)
 
 
@@ -105,4 +106,5 @@ def delete_notification(
     """
     Delete a notification (Admin only).
     """
+    _ = current_user
     NotificationService.delete_notification(db, notification_id)

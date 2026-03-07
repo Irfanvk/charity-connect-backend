@@ -1,9 +1,9 @@
 from fastapi import HTTPException
 from app.models.models import ChallanStatus
-from fastapi import APIRouter, Depends, status, UploadFile, File
+from fastapi import APIRouter, Depends, status, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject
+from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanUpdate
 from app.services import ChallanService, MemberService
 from app.utils import get_current_user, get_current_admin
 from typing import List, Optional
@@ -37,12 +37,12 @@ def create_challan(
     else:
         try:
             member = MemberService.get_member_for_user(db, current_user["user_id"])
-        except HTTPException:
+        except HTTPException as exc:
             # Member record doesn't exist for this user
             raise HTTPException(
                 status_code=404, 
                 detail="No member record found for your account. Please contact admin."
-            )
+            ) from exc
 
         if challan_data.member_id is not None and challan_data.member_id != member.id:
             raise HTTPException(status_code=403, detail="Not authorized to create challan for another member")
@@ -95,9 +95,11 @@ def upload_proof(
 # ------------------------------------------------------------------
 @router.get("/", response_model=List[ChallanResponse])
 def get_challans(
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
     status_filter: Optional[ChallanStatus] = None,
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -109,14 +111,26 @@ def get_challans(
     if _is_admin(current_user):
         # Admin gets all challans
         return ChallanService.get_all_challans(
-            db, skip, limit, status_filter=status_filter
+            db,
+            skip,
+            limit,
+            status_filter=status_filter,
+            sort_by=sort_by,
+            sort_order=sort_order,
         )
     else:
         # Member gets only their own challans
         member = MemberService.get_member_for_user(db, current_user["user_id"])
         if not member:
             raise HTTPException(status_code=404, detail="Member not found")
-        return ChallanService.get_member_challans(db, member.id, skip, limit)
+        return ChallanService.get_member_challans(
+            db,
+            member.id,
+            skip,
+            limit,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
 
 
 # ------------------------------------------------------------------
@@ -125,8 +139,10 @@ def get_challans(
 @router.get("/member/{member_id}", response_model=List[ChallanResponse])
 def get_member_challans(
     member_id: int,
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
+    sort_by: str = "created_at",
+    sort_order: str = "desc",
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -138,7 +154,7 @@ def get_member_challans(
         if member.id != member_id:
             raise HTTPException(status_code=403, detail="Access denied")
 
-    return ChallanService.get_member_challans(db, member_id, skip, limit)
+    return ChallanService.get_member_challans(db, member_id, skip, limit, sort_by=sort_by, sort_order=sort_order)
 
 
 # ------------------------------------------------------------------
@@ -163,6 +179,25 @@ def get_challan(
             raise HTTPException(status_code=403, detail="Access denied")
 
     return challan
+
+
+@router.put("/{challan_id}", response_model=ChallanResponse)
+@router.patch("/{challan_id}", response_model=ChallanResponse)
+def update_challan(
+    challan_id: int,
+    update_data: ChallanUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Update challan (admin or owner)."""
+    challan = ChallanService.get_challan(db, challan_id)
+
+    if not _is_admin(current_user):
+        member = MemberService.get_member_for_user(db, current_user["user_id"])
+        if challan.member_id != member.id:
+            raise HTTPException(status_code=403, detail="Not authorized to update this challan")
+
+    return ChallanService.update_challan(db, challan_id, update_data)
 
 
 # ------------------------------------------------------------------

@@ -72,14 +72,15 @@ def bulk_create_challans(
     # Determine member_id
     if current_user.role == UserRole.MEMBER:
         # Member can only create for self
-        if request.member_id and request.member_id != current_user.id:
+        member = db.query(Member).filter(Member.user_id == current_user.id).first()
+        if not member:
+            raise HTTPException(status_code=404, detail="Member record not found")
+
+        if request.member_id and request.member_id != member.id:
             raise HTTPException(
                 status_code=403,
                 detail="Members can only create bulk challans for themselves"
             )
-        member = db.query(Member).filter(Member.user_id == current_user.id).first()
-        if not member:
-            raise HTTPException(status_code=404, detail="Member record not found")
         member_id = member.id
     else:
         # Admin/Superadmin can create for any member

@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, status, HTTPException
+from fastapi import APIRouter, Depends, status, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.schemas import MemberResponse, MemberUpdate
+from app.schemas import MemberResponse, MemberUpdate, MemberCreate
 from app.services import MemberService
 from app.utils import get_current_user, get_current_admin
 from typing import List
@@ -15,8 +15,8 @@ def _is_admin(current_user: dict) -> bool:
 
 @router.get("/", response_model=List[MemberResponse])
 def get_members(
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -57,8 +57,19 @@ def get_member_by_code(
     """
     Get member details by member code (Admin only).
     """
+    _ = current_user
     member = MemberService.get_member_by_code(db, member_code)
     return member
+
+
+@router.post("/", response_model=MemberResponse, status_code=status.HTTP_201_CREATED)
+def create_member(
+    payload: MemberCreate,
+    _current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Create member profile (Admin only)."""
+    return MemberService.create_member(db, payload)
 
 
 @router.get("/{member_id}", response_model=MemberResponse)
@@ -89,5 +100,16 @@ def update_member(
     """
     Update member information (Admin only).
     """
+    _ = current_user
     member = MemberService.update_member(db, member_id, update_data)
     return member
+
+
+@router.delete("/{member_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_member(
+    member_id: int,
+    _current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Delete member profile (Admin only)."""
+    MemberService.delete_member(db, member_id)

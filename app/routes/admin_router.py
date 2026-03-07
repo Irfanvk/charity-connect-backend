@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from app.database import get_db
 from app.schemas.schemas import (
@@ -32,7 +32,9 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 # GET PENDING BULK OPERATIONS (ADMIN ONLY)
 @router.get("/bulk-pending-review", response_model=BulkChallanListResponse)
 def get_pending_bulk_operations(
-    days: int = 7,
+    days: int = Query(default=7, ge=1, le=365),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
     sort_by: str = "created_at",
     order: str = "desc",
     db: Session = Depends(get_db),
@@ -52,9 +54,12 @@ def get_pending_bulk_operations(
         raise HTTPException(status_code=403, detail="Admin access required")
     
     # Query pending bulk groups
-    query = db.query(BulkChallanGroup).filter(
-        BulkChallanGroup.status == "pending_approval"
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    base_query = db.query(BulkChallanGroup).filter(
+        BulkChallanGroup.status == "pending_approval",
+        BulkChallanGroup.created_at >= cutoff,
     )
+    query = base_query
     
     # Apply sorting
     if sort_by == "member_name":
@@ -74,13 +79,32 @@ def get_pending_bulk_operations(
         else:
             query = query.order_by(BulkChallanGroup.created_at.desc())
     
-    bulk_groups = query.all()
+    total_pending = base_query.count()
+
+    bulk_groups = query.offset(skip).limit(limit).all()
+
+    member_ids = {group.member_id for group in bulk_groups}
+    creator_ids = {group.created_by_user_id for group in bulk_groups}
+
+    members = (
+        db.query(Member)
+        .filter(Member.id.in_(member_ids))
+        .all()
+        if member_ids
+        else []
+    )
+    members_by_id = {member.id: member for member in members}
+
+    user_ids = {member.user_id for member in members}
+    user_ids.update(creator_ids)
+    users = db.query(User).filter(User.id.in_(user_ids)).all() if user_ids else []
+    users_by_id = {user.id: user for user in users}
     
     items = []
     for group in bulk_groups:
-        member = db.query(Member).filter(Member.id == group.member_id).first()
-        user = db.query(User).filter(User.id == member.user_id).first() if member else None
-        created_by = db.query(User).filter(User.id == group.created_by_user_id).first()
+        member = members_by_id.get(group.member_id)
+        user = users_by_id.get(member.user_id) if member else None
+        created_by = users_by_id.get(group.created_by_user_id)
         
         months = json.loads(group.months_list) if group.months_list else []
         proof_url = f"http://localhost:8000/uploads/proofs/{group.proof_file_id}.jpg"  # Construct URL
@@ -104,7 +128,7 @@ def get_pending_bulk_operations(
         items.append(item)
     
     return BulkChallanListResponse(
-        pending=len(bulk_groups),
+        pending=total_pending,
         bulk_operations=items
     )
 
@@ -140,11 +164,13 @@ def get_bulk_challan_details(
     months = json.loads(bulk_group.months_list) if bulk_group.months_list else []
     challan_ids = json.loads(bulk_group.challan_ids_list) if bulk_group.challan_ids_list else []
     
-    # Get linked challans
+    # Get linked challans using a single query
     linked_challans = []
+    linked = db.query(Challan).filter(Challan.id.in_(challan_ids)).all() if challan_ids else []
+    linked_by_id = {challan.id: challan for challan in linked}
     for challan_id in challan_ids:
-        challan = db.query(Challan).filter(Challan.id == challan_id).first()
-        if challan:
+        challan = linked_by_id.get(challan_id)
+        if challan is not None:
             linked_challans.append(BulkChallanLinkedChallan(
                 challan_id=challan.id,
                 month=challan.month,
@@ -261,7 +287,7 @@ def approve_bulk_challans(
         )
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # REJECT BULK CHALLANS (ADMIN ONLY)
@@ -347,4 +373,4 @@ def reject_bulk_challans(
         )
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

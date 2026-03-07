@@ -54,6 +54,14 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 
+class UserUpdate(BaseModel):
+    username: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    role: Optional[UserRole] = None
+    is_active: Optional[bool] = None
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str
@@ -166,6 +174,13 @@ class ChallanCreate(BaseModel):
     month: Optional[str] = None  # YYYY-MM format
     campaign_id: Optional[int] = None
     amount: float
+    payment_method: Optional[str] = None
+
+
+class ChallanUpdate(BaseModel):
+    month: Optional[str] = None
+    campaign_id: Optional[int] = None
+    amount: Optional[float] = None
     payment_method: Optional[str] = None
 
 

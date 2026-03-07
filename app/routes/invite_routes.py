@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas import InviteCreate, InviteResponse, InviteUpdate
@@ -24,8 +24,8 @@ def create_invite(
 
 @router.get("/", response_model=List[InviteResponse])
 def get_all_invites(
-    skip: int = 0,
-    limit: int = 100,
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
     is_used: Optional[bool] = None,
     email: Optional[str] = None,
     phone: Optional[str] = None,
