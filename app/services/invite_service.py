@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import asc, desc
 from app.models import Invite, User
 from app.schemas import InviteCreate, InviteValidate
@@ -17,6 +17,20 @@ class InviteService:
         if dt.tzinfo is None:
             return dt
         return dt.astimezone(timezone.utc).replace(tzinfo=None)
+    
+    @staticmethod
+    def _enrich_invite(invite: Invite) -> Invite:
+        """Add computed fields to invite object."""
+        # Add invited_by from created_by relationship
+        if hasattr(invite, 'created_by') and invite.created_by:
+            invite.invited_by = invite.created_by.email or invite.created_by.username
+        else:
+            invite.invited_by = None
+        
+        # Add status based on is_used
+        invite.status = "used" if invite.is_used else "pending"
+        
+        return invite
     
     @staticmethod
     def create_invite(db: Session, invite_data: InviteCreate, admin_id: int):
@@ -64,7 +78,9 @@ class InviteService:
         db.commit()
         db.refresh(new_invite)
         
-        return new_invite
+        # Reload with relationship to get invited_by
+        invite_with_relation = db.query(Invite).options(joinedload(Invite.created_by)).filter(Invite.id == new_invite.id).first()
+        return InviteService._enrich_invite(invite_with_relation)
     
     @staticmethod
     def validate_invite(db: Session, validate_data: InviteValidate):
@@ -96,7 +112,8 @@ class InviteService:
     @staticmethod
     def get_pending_invites(db: Session):
         """Get all pending (unused) invite codes."""
-        return db.query(Invite).filter(Invite.is_used == False).all()
+        invites = db.query(Invite).options(joinedload(Invite.created_by)).filter(Invite.is_used == False).all()
+        return [InviteService._enrich_invite(invite) for invite in invites]
 
     @staticmethod
     def get_all_invites(
@@ -110,7 +127,7 @@ class InviteService:
         sort_order: str = "desc",
     ):
         """Get all invites with filtering/sorting/pagination."""
-        query = db.query(Invite)
+        query = db.query(Invite).options(joinedload(Invite.created_by))
 
         if is_used is not None:
             query = query.filter(Invite.is_used == is_used)
@@ -127,18 +144,19 @@ class InviteService:
         column = sort_columns.get(sort_by, Invite.created_at)
         query = query.order_by(desc(column) if sort_order.lower() == "desc" else asc(column))
 
-        return query.offset(skip).limit(limit).all()
+        invites = query.offset(skip).limit(limit).all()
+        return [InviteService._enrich_invite(invite) for invite in invites]
 
     @staticmethod
     def get_invite_by_id(db: Session, invite_id: int):
         """Get invite by ID."""
-        invite = db.query(Invite).filter(Invite.id == invite_id).first()
+        invite = db.query(Invite).options(joinedload(Invite.created_by)).filter(Invite.id == invite_id).first()
         if not invite:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Invite not found",
             )
-        return invite
+        return InviteService._enrich_invite(invite)
 
     @staticmethod
     def update_invite(db: Session, invite_id: int, update_data: InviteUpdate):
@@ -162,7 +180,10 @@ class InviteService:
 
         db.commit()
         db.refresh(invite)
-        return invite
+        
+        # Reload with relationship to get invited_by
+        invite_with_relation = db.query(Invite).options(joinedload(Invite.created_by)).filter(Invite.id == invite.id).first()
+        return InviteService._enrich_invite(invite_with_relation)
     
     @staticmethod
     def delete_invite(db: Session, invite_id: int):

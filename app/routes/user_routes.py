@@ -52,15 +52,35 @@ def get_user_by_id(
 def update_user(
     user_id: int,
     payload: UserUpdate,
-    _current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    """Update user details (Admin only)."""
+    """
+    Update user details (Admin only).
+    
+    Role updates require superadmin privileges.
+    """
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
     updates = payload.dict(exclude_unset=True)
+    
+    # Security: Role updates require superadmin
+    if 'role' in updates:
+        if current_user["role"] != "superadmin":
+            raise HTTPException(
+                status_code=403, 
+                detail="Only superadmin can update user roles"
+            )
+        
+        # Prevent self-demotion safeguard
+        if user_id == current_user["user_id"] and updates['role'] != "superadmin":
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot demote your own superadmin role"
+            )
+    
     for key, value in updates.items():
         setattr(user, key, value)
 

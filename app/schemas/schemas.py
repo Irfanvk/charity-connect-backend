@@ -117,6 +117,8 @@ class InviteResponse(BaseModel):
     is_used: bool
     expiry_date: datetime
     created_at: datetime
+    invited_by: Optional[str] = None
+    status: str = "pending"
 
     class Config:
         from_attributes = True
