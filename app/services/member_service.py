@@ -7,7 +7,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.models import Member, User, Challan, Campaign
+from app.models import Member, User, Challan, BulkChallanGroup, Campaign
 from app.schemas import MemberUpdate, MemberCreate, MemberImportSummary
 from fastapi import HTTPException, status
 from app.utils import hash_password, generate_member_code
@@ -413,8 +413,12 @@ class MemberService:
 
     @staticmethod
     def delete_member(db: Session, member_id: int):
-        """Delete a member profile (admin only)."""
+        """Delete a member profile and all related records (superadmin only)."""
         member = MemberService.get_member(db, member_id)
+        # Delete related challans and bulk groups first to satisfy FK constraints
+        db.query(Challan).filter(Challan.member_id == member.id).delete(synchronize_session=False)
+        db.query(BulkChallanGroup).filter(BulkChallanGroup.member_id == member.id).delete(synchronize_session=False)
+        db.flush()
         db.delete(member)
         db.commit()
         return None
