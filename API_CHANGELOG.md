@@ -1,5 +1,19 @@
 # API Changelog
 
+## 2026-03-14
+
+### Changed
+- **Members Import Compatibility**: `POST /members/import` now supports historical CSV variants used in split legacy files.
+  - Added identifier mapping support for `si_no -> MEM-XXXX` and `username` lookup in addition to `member_code/member_id`.
+  - Added flexible join date parsing including `join_year` fallback.
+  - Added donation parsing support for `period` and `type` fields from historical challan/campaign files.
+  - Campaign donation rows (`type=campaign`) now create/link campaign challans (not forced to monthly type).
+  - Supports campaign auto-resolution by `suggested_campaign_name`; creates an inactive historical campaign if missing.
+  - File: `app/services/member_service.py` and `app/routes/member_routes.py`.
+
+### Notes
+- Endpoint remains superadmin-only and backward compatible with existing member import templates.
+
 ## 2026-03-08
 
 ### Changed

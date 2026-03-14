@@ -7,7 +7,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
-from app.models import Member, User, Challan
+from app.models import Member, User, Challan, Campaign
 from app.schemas import MemberUpdate, MemberCreate, MemberImportSummary
 from fastapi import HTTPException, status
 from app.utils import hash_password, generate_member_code
@@ -107,6 +107,107 @@ class MemberService:
             return datetime.fromisoformat(raw)
         except ValueError:
             return None
+
+    @staticmethod
+    def _si_to_member_code(si_value) -> Optional[str]:
+        if si_value in (None, ""):
+            return None
+        try:
+            si_int = int(float(str(si_value).strip()))
+            return f"MEM-{si_int:04d}"
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
+    def _parse_month(value: Optional[str]) -> Optional[str]:
+        raw = MemberService._normalize_contact(value)
+        if not raw:
+            return None
+
+        # Canonical format used by challans: YYYY-MM
+        if re.match(r"^\d{4}-\d{2}$", raw):
+            return raw
+
+        for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y"):
+            try:
+                return datetime.strptime(raw, fmt).strftime("%Y-%m")
+            except ValueError:
+                continue
+
+        return None
+
+    @staticmethod
+    def _find_member_by_identifiers(
+        db: Session,
+        member_code: Optional[str],
+        username: Optional[str],
+        phone: Optional[str],
+        email: Optional[str],
+    ) -> Optional[Member]:
+        if member_code:
+            member = db.query(Member).filter(Member.member_code == member_code).first()
+            if member:
+                return member
+
+        if username:
+            user = db.query(User).filter(User.username == username).first()
+            if user:
+                member = db.query(Member).filter(Member.user_id == user.id).first()
+                if member:
+                    return member
+
+        if email:
+            user = db.query(User).filter(User.email == email).first()
+            if user:
+                member = db.query(Member).filter(Member.user_id == user.id).first()
+                if member:
+                    return member
+
+        if phone:
+            user = db.query(User).filter(User.phone == phone).first()
+            if user:
+                member = db.query(Member).filter(Member.user_id == user.id).first()
+                if member:
+                    return member
+
+        return None
+
+    @staticmethod
+    def _resolve_campaign_for_import(
+        db: Session,
+        suggested_campaign_name: Optional[str],
+        imported_by_user_id: Optional[int],
+    ) -> Optional[int]:
+        title = MemberService._normalize_contact(suggested_campaign_name)
+        if not title:
+            return None
+
+        existing = db.query(Campaign).filter(Campaign.title == title).first()
+        if existing:
+            return existing.id
+
+        created_by_user_id = imported_by_user_id
+        if not created_by_user_id:
+            admin_user = db.query(User).filter(User.role.in_(["superadmin", "admin"]))\
+                .order_by(User.id.asc()).first()
+            created_by_user_id = admin_user.id if admin_user else None
+
+        if not created_by_user_id:
+            return None
+
+        now = datetime.utcnow()
+        campaign = Campaign(
+            title=title,
+            description="Imported historical one-time/campaign donations",
+            target_amount=0.0,
+            start_date=now,
+            end_date=now,
+            is_active=False,
+            created_by_admin_id=created_by_user_id,
+        )
+        db.add(campaign)
+        db.flush()
+        return campaign.id
     
     @staticmethod
     def get_member(db: Session, member_id: int):
@@ -399,6 +500,7 @@ class MemberService:
         file_bytes: bytes,
         filename: str,
         include_donations: bool = True,
+        imported_by_user_id: Optional[int] = None,
     ) -> MemberImportSummary:
         rows = MemberService._read_tabular_rows(file_bytes, filename)
 
@@ -413,9 +515,16 @@ class MemberService:
             row = MemberService._normalized_row(raw_row)
 
             try:
+                username = MemberService._normalize_contact(
+                    MemberService._row_value(row, ["username", "user_name"])
+                )
+                si_code = MemberService._si_to_member_code(
+                    MemberService._row_value(row, ["si_no", "si", "serial_no"])
+                )
+
                 member_code = MemberService._normalize_member_code(
                     MemberService._row_value(row, ["member_code", "member_id", "code"])
-                )
+                ) or si_code
                 full_name = MemberService._normalize_contact(
                     MemberService._row_value(row, ["full_name", "name", "member_name"])
                 )
@@ -426,38 +535,58 @@ class MemberService:
                     MemberService._row_value(row, ["email", "email_address"])
                 )
                 address = MemberService._normalize_contact(
-                    MemberService._row_value(row, ["address", "location"])
+                    MemberService._row_value(row, ["address", "location", "notes"])
                 )
                 monthly_amount_raw = MemberService._row_value(row, ["monthly_amount", "monthly", "default_amount"])
                 status_value = MemberService._normalize_contact(MemberService._row_value(row, ["status"])) or "active"
                 join_date = MemberService._parse_datetime(
                     MemberService._row_value(row, ["join_date", "joined_on", "member_since"])
                 )
+                if not join_date:
+                    join_year = MemberService._row_value(row, ["join_year", "year"])
+                    if join_year not in (None, ""):
+                        try:
+                            join_date = datetime(int(float(str(join_year).strip())), 1, 1)
+                        except (TypeError, ValueError):
+                            join_date = None
 
                 monthly_amount = 0.0
                 if monthly_amount_raw not in (None, ""):
                     monthly_amount = float(monthly_amount_raw)
 
-                if not full_name and not phone and not email:
+                has_member_profile_data = bool(full_name or phone or email or monthly_amount_raw not in (None, ""))
+
+                if not has_member_profile_data and not username and not member_code:
                     rows_skipped += 1
-                    errors.append(f"Row {idx}: missing identifier fields (name/phone/email)")
+                    errors.append(f"Row {idx}: missing identifier fields")
                     continue
 
-                if not member_code:
-                    member_code = MemberService._next_member_code(db)
+                member = MemberService._find_member_by_identifiers(
+                    db=db,
+                    member_code=member_code,
+                    username=username,
+                    phone=phone,
+                    email=email,
+                )
 
-                existing_member = db.query(Member).filter(Member.member_code == member_code).first()
-                if existing_member:
-                    member = existing_member
+                if member:
                     members_linked_existing += 1
-                else:
+                elif has_member_profile_data:
+                    if not member_code:
+                        member_code = MemberService._next_member_code(db)
+
                     user, created_new_user = MemberService._get_or_create_user_for_admin_member(
                         db=db,
-                        full_name=full_name or "Member",
+                        full_name=full_name or username or "Member",
                         phone=phone,
                         email=email,
                         member_code=member_code,
                     )
+
+                    if username and user.username.startswith("offline_"):
+                        duplicate_username = db.query(User).filter(User.username == username, User.id != user.id).first()
+                        if not duplicate_username:
+                            user.username = username
 
                     member = db.query(Member).filter(Member.user_id == user.id).first()
                     if member:
@@ -477,10 +606,19 @@ class MemberService:
                         if not created_new_user:
                             members_linked_existing += 1
 
+                if not member:
+                    rows_skipped += 1
+                    errors.append(f"Row {idx}: member not found and insufficient profile data to create one")
+                    continue
+
                 if include_donations:
-                    donation_month = MemberService._normalize_contact(
-                        MemberService._row_value(row, ["month", "donation_month", "payment_month"])
+                    donation_type = MemberService._normalize_contact(
+                        MemberService._row_value(row, ["type", "donation_type"])
                     )
+                    donation_month = MemberService._normalize_contact(
+                        MemberService._row_value(row, ["month", "donation_month", "payment_month", "period"])
+                    )
+                    donation_month = MemberService._parse_month(donation_month)
                     donation_amount_raw = MemberService._row_value(row, ["amount", "donation_amount", "paid_amount"])
                     payment_method = MemberService._normalize_contact(
                         MemberService._row_value(row, ["payment_method", "method"])
@@ -489,7 +627,7 @@ class MemberService:
                         MemberService._row_value(row, ["donation_status", "status", "challan_status", "payment_status"])
                     )
 
-                    if donation_month and donation_amount_raw not in (None, ""):
+                    if donation_amount_raw not in (None, ""):
                         donation_amount = float(donation_amount_raw)
 
                         normalized_status = "generated"
@@ -501,18 +639,38 @@ class MemberService:
                         elif raw_status in ("rejected", "failed"):
                             normalized_status = "rejected"
 
-                        duplicate_challan = db.query(Challan).filter(
+                        challan_type = "campaign" if (donation_type or "").lower() == "campaign" else "monthly"
+
+                        if challan_type == "monthly" and not donation_month:
+                            rows_skipped += 1
+                            errors.append(f"Row {idx}: missing valid month for monthly donation")
+                            continue
+
+                        campaign_id = None
+                        if challan_type == "campaign":
+                            campaign_id = MemberService._resolve_campaign_for_import(
+                                db,
+                                MemberService._row_value(row, ["suggested_campaign_name", "campaign_name"]),
+                                imported_by_user_id,
+                            )
+
+                        duplicate_query = db.query(Challan).filter(
                             Challan.member_id == member.id,
-                            Challan.type == "monthly",
-                            Challan.month == donation_month,
+                            Challan.type == challan_type,
                             Challan.amount == donation_amount,
-                        ).first()
+                        )
+                        if challan_type == "monthly":
+                            duplicate_query = duplicate_query.filter(Challan.month == donation_month)
+                        else:
+                            duplicate_query = duplicate_query.filter(Challan.campaign_id == campaign_id)
+                        duplicate_challan = duplicate_query.first()
 
                         if not duplicate_challan:
                             challan = Challan(
                                 member_id=member.id,
-                                type="monthly",
-                                month=donation_month,
+                                type=challan_type,
+                                month=donation_month if challan_type == "monthly" else None,
+                                campaign_id=campaign_id,
                                 amount=donation_amount,
                                 payment_method=payment_method,
                                 status=normalized_status,

@@ -76,18 +76,20 @@ def create_member(
 async def import_members(
     file: UploadFile = File(...),
     include_donations: bool = Query(default=True),
-    _current_user: dict = Depends(get_current_superadmin),
+    current_user: dict = Depends(get_current_superadmin),
     db: Session = Depends(get_db),
 ):
     """
     Import members from CSV/XLSX (Superadmin only).
 
-    Supported member columns:
-    - member_code/member_id, full_name/name, phone/mobile, email, address,
-      monthly_amount, join_date, status
+        Supported member columns:
+        - member_code/member_id/code/si_no, full_name/name/member_name, username,
+            phone/mobile, email, address/location/notes, monthly_amount, join_date/join_year, status
 
     Optional donation columns (when include_donations=true):
-    - month/donation_month, amount/donation_amount, payment_method, donation_status
+        - type, month/donation_month/payment_month/period,
+            amount/donation_amount/paid_amount, payment_method, donation_status,
+            suggested_campaign_name
     """
     content = await file.read()
     if not content:
@@ -98,6 +100,7 @@ async def import_members(
         file_bytes=content,
         filename=file.filename or "import.csv",
         include_donations=include_donations,
+        imported_by_user_id=current_user.get("user_id"),
     )
 
 
