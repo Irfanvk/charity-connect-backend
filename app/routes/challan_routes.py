@@ -38,9 +38,8 @@ def create_challan(
         try:
             member = MemberService.get_member_for_user(db, current_user["user_id"])
         except HTTPException as exc:
-            # Member record doesn't exist for this user
             raise HTTPException(
-                status_code=404, 
+                status_code=404,
                 detail="No member record found for your account. Please contact admin."
             ) from exc
 
@@ -78,7 +77,6 @@ def upload_proof(
         if challan.member_id != member.id:
             raise HTTPException(status_code=403, detail="Not authorized to upload proof")
 
-    # File validation
     allowed_types = ["image/jpeg", "image/png", "application/pdf"]
     if file.content_type not in allowed_types:
         raise HTTPException(status_code=400, detail="Invalid file type")
@@ -91,45 +89,65 @@ def upload_proof(
 
 
 # ------------------------------------------------------------------
-# GET CHALLANS (ADMIN: ALL, MEMBER: OWN)
+# GET CHALLANS (ADMIN: ALL WITH FILTERS, MEMBER: OWN WITH FILTERS)
 # ------------------------------------------------------------------
 @router.get("/", response_model=List[ChallanResponse])
 def get_challans(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=200),
-    status_filter: Optional[ChallanStatus] = None,
-    sort_by: str = "created_at",
-    sort_order: str = "desc",
+    # ── existing ────────────────────────────────────────────────────
+    # FastAPI reads ?status=approved from the URL into this param.
+    # Named "status" (not "status_filter") to match what the frontend sends.
+    status: Optional[str] = Query(default=None),
+    sort_by: str = Query(default="created_at"),
+    sort_order: str = Query(default="desc"),
+    # ── new filter params sent by the frontend ───────────────────────
+    search: Optional[str] = Query(default=None),      # ?search=john
+    member_id: Optional[int] = Query(default=None),   # ?member_id=5  (non-admin scoping)
+    created_by: Optional[str] = Query(default=None),  # ?created_by=user@email.com
+    has_proof: Optional[bool] = Query(default=None),  # ?has_proof=true
+    # ────────────────────────────────────────────────────────────────
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Get challans:
-    - Admin: all challans
-    - Member: only their own challans
+    Get challans with server-side filtering.
+    - Admin/Superadmin: all challans, all filters available
+    - Member: only their own challans (member_id / created_by ignored —
+      always scoped to the logged-in member)
     """
     if _is_admin(current_user):
-        # Admin gets all challans
+        # Admin path — all filters are honoured
         return ChallanService.get_all_challans(
             db,
-            skip,
-            limit,
-            status_filter=status_filter,
+            skip=skip,
+            limit=limit,
+            status_filter=status,
             sort_by=sort_by,
             sort_order=sort_order,
+            search=search,
+            member_id=member_id,
+            created_by=created_by,
+            has_proof=has_proof,
         )
     else:
-        # Member gets only their own challans
+        # Member path — always scope to this member, still honour
+        # status / search / has_proof filters from the frontend
         member = MemberService.get_member_for_user(db, current_user["user_id"])
         if not member:
             raise HTTPException(status_code=404, detail="Member not found")
-        return ChallanService.get_member_challans(
+
+        return ChallanService.get_all_challans(
             db,
-            member.id,
-            skip,
-            limit,
+            skip=skip,
+            limit=limit,
+            status_filter=status,
             sort_by=sort_by,
             sort_order=sort_order,
+            search=search,
+            member_id=member.id,   # always override with the real member id
+            created_by=None,       # member_id is definitive, no need for email fallback
+            has_proof=has_proof,
         )
 
 
@@ -141,20 +159,24 @@ def get_member_challans(
     member_id: int,
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=200),
-    sort_by: str = "created_at",
-    sort_order: str = "desc",
+    sort_by: str = Query(default="created_at"),
+    sort_order: str = Query(default="desc"),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """
-    Get challans for a member (admin or self).
+    Get challans for a specific member (admin or self).
     """
     if not _is_admin(current_user):
         member = MemberService.get_member_for_user(db, current_user["user_id"])
         if member.id != member_id:
             raise HTTPException(status_code=403, detail="Access denied")
 
-    return ChallanService.get_member_challans(db, member_id, skip, limit, sort_by=sort_by, sort_order=sort_order)
+    return ChallanService.get_member_challans(
+        db, member_id, skip, limit,
+        sort_by=sort_by,
+        sort_order=sort_order,
+    )
 
 
 # ------------------------------------------------------------------
@@ -181,6 +203,9 @@ def get_challan(
     return challan
 
 
+# ------------------------------------------------------------------
+# UPDATE CHALLAN (ADMIN OR OWNER)
+# ------------------------------------------------------------------
 @router.put("/{challan_id}", response_model=ChallanResponse)
 @router.patch("/{challan_id}", response_model=ChallanResponse)
 def update_challan(
@@ -213,14 +238,9 @@ def approve_challan(
     challan = ChallanService.get_challan(db, challan_id)
 
     if challan.status != ChallanStatus.PENDING.value:
-        raise HTTPException(
-            status_code=400,
-            detail="Challan already processed"
-        )
+        raise HTTPException(status_code=400, detail="Challan already processed")
 
-    # Use current_user's ID if not provided in request
     admin_id = approve_data.approved_by_admin_id or current_user.get("user_id")
-    
     return ChallanService.approve_challan(db, challan_id, admin_id)
 
 
@@ -237,9 +257,6 @@ def reject_challan(
     challan = ChallanService.get_challan(db, challan_id)
 
     if challan.status != ChallanStatus.PENDING.value:
-        raise HTTPException(
-            status_code=400,
-            detail="Challan already processed"
-        )
+        raise HTTPException(status_code=400, detail="Challan already processed")
 
     return ChallanService.reject_challan(db, challan_id, reject_data)

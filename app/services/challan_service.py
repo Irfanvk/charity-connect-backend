@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from app.models import Challan, Member
 from app.models.models import ChallanStatus, ChallanType
 from app.schemas import ChallanCreate, ChallanReject, ChallanUpdate
@@ -211,16 +212,73 @@ class ChallanService:
         db: Session,
         skip: int = 0,
         limit: int = 100,
+        # ── existing param (kept for backward compat) ──────────────────────
         status_filter: str = None,
         sort_by: str = "created_at",
         sort_order: str = "desc",
+        # ── new filter params sent by the frontend ─────────────────────────
+        search: str = None,
+        member_id: int = None,
+        created_by: str = None,
+        has_proof: bool = None,
     ):
-        """Get all challans with optional filtering."""
+        """Get all challans with optional server-side filtering.
+
+        Frontend sends these query-string params:
+          status      → maps to status_filter
+          search      → ILIKE on challan_number + member_name (via Member join)
+          member_id   → scope to a single member (non-admin users)
+          created_by  → scope by creator email (fallback when member_id unknown)
+          has_proof   → true = proof_uploaded_at IS NOT NULL
+        """
         query = db.query(Challan)
-        
+
+        # ── status ──────────────────────────────────────────────────────────
+        # Accept both the legacy `status_filter` kwarg and a bare `status`
+        # string — the router may pass either depending on how it reads params.
         if status_filter:
             query = query.filter(Challan.status == status_filter)
 
+        # ── has_proof ────────────────────────────────────────────────────────
+        # Frontend sends has_proof=true for the "Proof Uploaded" tab.
+        # URLSearchParams serialises booleans as the strings "true"/"false",
+        # so we normalise here just in case the router passes a string.
+        if has_proof is not None:
+            # Coerce string → bool in case FastAPI didn't auto-convert
+            _has_proof = has_proof if isinstance(has_proof, bool) else str(has_proof).lower() == "true"
+            if _has_proof:
+                query = query.filter(Challan.proof_uploaded_at.isnot(None))
+            else:
+                query = query.filter(Challan.proof_uploaded_at.is_(None))
+
+        # ── member_id scoping ────────────────────────────────────────────────
+        if member_id is not None:
+            query = query.filter(Challan.member_id == member_id)
+
+        # ── created_by scoping (email fallback for non-members) ──────────────
+        if created_by:
+            query = query.filter(Challan.created_by == created_by)
+
+        # ── search ───────────────────────────────────────────────────────────
+        # Searches challan_number directly on the Challan table.
+        # Also searches member full_name via a JOIN on the Member table.
+        if search:
+            term = f"%{search.strip()}%"
+            query = (
+                query
+                .outerjoin(Member, Challan.member_id == Member.id)
+                .filter(
+                    or_(
+                        Challan.challan_number.ilike(term),
+                        Member.full_name.ilike(term),
+                    )
+                )
+            )
+
+        # ── sorting ──────────────────────────────────────────────────────────
         sort_column = ChallanService.SORTABLE_COLUMNS.get(sort_by, Challan.created_at)
-        query = query.order_by(sort_column.desc() if sort_order == "desc" else sort_column.asc())
+        query = query.order_by(
+            sort_column.desc() if sort_order == "desc" else sort_column.asc()
+        )
+
         return query.offset(skip).limit(limit).all()
