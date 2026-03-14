@@ -1,5 +1,5 @@
-from pydantic import BaseModel
-from typing import Optional
+from pydantic import BaseModel, Field
+from typing import Optional, List
 from datetime import datetime
 from enum import Enum
 
@@ -128,6 +128,29 @@ class MemberImportSummary(BaseModel):
     challans_created: int
     rows_skipped: int
     errors: list[str]
+
+
+class SystemWipeRequest(BaseModel):
+    confirm_text: str
+    purpose: str
+    password_attempts: List[str] = Field(default_factory=list)
+    keep_admins: bool = True
+    wipe_files: bool = True
+
+
+class SystemWipeResponse(BaseModel):
+    users_deleted: int
+    members_deleted: int
+    challans_deleted: int
+    campaigns_deleted: int
+    invites_deleted: int
+    notifications_deleted: int
+    requests_deleted: int
+    audit_logs_deleted: int
+    bulk_groups_deleted: int
+    files_deleted: int
+    kept_superadmins: int
+    kept_admins: int
 
 
 # Invite Schemas

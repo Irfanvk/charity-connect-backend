@@ -14,6 +14,18 @@
 ### Notes
 - Endpoint remains superadmin-only and backward compatible with existing member import templates.
 
+### Added
+- **System Wipe Endpoint**: `POST /admin/system/wipe` (superadmin only)
+  - Purpose: destructive cleanup of operational data while preserving superadmins (and optionally admins).
+  - Request fields:
+    - `confirm_text` (must be `WIPE`)
+    - `keep_admins` (default `true`)
+    - `wipe_files` (default `true`)
+  - Deletes: members, challans, bulk groups, campaigns, invites, notifications, requests, audit logs, and non-preserved users.
+  - Optionally deletes uploaded files from backend `app/uploads` storage.
+  - Returns deletion summary counters and kept admin/superadmin counts.
+  - Files: `app/routes/admin_router.py`, `app/schemas/schemas.py`, `app/schemas/__init__.py`.
+
 ## 2026-03-08
 
 ### Changed

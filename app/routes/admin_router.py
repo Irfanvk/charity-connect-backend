@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 import json
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from app.database import get_db
 from app.schemas.schemas import (
@@ -13,6 +14,8 @@ from app.schemas.schemas import (
     BulkChallanRejectResponse,
     BulkChallanDetails,
     BulkChallanLinkedChallan,
+    SystemWipeRequest,
+    SystemWipeResponse,
 )
 from app.models.models import (
     BulkChallanGroup,
@@ -21,8 +24,12 @@ from app.models.models import (
     Member,
     User,
     AuditLog,
+    Invite,
+    Campaign,
+    Notification,
+    Request,
 )
-from app.utils.auth import get_current_user
+from app.utils.auth import get_current_user, get_current_superadmin, verify_password
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -31,6 +38,133 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 def _is_admin_role(current_user: dict) -> bool:
     role = str(current_user.get("role", "")).lower()
     return role in ["admin", "superadmin"]
+
+
+@router.post("/system/wipe", response_model=SystemWipeResponse)
+def wipe_system_data(
+    payload: SystemWipeRequest,
+    current_user: dict = Depends(get_current_superadmin),
+    db: Session = Depends(get_db),
+):
+    """
+    Superadmin-only destructive wipe.
+
+    Deletes all operational data and storage files, while preserving:
+    - superadmin users always
+    - admin users optionally (keep_admins=true)
+    """
+    _ = current_user
+
+    if (payload.confirm_text or "").strip().upper() != "WIPE":
+        raise HTTPException(status_code=400, detail="Invalid confirmation text. Type WIPE to proceed.")
+
+    purpose = (payload.purpose or "").strip()
+    if not purpose:
+        raise HTTPException(status_code=400, detail="Purpose is required before wipe.")
+
+    if len(payload.password_attempts or []) != 3:
+        raise HTTPException(status_code=400, detail="Exactly 3 password entries are required.")
+
+    actor = db.query(User).filter(User.id == current_user.get("user_id")).first()
+    if not actor:
+        raise HTTPException(status_code=404, detail="Acting superadmin not found.")
+
+    for idx, attempt in enumerate(payload.password_attempts, start=1):
+        raw_attempt = str(attempt or "").strip()
+        if not raw_attempt:
+            raise HTTPException(status_code=400, detail=f"Password entry {idx} is empty.")
+        if not verify_password(raw_attempt, actor.password_hash):
+            raise HTTPException(status_code=403, detail=f"Password entry {idx} is invalid.")
+
+    keep_roles = ["superadmin"]
+    if payload.keep_admins:
+        keep_roles.append("admin")
+
+    try:
+        # Counts before deletion for response
+        members_deleted = db.query(Member).count()
+        challans_deleted = db.query(Challan).count()
+        campaigns_deleted = db.query(Campaign).count()
+        invites_deleted = db.query(Invite).count()
+        notifications_deleted = db.query(Notification).count()
+        requests_deleted = db.query(Request).count()
+        audit_logs_deleted = db.query(AuditLog).count()
+        bulk_groups_deleted = db.query(BulkChallanGroup).count()
+        users_deleted = db.query(User).filter(~User.role.in_(keep_roles)).count()
+
+        # Delete in FK-safe order
+        db.query(Challan).delete(synchronize_session=False)
+        db.query(BulkChallanGroup).delete(synchronize_session=False)
+        db.query(Member).delete(synchronize_session=False)
+        db.query(Invite).delete(synchronize_session=False)
+        db.query(Notification).delete(synchronize_session=False)
+        db.query(Request).delete(synchronize_session=False)
+        db.query(Campaign).delete(synchronize_session=False)
+        db.query(AuditLog).delete(synchronize_session=False)
+
+        # Preserve only superadmin (+ admins if requested)
+        db.query(User).filter(~User.role.in_(keep_roles)).delete(synchronize_session=False)
+        db.commit()
+
+        # Re-create one audit record after wipe for traceability
+        deleted_at = datetime.utcnow().isoformat()
+
+        wipe_audit = AuditLog(
+            user_id=current_user.get("user_id"),
+            action="system_wipe",
+            entity_type="System",
+            entity_id=0,
+            new_values=json.dumps(
+                {
+                    "purpose": purpose,
+                    "deleted_at": deleted_at,
+                    "performed_by": {
+                        "user_id": actor.id,
+                        "username": actor.username,
+                        "email": actor.email,
+                        "role": str(actor.role),
+                    },
+                    "keep_admins": payload.keep_admins,
+                    "wipe_files": payload.wipe_files,
+                    "users_deleted": users_deleted,
+                    "members_deleted": members_deleted,
+                    "challans_deleted": challans_deleted,
+                    "campaigns_deleted": campaigns_deleted,
+                }
+            ),
+        )
+        db.add(wipe_audit)
+        db.commit()
+
+        files_deleted = 0
+        if payload.wipe_files:
+            uploads_dir = Path(__file__).resolve().parent.parent / "uploads"
+            if uploads_dir.exists():
+                for file_path in uploads_dir.rglob("*"):
+                    if file_path.is_file():
+                        file_path.unlink(missing_ok=True)
+                        files_deleted += 1
+
+        kept_superadmins = db.query(User).filter(User.role == "superadmin").count()
+        kept_admins = db.query(User).filter(User.role == "admin").count()
+
+        return SystemWipeResponse(
+            users_deleted=users_deleted,
+            members_deleted=members_deleted,
+            challans_deleted=challans_deleted,
+            campaigns_deleted=campaigns_deleted,
+            invites_deleted=invites_deleted,
+            notifications_deleted=notifications_deleted,
+            requests_deleted=requests_deleted,
+            audit_logs_deleted=audit_logs_deleted,
+            bulk_groups_deleted=bulk_groups_deleted,
+            files_deleted=files_deleted,
+            kept_superadmins=kept_superadmins,
+            kept_admins=kept_admins,
+        )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"Wipe operation failed: {e}") from e
 
 
 # GET PENDING BULK OPERATIONS (ADMIN ONLY)
