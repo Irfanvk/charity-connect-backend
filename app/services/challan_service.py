@@ -1,6 +1,7 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import String, cast
 from sqlalchemy import or_
-from app.models import Challan, Member
+from app.models import Challan, Member, User
 from app.models.models import ChallanStatus, ChallanType
 from app.schemas import ChallanCreate, ChallanReject, ChallanUpdate
 from app.utils.file_handler import save_file, validate_file
@@ -232,6 +233,23 @@ class ChallanService:
           has_proof   → true = proof_uploaded_at IS NOT NULL
         """
         query = db.query(Challan)
+        member_joined = False
+        user_joined = False
+
+        def ensure_member_join(q):
+            nonlocal member_joined
+            if not member_joined:
+                q = q.outerjoin(Member, Challan.member_id == Member.id)
+                member_joined = True
+            return q
+
+        def ensure_user_join(q):
+            nonlocal user_joined
+            q = ensure_member_join(q)
+            if not user_joined:
+                q = q.outerjoin(User, Member.user_id == User.id)
+                user_joined = True
+            return q
 
         # ── status ──────────────────────────────────────────────────────────
         # Accept both the legacy `status_filter` kwarg and a bare `status`
@@ -257,21 +275,28 @@ class ChallanService:
 
         # ── created_by scoping (email fallback for non-members) ──────────────
         if created_by:
-            query = query.filter(Challan.created_by == created_by)
+            term = f"%{created_by.strip()}%"
+            query = ensure_user_join(query)
+            query = query.filter(
+                or_(
+                    User.email.ilike(term),
+                    User.username.ilike(term),
+                )
+            )
 
         # ── search ───────────────────────────────────────────────────────────
         # Searches challan_number directly on the Challan table.
         # Also searches member full_name via a JOIN on the Member table.
         if search:
             term = f"%{search.strip()}%"
-            query = (
-                query
-                .outerjoin(Member, Challan.member_id == Member.id)
-                .filter(
-                    or_(
-                        Challan.challan_number.ilike(term),
-                        Member.full_name.ilike(term),
-                    )
+            query = ensure_user_join(query)
+            query = query.filter(
+                or_(
+                    cast(Challan.id, String).ilike(term),
+                    Challan.month.ilike(term),
+                    Member.member_code.ilike(term),
+                    User.username.ilike(term),
+                    User.email.ilike(term),
                 )
             )
 

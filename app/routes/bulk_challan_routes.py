@@ -1,9 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 import uuid
 import json
 from datetime import datetime
-from typing import List
 
 from app.database import get_db
 from app.schemas.schemas import (
@@ -100,6 +99,26 @@ def bulk_create_challans(
             status_code=400,
             detail="Cannot create bulk challan for inactive member"
         )
+
+    existing_monthly = (
+        db.query(Challan.month)
+        .filter(
+            Challan.member_id == member_id,
+            Challan.type == ChallanType.MONTHLY,
+            Challan.month.in_(list(months_set)),
+            Challan.status != ChallanStatus.REJECTED,
+        )
+        .all()
+    )
+    if existing_monthly:
+        duplicated_months = sorted({row[0] for row in existing_monthly if row[0]})
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": "Challan already exists for one or more months",
+                "duplicate_months": duplicated_months,
+            },
+        )
     
     # Verify proof file exists (basic check - in production, verify with file service)
     if not request.proof_file_id:
@@ -146,7 +165,6 @@ def bulk_create_challans(
             created_at=datetime.utcnow(),
         )
         db.add(bulk_group)
-        db.commit()
         
         # Create audit log
         audit_log = AuditLog(
@@ -163,6 +181,7 @@ def bulk_create_challans(
         )
         db.add(audit_log)
         db.commit()
+        db.refresh(bulk_group)
         
         return BulkChallanResponse(
             bulk_group_id=bulk_group_id,
@@ -173,9 +192,9 @@ def bulk_create_challans(
             total_amount=total_amount,
             proof_file_id=request.proof_file_id,
             status="pending_approval",
-            created_at=datetime.utcnow(),
+            created_at=bulk_group.created_at,
             notes=request.notes,
         )
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e

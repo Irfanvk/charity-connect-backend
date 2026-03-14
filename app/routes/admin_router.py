@@ -40,6 +40,21 @@ def _is_admin_role(current_user: dict) -> bool:
     return role in ["admin", "superadmin"]
 
 
+def _build_proof_url(proof_file_id: str | None) -> str | None:
+    if not proof_file_id:
+        return None
+    cleaned = str(proof_file_id).strip()
+    if not cleaned:
+        return None
+    if cleaned.startswith("http://") or cleaned.startswith("https://"):
+        return cleaned
+    if cleaned.startswith("/"):
+        return cleaned
+    if cleaned.startswith("uploads/"):
+        return f"/{cleaned}"
+    return f"/uploads/proofs/{cleaned}"
+
+
 @router.post("/system/wipe", response_model=SystemWipeResponse)
 def wipe_system_data(
     payload: SystemWipeRequest,
@@ -245,7 +260,7 @@ def get_pending_bulk_operations(
         created_by = users_by_id.get(group.created_by_user_id)
         
         months = json.loads(group.months_list) if group.months_list else []
-        proof_url = f"http://localhost:8000/uploads/proofs/{group.proof_file_id}.jpg"  # Construct URL
+        proof_url = _build_proof_url(group.proof_file_id)
         
         item = BulkChallanListItem(
             bulk_group_id=group.bulk_group_id,
@@ -317,7 +332,7 @@ def get_bulk_challan_details(
                 created_at=challan.created_at,
             ))
     
-    proof_url = f"http://localhost:8000/uploads/proofs/{bulk_group.proof_file_id}.jpg"
+    proof_url = _build_proof_url(bulk_group.proof_file_id)
     
     return BulkChallanDetails(
         bulk_group_id=bulk_group.bulk_group_id,
@@ -396,10 +411,9 @@ def approve_bulk_challans(
         bulk_group.approved_at = datetime.utcnow()
         bulk_group.admin_notes = request.admin_notes
         
-        db.commit()
+        months = json.loads(bulk_group.months_list) if bulk_group.months_list else []
         
         # Create audit log
-        months = json.loads(bulk_group.months_list) if bulk_group.months_list else []
         audit_log = AuditLog(
             user_id=admin_user_id,
             action="bulk_approve",
@@ -414,6 +428,7 @@ def approve_bulk_challans(
         )
         db.add(audit_log)
         db.commit()
+        db.refresh(bulk_group)
         
         return BulkChallanApproveResponse(
             bulk_group_id=bulk_group.bulk_group_id,
@@ -423,7 +438,7 @@ def approve_bulk_challans(
             months_approved=months,
             total_amount_approved=bulk_group.total_amount,
             approved_by=admin_user.email if admin_user else None,
-            approved_at=datetime.utcnow(),
+            approved_at=bulk_group.approved_at,
             admin_notes=request.admin_notes,
         )
     except Exception as e:
@@ -488,10 +503,9 @@ def reject_bulk_challans(
         bulk_group.rejection_reason = request.reason
         bulk_group.rejected_at = datetime.utcnow()
         
-        db.commit()
+        months = json.loads(bulk_group.months_list) if bulk_group.months_list else []
         
         # Create audit log
-        months = json.loads(bulk_group.months_list) if bulk_group.months_list else []
         audit_log = AuditLog(
             user_id=admin_user_id,
             action="bulk_reject",
@@ -505,13 +519,14 @@ def reject_bulk_challans(
         )
         db.add(audit_log)
         db.commit()
+        db.refresh(bulk_group)
         
         return BulkChallanRejectResponse(
             bulk_group_id=bulk_group.bulk_group_id,
             status="rejected",
             rejected_challans=len(challan_ids),
             challan_ids=challan_ids,
-            rejected_at=datetime.utcnow(),
+            rejected_at=bulk_group.rejected_at,
             reason=request.reason,
             rejected_by=admin_user.email if admin_user else None,
         )
