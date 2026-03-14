@@ -79,6 +79,14 @@ class AuthService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Phone does not match invite",
             )
+
+        # If this person already exists as an offline-imported member account,
+        # claim and activate that same user to preserve a single member history.
+        claimable_user = AuthService._find_claimable_member_user(db, invite, registration)
+        if claimable_user:
+            AuthService._claim_existing_member_user(db, claimable_user, invite, registration)
+            db.refresh(claimable_user)
+            return claimable_user
         
         # Check username doesn't exist
         existing_user = db.query(User).filter(User.username == registration.username).first()
@@ -132,6 +140,74 @@ class AuthService:
         db.refresh(new_user)
         
         return new_user
+
+    @staticmethod
+    def _find_claimable_member_user(db: Session, invite: Invite, registration: UserRegisterWithInvite):
+        candidates: list[User] = []
+
+        possible_emails = [value for value in [invite.email, registration.email] if value]
+        possible_phones = [value for value in [invite.phone, registration.phone] if value]
+
+        for email in possible_emails:
+            user = db.query(User).filter(User.email == email).first()
+            if user and user not in candidates:
+                candidates.append(user)
+
+        for phone in possible_phones:
+            user = db.query(User).filter(User.phone == phone).first()
+            if user and user not in candidates:
+                candidates.append(user)
+
+        for user in candidates:
+            # Only claim member-linked accounts that are currently offline/inactive.
+            if user.role == "member" and user.member is not None and not user.is_active:
+                return user
+
+        return None
+
+    @staticmethod
+    def _claim_existing_member_user(
+        db: Session,
+        user: User,
+        invite: Invite,
+        registration: UserRegisterWithInvite,
+    ):
+        username_owner = db.query(User).filter(User.username == registration.username, User.id != user.id).first()
+        if username_owner:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Username already taken",
+            )
+
+        if registration.email:
+            email_owner = db.query(User).filter(User.email == registration.email, User.id != user.id).first()
+            if email_owner:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Email already taken",
+                )
+
+        if registration.phone:
+            phone_owner = db.query(User).filter(User.phone == registration.phone, User.id != user.id).first()
+            if phone_owner:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Phone already taken",
+                )
+
+        user.username = registration.username
+        if registration.email:
+            user.email = registration.email
+        if registration.phone:
+            user.phone = registration.phone
+        user.password_hash = hash_password(registration.password)
+        user.is_active = True
+
+        # Keep invite tracking accurate.
+        invite.is_used = True
+        invite.used_by_user_id = user.id
+
+        db.commit()
     
     @staticmethod
     def get_user(db: Session, user_id: int):

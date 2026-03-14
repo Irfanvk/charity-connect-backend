@@ -1,11 +1,112 @@
+import csv
+import io
+import re
+import secrets
+from datetime import datetime
+from typing import Optional
+
 from sqlalchemy.orm import Session
-from app.models import Member, User
-from app.schemas import MemberUpdate, MemberCreate
+
+from app.models import Member, User, Challan
+from app.schemas import MemberUpdate, MemberCreate, MemberImportSummary
 from fastapi import HTTPException, status
+from app.utils import hash_password, generate_member_code
 
 
 class MemberService:
     """Member management service."""
+
+    @staticmethod
+    def _normalize_member_code(code: Optional[str]) -> Optional[str]:
+        if not code:
+            return None
+        return str(code).strip().upper()
+
+    @staticmethod
+    def _normalize_contact(value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = str(value).strip()
+        return cleaned or None
+
+    @staticmethod
+    def _safe_username_seed(name: Optional[str], fallback: str = "member") -> str:
+        base = re.sub(r"[^a-zA-Z0-9]+", "_", (name or "").strip().lower()).strip("_")
+        if not base:
+            base = fallback
+        return base[:24]
+
+    @staticmethod
+    def _generate_unique_offline_username(db: Session, full_name: Optional[str], member_code: str) -> str:
+        seed = MemberService._safe_username_seed(full_name, fallback="member")
+        code_seed = re.sub(r"[^a-zA-Z0-9]", "", member_code.lower())[-6:] or "mem"
+
+        for _ in range(20):
+            suffix = secrets.token_hex(2)
+            candidate = f"offline_{seed}_{code_seed}_{suffix}"[:255]
+            exists = db.query(User).filter(User.username == candidate).first()
+            if not exists:
+                return candidate
+
+        return f"offline_{secrets.token_hex(8)}"
+
+    @staticmethod
+    def _next_member_code(db: Session) -> str:
+        last_member = db.query(Member).order_by(Member.id.desc()).first()
+        last_code = last_member.member_code if last_member else None
+        return generate_member_code(last_code)
+
+    @staticmethod
+    def _get_or_create_user_for_admin_member(
+        db: Session,
+        full_name: str,
+        phone: Optional[str],
+        email: Optional[str],
+        member_code: str,
+    ) -> tuple[User, bool]:
+        """Return (user, created_new_user). Reuses existing user by contact when possible."""
+        existing_user = None
+
+        if email:
+            existing_user = db.query(User).filter(User.email == email).first()
+        if not existing_user and phone:
+            existing_user = db.query(User).filter(User.phone == phone).first()
+
+        if existing_user:
+            return existing_user, False
+
+        username = MemberService._generate_unique_offline_username(db, full_name, member_code)
+        offline_secret = secrets.token_urlsafe(24)
+        user = User(
+            username=username,
+            email=email,
+            phone=phone,
+            password_hash=hash_password(offline_secret),
+            role="member",
+            is_active=False,
+        )
+        db.add(user)
+        db.flush()
+        return user, True
+
+    @staticmethod
+    def _parse_datetime(value) -> Optional[datetime]:
+        if value is None or value == "":
+            return None
+        if isinstance(value, datetime):
+            return value
+        raw = str(value).strip()
+        if not raw:
+            return None
+        for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%Y/%m/%d"):
+            try:
+                return datetime.strptime(raw, fmt)
+            except ValueError:
+                continue
+        try:
+            return datetime.fromisoformat(raw)
+        except ValueError:
+            return None
     
     @staticmethod
     def get_member(db: Session, member_id: int):
@@ -40,35 +141,118 @@ class MemberService:
 
     @staticmethod
     def create_member(db: Session, member_data: MemberCreate):
-        """Create member profile (admin only)."""
-        existing_user = db.query(User).filter(User.id == member_data.user_id).first()
-        if not existing_user:
+        """Create member profile (admin only).
+
+        Supports 2 paths:
+        1) Legacy: provide user_id + member_code
+        2) Admin onboarding: provide full_name/contact and create or link user automatically
+        """
+        normalized_code = MemberService._normalize_member_code(
+            member_data.member_code or member_data.member_id
+        )
+
+        # Legacy path: explicit user_id linking
+        if member_data.user_id is not None:
+            existing_user = db.query(User).filter(User.id == member_data.user_id).first()
+            if not existing_user:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail="User not found",
+                )
+
+            existing_member = db.query(Member).filter(Member.user_id == member_data.user_id).first()
+            if existing_member:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Member profile already exists for this user",
+                )
+
+            member_code = normalized_code or MemberService._next_member_code(db)
+            duplicate_code = db.query(Member).filter(Member.member_code == member_code).first()
+            if duplicate_code:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Member code already in use",
+                )
+
+            member = Member(
+                user_id=member_data.user_id,
+                member_code=member_code,
+                monthly_amount=member_data.monthly_amount,
+                address=member_data.address,
+                status=member_data.status or "active",
+                join_date=member_data.join_date,
+            )
+            db.add(member)
+            db.commit()
+            db.refresh(member)
+            return member
+
+        # Admin onboarding path for offline members.
+        full_name = MemberService._normalize_contact(member_data.full_name)
+        phone = MemberService._normalize_contact(member_data.phone)
+        email = MemberService._normalize_contact(member_data.email)
+
+        if not full_name:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="User not found",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="full_name is required for admin member onboarding",
             )
 
-        existing_member = db.query(Member).filter(Member.user_id == member_data.user_id).first()
-        if existing_member:
+        if not phone and not email:
             raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Member profile already exists for this user",
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least one contact detail (phone or email) is required",
             )
 
-        duplicate_code = db.query(Member).filter(Member.member_code == member_data.member_code).first()
+        member_code = normalized_code or MemberService._next_member_code(db)
+        duplicate_code = db.query(Member).filter(Member.member_code == member_code).first()
         if duplicate_code:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Member code already in use",
             )
 
+        user, _created_user = MemberService._get_or_create_user_for_admin_member(
+            db=db,
+            full_name=full_name,
+            phone=phone,
+            email=email,
+            member_code=member_code,
+        )
+
+        existing_member = db.query(Member).filter(Member.user_id == user.id).first()
+        if existing_member:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="A member profile already exists for this contact/user",
+            )
+
+        # Keep imported/offline users non-login by default until they claim via invite registration.
+        if user.role != "member":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Cannot link member profile to a non-member user role",
+            )
+
+        if user.username.startswith("offline_") or not user.is_active:
+            user.username = MemberService._generate_unique_offline_username(db, full_name, member_code)
+            user.is_active = False
+
+        if email and not user.email:
+            user.email = email
+        if phone and not user.phone:
+            user.phone = phone
+
         member = Member(
-            user_id=member_data.user_id,
-            member_code=member_data.member_code,
+            user_id=user.id,
+            member_code=member_code,
             monthly_amount=member_data.monthly_amount,
             address=member_data.address,
-            status="active",
+            status=member_data.status or "active",
+            join_date=member_data.join_date,
         )
+
         db.add(member)
         db.commit()
         db.refresh(member)
@@ -76,17 +260,54 @@ class MemberService:
     
     @staticmethod
     def update_member(db: Session, member_id: int, update_data: MemberUpdate):
-        """Update member information."""
+        """Update member information and linked user contact fields."""
         member = MemberService.get_member(db, member_id)
-        
+        user = db.query(User).filter(User.id == member.user_id).first()
+
         update_fields = update_data.dict(exclude_unset=True)
-        for key, value in update_fields.items():
-            if value is not None:
-                setattr(member, key, value)
+
+        new_code = MemberService._normalize_member_code(update_fields.get("member_code") or update_fields.get("member_id"))
+        if new_code and new_code != member.member_code:
+            duplicate_code = db.query(Member).filter(Member.member_code == new_code, Member.id != member.id).first()
+            if duplicate_code:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Member code already in use",
+                )
+            member.member_code = new_code
+
+        if "full_name" in update_fields and update_fields["full_name"] and user:
+            user.username = update_fields["full_name"].strip()
+
+        if "email" in update_fields and user:
+            new_email = MemberService._normalize_contact(update_fields.get("email"))
+            if new_email and new_email != user.email:
+                duplicate_email = db.query(User).filter(User.email == new_email, User.id != user.id).first()
+                if duplicate_email:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Email already in use",
+                    )
+            user.email = new_email
+
+        if "phone" in update_fields and user:
+            new_phone = MemberService._normalize_contact(update_fields.get("phone"))
+            if new_phone and new_phone != user.phone:
+                duplicate_phone = db.query(User).filter(User.phone == new_phone, User.id != user.id).first()
+                if duplicate_phone:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Phone already in use",
+                    )
+            user.phone = new_phone
+
+        for key in ("monthly_amount", "address", "status", "join_date"):
+            if key in update_fields and update_fields[key] is not None:
+                setattr(member, key, update_fields[key])
         
         db.commit()
         db.refresh(member)
-        
+
         return member
 
     @staticmethod
@@ -109,3 +330,209 @@ class MemberService:
             )
         
         return member
+
+    @staticmethod
+    def _read_tabular_rows(file_bytes: bytes, filename: str) -> list[dict]:
+        lower_name = filename.lower()
+
+        if lower_name.endswith(".csv"):
+            text = file_bytes.decode("utf-8-sig")
+            reader = csv.DictReader(io.StringIO(text))
+            return [dict(row) for row in reader]
+
+        if lower_name.endswith(".xlsx") or lower_name.endswith(".xlsm"):
+            try:
+                from openpyxl import load_workbook  # type: ignore[import-not-found]
+            except ImportError as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Excel import requires openpyxl package",
+                ) from exc
+
+            workbook = load_workbook(io.BytesIO(file_bytes), data_only=True)
+            sheet = workbook.active
+            rows = list(sheet.iter_rows(values_only=True))
+            if not rows:
+                return []
+
+            headers = [str(h).strip() if h is not None else "" for h in rows[0]]
+            records: list[dict] = []
+            for raw in rows[1:]:
+                if raw is None:
+                    continue
+                record = {}
+                empty_row = True
+                for idx, value in enumerate(raw):
+                    key = headers[idx] if idx < len(headers) else f"col_{idx + 1}"
+                    if value not in (None, ""):
+                        empty_row = False
+                    record[key] = value
+                if not empty_row:
+                    records.append(record)
+            return records
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Unsupported file type. Use .csv or .xlsx",
+        )
+
+    @staticmethod
+    def _normalized_row(row: dict) -> dict:
+        normalized = {}
+        for key, value in row.items():
+            if key is None:
+                continue
+            nk = str(key).strip().lower().replace(" ", "_")
+            normalized[nk] = value
+        return normalized
+
+    @staticmethod
+    def _row_value(row: dict, keys: list[str]):
+        for key in keys:
+            if key in row and row[key] not in (None, ""):
+                return row[key]
+        return None
+
+    @staticmethod
+    def import_members_file(
+        db: Session,
+        file_bytes: bytes,
+        filename: str,
+        include_donations: bool = True,
+    ) -> MemberImportSummary:
+        rows = MemberService._read_tabular_rows(file_bytes, filename)
+
+        total_rows = len(rows)
+        members_created = 0
+        members_linked_existing = 0
+        challans_created = 0
+        rows_skipped = 0
+        errors: list[str] = []
+
+        for idx, raw_row in enumerate(rows, start=2):
+            row = MemberService._normalized_row(raw_row)
+
+            try:
+                member_code = MemberService._normalize_member_code(
+                    MemberService._row_value(row, ["member_code", "member_id", "code"])
+                )
+                full_name = MemberService._normalize_contact(
+                    MemberService._row_value(row, ["full_name", "name", "member_name"])
+                )
+                phone = MemberService._normalize_contact(
+                    MemberService._row_value(row, ["phone", "mobile", "phone_number"])
+                )
+                email = MemberService._normalize_contact(
+                    MemberService._row_value(row, ["email", "email_address"])
+                )
+                address = MemberService._normalize_contact(
+                    MemberService._row_value(row, ["address", "location"])
+                )
+                monthly_amount_raw = MemberService._row_value(row, ["monthly_amount", "monthly", "default_amount"])
+                status_value = MemberService._normalize_contact(MemberService._row_value(row, ["status"])) or "active"
+                join_date = MemberService._parse_datetime(
+                    MemberService._row_value(row, ["join_date", "joined_on", "member_since"])
+                )
+
+                monthly_amount = 0.0
+                if monthly_amount_raw not in (None, ""):
+                    monthly_amount = float(monthly_amount_raw)
+
+                if not full_name and not phone and not email:
+                    rows_skipped += 1
+                    errors.append(f"Row {idx}: missing identifier fields (name/phone/email)")
+                    continue
+
+                if not member_code:
+                    member_code = MemberService._next_member_code(db)
+
+                existing_member = db.query(Member).filter(Member.member_code == member_code).first()
+                if existing_member:
+                    member = existing_member
+                    members_linked_existing += 1
+                else:
+                    user, created_new_user = MemberService._get_or_create_user_for_admin_member(
+                        db=db,
+                        full_name=full_name or "Member",
+                        phone=phone,
+                        email=email,
+                        member_code=member_code,
+                    )
+
+                    member = db.query(Member).filter(Member.user_id == user.id).first()
+                    if member:
+                        members_linked_existing += 1
+                    else:
+                        member = Member(
+                            user_id=user.id,
+                            member_code=member_code,
+                            monthly_amount=monthly_amount,
+                            address=address,
+                            status=status_value,
+                            join_date=join_date,
+                        )
+                        db.add(member)
+                        db.flush()
+                        members_created += 1
+                        if not created_new_user:
+                            members_linked_existing += 1
+
+                if include_donations:
+                    donation_month = MemberService._normalize_contact(
+                        MemberService._row_value(row, ["month", "donation_month", "payment_month"])
+                    )
+                    donation_amount_raw = MemberService._row_value(row, ["amount", "donation_amount", "paid_amount"])
+                    payment_method = MemberService._normalize_contact(
+                        MemberService._row_value(row, ["payment_method", "method"])
+                    )
+                    donation_status_raw = MemberService._normalize_contact(
+                        MemberService._row_value(row, ["donation_status", "status", "challan_status", "payment_status"])
+                    )
+
+                    if donation_month and donation_amount_raw not in (None, ""):
+                        donation_amount = float(donation_amount_raw)
+
+                        normalized_status = "generated"
+                        raw_status = (donation_status_raw or "generated").lower()
+                        if raw_status in ("approved", "paid", "completed"):
+                            normalized_status = "approved"
+                        elif raw_status in ("pending",):
+                            normalized_status = "pending"
+                        elif raw_status in ("rejected", "failed"):
+                            normalized_status = "rejected"
+
+                        duplicate_challan = db.query(Challan).filter(
+                            Challan.member_id == member.id,
+                            Challan.type == "monthly",
+                            Challan.month == donation_month,
+                            Challan.amount == donation_amount,
+                        ).first()
+
+                        if not duplicate_challan:
+                            challan = Challan(
+                                member_id=member.id,
+                                type="monthly",
+                                month=donation_month,
+                                amount=donation_amount,
+                                payment_method=payment_method,
+                                status=normalized_status,
+                            )
+                            if normalized_status == "approved":
+                                challan.approved_at = datetime.utcnow()
+                            db.add(challan)
+                            challans_created += 1
+
+            except (ValueError, TypeError) as exc:
+                rows_skipped += 1
+                errors.append(f"Row {idx}: {exc}")
+
+        db.commit()
+
+        return MemberImportSummary(
+            total_rows=total_rows,
+            members_created=members_created,
+            members_linked_existing=members_linked_existing,
+            challans_created=challans_created,
+            rows_skipped=rows_skipped,
+            errors=errors[:50],
+        )

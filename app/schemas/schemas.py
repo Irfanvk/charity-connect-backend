@@ -70,23 +70,46 @@ class TokenResponse(BaseModel):
 
 # Member Schemas
 class MemberCreate(BaseModel):
-    user_id: int
-    member_code: str
+    # Legacy path: create member for an existing user.
+    user_id: Optional[int] = None
+    member_code: Optional[str] = None
+
+    # Admin onboarding path (offline member creation from admin UI/import).
+    member_id: Optional[str] = None
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+
     monthly_amount: float = 0.0
     address: Optional[str] = None
+    join_date: Optional[datetime] = None
+    status: Optional[str] = "active"
+    city: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class MemberUpdate(BaseModel):
+    member_id: Optional[str] = None
+    member_code: Optional[str] = None
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
     monthly_amount: Optional[float] = None
     address: Optional[str] = None
     status: Optional[str] = None
+    join_date: Optional[datetime] = None
+    city: Optional[str] = None
+    notes: Optional[str] = None
 
 
 class MemberResponse(BaseModel):
     id: int
     user_id: int
+    member_id: Optional[str] = None
     full_name: Optional[str] = None
     member_code: str
+    phone: Optional[str] = None
+    email: Optional[str] = None
     monthly_amount: float
     address: Optional[str]
     join_date: datetime
@@ -96,6 +119,15 @@ class MemberResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class MemberImportSummary(BaseModel):
+    total_rows: int
+    members_created: int
+    members_linked_existing: int
+    challans_created: int
+    rows_skipped: int
+    errors: list[str]
 
 
 # Invite Schemas

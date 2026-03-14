@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, status, HTTPException, Query
+from fastapi import APIRouter, Depends, status, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.schemas import MemberResponse, MemberUpdate, MemberCreate
+from app.schemas import MemberResponse, MemberUpdate, MemberCreate, MemberImportSummary
 from app.services import MemberService
-from app.utils import get_current_user, get_current_admin
+from app.utils import get_current_user, get_current_admin, get_current_superadmin
 from typing import List
 
 router = APIRouter(prefix="/members", tags=["Members"])
@@ -65,11 +65,40 @@ def get_member_by_code(
 @router.post("/", response_model=MemberResponse, status_code=status.HTTP_201_CREATED)
 def create_member(
     payload: MemberCreate,
-    _current_user: dict = Depends(get_current_admin),
+    _current_user: dict = Depends(get_current_superadmin),
     db: Session = Depends(get_db),
 ):
-    """Create member profile (Admin only)."""
+    """Create member profile (Superadmin only)."""
     return MemberService.create_member(db, payload)
+
+
+@router.post("/import", response_model=MemberImportSummary, status_code=status.HTTP_201_CREATED)
+async def import_members(
+    file: UploadFile = File(...),
+    include_donations: bool = Query(default=True),
+    _current_user: dict = Depends(get_current_superadmin),
+    db: Session = Depends(get_db),
+):
+    """
+    Import members from CSV/XLSX (Superadmin only).
+
+    Supported member columns:
+    - member_code/member_id, full_name/name, phone/mobile, email, address,
+      monthly_amount, join_date, status
+
+    Optional donation columns (when include_donations=true):
+    - month/donation_month, amount/donation_amount, payment_method, donation_status
+    """
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    return MemberService.import_members_file(
+        db=db,
+        file_bytes=content,
+        filename=file.filename or "import.csv",
+        include_donations=include_donations,
+    )
 
 
 @router.get("/{member_id}", response_model=MemberResponse)

@@ -76,6 +76,22 @@ class Member(Base):
             return self.user.username
         return None
 
+    @property
+    def member_id(self):
+        return self.member_code
+
+    @property
+    def phone(self):
+        if self.user:
+            return self.user.phone
+        return None
+
+    @property
+    def email(self):
+        if self.user:
+            return self.user.email
+        return None
+
 
 class Invite(Base):
     __tablename__ = "invites"
