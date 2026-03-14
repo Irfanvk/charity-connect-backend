@@ -16,7 +16,10 @@ def _is_admin(current_user: dict) -> bool:
 @router.get("/", response_model=List[MemberResponse])
 def get_members(
     skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=100, ge=1, le=200),
+    limit: int = Query(default=20, ge=1, le=200),
+    search: str | None = Query(default=None),
+    sort_by: str = Query(default="full_name"),
+    sort_order: str = Query(default="asc"),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -27,7 +30,14 @@ def get_members(
     """
     if _is_admin(current_user):
         # Admin gets all members
-        return MemberService.get_all_members(db, skip, limit)
+        return MemberService.get_all_members(
+    db=db,
+    skip=skip,
+    limit=limit,
+    search=search,
+    sort_by=sort_by,
+    sort_order=sort_order
+)
     else:
         # Member gets only their own profile (returned as list)
         member = MemberService.get_member_for_user(db, current_user["user_id"])

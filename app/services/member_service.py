@@ -208,37 +208,68 @@ class MemberService:
         db.add(campaign)
         db.flush()
         return campaign.id
-    
+
     @staticmethod
     def get_member(db: Session, member_id: int):
         """Get member by ID."""
         member = db.query(Member).filter(Member.id == member_id).first()
-        
+
         if not member:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Member not found",
             )
-        
+
         return member
-    
+
     @staticmethod
     def get_member_by_code(db: Session, member_code: str):
         """Get member by member code."""
         member = db.query(Member).filter(Member.member_code == member_code).first()
-        
+
         if not member:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Member not found",
             )
-        
+
         return member
-    
+
     @staticmethod
-    def get_all_members(db: Session, skip: int = 0, limit: int = 100):
-        """Get all members with pagination."""
-        return db.query(Member).offset(skip).limit(limit).all()
+    def get_all_members(
+        db: Session,
+        skip: int = 0,
+        limit: int = 20,
+        search: Optional[str] = None,
+        sort_by: str = "full_name",
+        sort_order: str = "asc",
+    ):
+        """Get members with search, sorting, and pagination."""
+        from sqlalchemy import asc, desc
+
+        # Always join User so we can filter/sort on User.username
+        query = db.query(Member).join(User, Member.user_id == User.id)
+
+        # Search against User.username (the real name column) and Member.member_code
+        if search:
+            query = query.filter(
+                User.username.ilike(f"%{search}%") |
+                Member.member_code.ilike(f"%{search}%")
+            )
+
+        # Sorting — use actual mapped columns, never @property descriptors
+        if sort_by in ("name", "full_name"):
+            column = User.username
+        elif sort_by == "id":
+            column = Member.member_code
+        else:
+            column = User.username
+
+        order_fn = desc if sort_order == "desc" else asc
+        query = query.order_by(order_fn(column))
+
+        # Pagination
+        return query.offset(skip).limit(limit).all()
 
     @staticmethod
     def create_member(db: Session, member_data: MemberCreate):
@@ -358,7 +389,7 @@ class MemberService:
         db.commit()
         db.refresh(member)
         return member
-    
+
     @staticmethod
     def update_member(db: Session, member_id: int, update_data: MemberUpdate):
         """Update member information and linked user contact fields."""
@@ -405,7 +436,7 @@ class MemberService:
         for key in ("monthly_amount", "address", "status", "join_date"):
             if key in update_fields and update_fields[key] is not None:
                 setattr(member, key, update_fields[key])
-        
+
         db.commit()
         db.refresh(member)
 
@@ -422,18 +453,18 @@ class MemberService:
         db.delete(member)
         db.commit()
         return None
-    
+
     @staticmethod
     def get_member_for_user(db: Session, user_id: int):
         """Get member associated with user."""
         member = db.query(Member).filter(Member.user_id == user_id).first()
-        
+
         if not member:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Member profile not found for this user",
             )
-        
+
         return member
 
     @staticmethod
