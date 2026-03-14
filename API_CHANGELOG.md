@@ -13,6 +13,7 @@
 
 ### Notes
 - Endpoint remains superadmin-only and backward compatible with existing member import templates.
+- Frontend-only cross-reference: Members panel pagination (20/50/100 page size + page navigation) was implemented on `2026-03-14` in `CharityConnect/src/pages/Members.jsx`. No API contract change required.
 
 ### Added
 - **System Wipe Endpoint**: `POST /admin/system/wipe` (superadmin only)
