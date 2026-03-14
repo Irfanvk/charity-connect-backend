@@ -3,7 +3,7 @@
 **Project:** CharityConnect  
 **Purpose:** Decisions, meeting minutes, and action items  
 **Owner:** Integration Lead  
-**Last Updated:** 2026-03-07
+**Last Updated:** 2026-03-14
 
 ---
 
@@ -11,6 +11,10 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-03-14 | Member onboarding and import flows restricted to superadmin only | Backend | ✅ | `POST /members/` and `POST /members/import` now require superadmin authorization; admin users receive 403 |
+| 2026-03-14 | Added offline member onboarding path for admin-entered profile data | Backend | ✅ | Member creation now supports `member_id/full_name/phone/email` payload and auto-links/creates a member user account |
+| 2026-03-14 | Added CSV/XLSX member import pipeline with optional legacy donation import | Backend | ✅ | New `POST /members/import` supports `.csv/.xlsx`, row-level summaries, and optional challan history creation |
+| 2026-03-14 | Registration flow now claims existing offline member records to prevent duplicates | Backend | ✅ | Invite registration checks contact match and activates/link-claims existing inactive member user so prior records remain unified |
 | 2026-03-08 | Fixed admin bulk operations 500 error (auth context mismatch in dict-based JWT) | Backend | ✅ | Root cause: admin routes using `current_user.role` attribute access on dict context; Fixed with `_is_admin_role()` helper; all 4 admin endpoints now return 200 |
 | 2026-03-08 | Fixed audit logs 422 validation error (empty query param handling) | Both | ✅ | Backend changed user_id from Optional[int] to Optional[str]; Frontend filters empty params; Normalizer maps backend fields to frontend format |
 | 2026-03-08 | Enhanced login authentication to accept username OR email (auto-detection) | Backend | ✅ | Single identifier field in backend login; auto-tries username first, then email; Frontend updated with "Username or Email" field |

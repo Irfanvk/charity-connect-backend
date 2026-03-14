@@ -20,6 +20,56 @@ All changes have been deployed to the running backend server and tested end-to-e
 
 ---
 
+## Addendum: March 14, 2026 - Superadmin Member Onboarding and Data Import
+
+### Executive Summary
+
+This addendum documents the implementation of superadmin-only member onboarding and legacy data import features, including claim-link behavior to unify offline and online member records.
+
+### Backend Enhancements Delivered
+
+1. **Superadmin-Only Authorization for Critical Member Creation Flows**
+- Restricted `POST /members/` to superadmin only.
+- Restricted `POST /members/import` to superadmin only.
+- Result: Admin users can view/update members per existing policy, but cannot create/import member records.
+
+2. **Offline Member Onboarding Path (No Self-Registration Required)**
+- Extended member creation flow to accept admin-entered profile payloads (`member_id`, `full_name`, `phone`, `email`, `monthly_amount`, etc.).
+- System auto-creates or links a user record and binds the new member through `members.user_id`.
+- Offline-created users are stored inactive until claimed through invite registration.
+
+3. **CSV/XLSX Import for Existing Local Excel Data**
+- Added `POST /members/import` endpoint.
+- Supports `.csv` and `.xlsx` uploads.
+- Supports optional donation-history import via `include_donations` query flag.
+- Returns structured import summary with:
+  - total rows
+  - members created
+  - members linked to existing users
+  - challans created
+  - skipped rows
+  - error list
+
+4. **Duplicate-Prevention Claim-Link Registration**
+- Updated invite registration logic to detect matching offline member accounts by phone/email.
+- When a match exists, registration claims and activates the existing user/member link.
+- Prevents duplicate member entities and preserves imported historical donation records.
+
+### Files Updated (March 14 Addendum Scope)
+- `app/routes/member_routes.py`
+- `app/services/member_service.py`
+- `app/services/auth_service.py`
+- `app/schemas/schemas.py`
+- `app/schemas/__init__.py`
+- `app/models/models.py`
+- `requirements.txt` (added `openpyxl`)
+
+### Validation Notes
+- API authorization tests with placeholder tokens correctly returned invalid-token responses.
+- Role-based behavior is enforced server-side, independent of UI visibility controls.
+
+---
+
 ## Detailed Changes
 
 ### 1. Admin Bulk Operations 500 Error Fix
