@@ -3,7 +3,7 @@
 **Project:** CharityConnect  
 **Purpose:** Decisions, meeting minutes, and action items  
 **Owner:** Integration Lead  
-**Last Updated:** 2026-03-14
+**Last Updated:** 2026-03-15
 
 ---
 
@@ -11,6 +11,13 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-03-15 | Extended frontend member import request timeout to prevent 15-second abort during large CSV/XLSX uploads | Frontend | ✅ | Added per-request timeout override in API client and set member import to 5 minutes; standard API calls remain on default timeout |
+| 2026-03-15 | Introduced login brute-force protection (identifier+IP) | Backend | ✅ | Added in-memory failed-attempt window/lockout logic in auth service and wired client IP from login route |
+| 2026-03-15 | Enforced password strength policy on registration payloads | Backend | ✅ | Registration now requires min length + upper/lower/number/special char validation in schema layer |
+| 2026-03-15 | Hardened JWT/config security defaults for production | Backend | ✅ | Token expiry now uses config consistently; startup validation blocks weak SECRET_KEY and wildcard CORS in non-debug mode |
+| 2026-03-15 | Reduced sensitive verification feedback in superadmin wipe flow | Backend | ✅ | Replaced per-password-slot failure details with generic verification error messages |
+| 2026-03-15 | Sanitized uploaded filenames before disk write | Backend | ✅ | Added basename normalization and unsafe character stripping to reduce filename/path abuse risk |
+| 2026-03-15 | Removed hardcoded credentials from seed and smoke scripts | Backend | ✅ | `seed_test_data.py` and `e2e_smoke_test.ps1` now support env-driven credentials for safer local and CI usage |
 | 2026-03-14 | Member onboarding and import flows restricted to superadmin only | Backend | ✅ | `POST /members/` and `POST /members/import` now require superadmin authorization; admin users receive 403 |
 | 2026-03-14 | Added offline member onboarding path for admin-entered profile data | Backend | ✅ | Member creation now supports `member_id/full_name/phone/email` payload and auto-links/creates a member user account |
 | 2026-03-14 | Added CSV/XLSX member import pipeline with optional legacy donation import | Backend | ✅ | New `POST /members/import` supports `.csv/.xlsx`, row-level summaries, and optional challan history creation |

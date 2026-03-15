@@ -3,6 +3,10 @@
 
 $baseUrl = "http://127.0.0.1:8000"
 $testResults = @()
+$memberLoginUser = if ($env:E2E_MEMBER_LOGIN) { $env:E2E_MEMBER_LOGIN } else { "testmember" }
+$memberLoginPassword = if ($env:E2E_MEMBER_PASSWORD) { $env:E2E_MEMBER_PASSWORD } else { "ChangeMe_Member@123" }
+$adminLoginUser = if ($env:E2E_ADMIN_LOGIN) { $env:E2E_ADMIN_LOGIN } else { "admin" }
+$adminLoginPassword = if ($env:E2E_ADMIN_PASSWORD) { $env:E2E_ADMIN_PASSWORD } else { "ChangeMe_Admin@123" }
 
 function Test-Endpoint {
     param(
@@ -67,8 +71,8 @@ $memberLogin = Test-Endpoint `
     -Method "POST" `
     -Url "/auth/login" `
     -Body @{
-        username = "Irfanvk"
-        password = "password123"
+        username = $memberLoginUser
+        password = $memberLoginPassword
     }
 
 if ($memberLogin -and $memberLogin.access_token) {
@@ -131,8 +135,8 @@ $adminLogin = Test-Endpoint `
     -Method "POST" `
     -Url "/auth/login" `
     -Body @{
-        username = "admin1"
-        password = "admin123"
+        username = $adminLoginUser
+        password = $adminLoginPassword
     }
 
 if ($adminLogin -and $adminLogin.access_token) {

@@ -1,4 +1,5 @@
-from pydantic import BaseModel, Field
+import re
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -38,6 +39,21 @@ class UserRegisterWithInvite(BaseModel):
     phone: Optional[str] = None
     address: Optional[str] = None
     monthly_amount: Optional[float] = 0.0
+
+    @field_validator("password")
+    @classmethod
+    def validate_password_strength(cls, value: str) -> str:
+        if len(value or "") < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        if not re.search(r"[A-Z]", value):
+            raise ValueError("Password must include at least one uppercase letter")
+        if not re.search(r"[a-z]", value):
+            raise ValueError("Password must include at least one lowercase letter")
+        if not re.search(r"\d", value):
+            raise ValueError("Password must include at least one number")
+        if not re.search(r"[^A-Za-z0-9]", value):
+            raise ValueError("Password must include at least one special character")
+        return value
 
 
 class UserResponse(BaseModel):
@@ -231,6 +247,8 @@ class CampaignResponse(BaseModel):
     title: str
     description: Optional[str]
     target_amount: float
+    collected_amount: float = 0.0
+    participants_count: int = 0
     start_date: datetime
     end_date: datetime
     is_active: bool

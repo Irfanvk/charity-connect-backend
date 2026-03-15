@@ -1,5 +1,13 @@
 from datetime import datetime
 from pathlib import Path
+import re
+
+
+def _sanitize_filename(filename: str) -> str:
+    """Normalize filename to a safe basename and strip unsafe characters."""
+    base_name = Path(str(filename or "")).name
+    safe = re.sub(r"[^A-Za-z0-9._-]", "_", base_name)
+    return safe or "upload.bin"
 
 
 def save_file(file_content: bytes, subfolder: str, filename: str) -> str:
@@ -20,7 +28,7 @@ def save_file(file_content: bytes, subfolder: str, filename: str) -> str:
     
     # Add timestamp to filename to ensure uniqueness
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_")
-    final_filename = timestamp + filename
+    final_filename = timestamp + _sanitize_filename(filename)
     
     file_path = upload_dir / final_filename
     
@@ -50,7 +58,8 @@ def validate_file(file_content: bytes, filename: str, max_size_mb: int = 3) -> b
     
     # Check file extension
     allowed_extensions = {".jpg", ".jpeg", ".png", ".pdf"}
-    file_ext = Path(filename).suffix.lower()
+    safe_name = _sanitize_filename(filename)
+    file_ext = Path(safe_name).suffix.lower()
     
     if file_ext not in allowed_extensions:
         raise ValueError(f"File type not allowed. Allowed types: {', '.join(allowed_extensions)}")

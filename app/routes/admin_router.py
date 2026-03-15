@@ -84,12 +84,12 @@ def wipe_system_data(
     if not actor:
         raise HTTPException(status_code=404, detail="Acting superadmin not found.")
 
-    for idx, attempt in enumerate(payload.password_attempts, start=1):
+    for attempt in payload.password_attempts:
         raw_attempt = str(attempt or "").strip()
         if not raw_attempt:
-            raise HTTPException(status_code=400, detail=f"Password entry {idx} is empty.")
+            raise HTTPException(status_code=400, detail="All password confirmation fields are required.")
         if not verify_password(raw_attempt, actor.password_hash):
-            raise HTTPException(status_code=403, detail=f"Password entry {idx} is invalid.")
+            raise HTTPException(status_code=403, detail="Password verification failed.")
 
     keep_roles = ["superadmin"]
     if payload.keep_admins:

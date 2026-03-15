@@ -70,6 +70,69 @@ This addendum documents the implementation of superadmin-only member onboarding 
 
 ---
 
+## Addendum: March 15, 2026 - Security Hardening and Import Reliability
+
+### Executive Summary
+
+This addendum captures high-priority security and reliability updates delivered on March 15, 2026 across backend authentication/config and frontend import behavior.
+
+### Changes Delivered
+
+1. **Frontend Import Timeout Reliability**
+- Added per-request timeout override support in frontend API client.
+- Increased member import request timeout to 5 minutes to prevent 15-second aborts during large file uploads.
+- Default timeout for standard requests remains unchanged.
+
+2. **Login Brute-Force Mitigation**
+- Added in-memory login rate limiting in auth service using identifier + source IP keys.
+- Lockout policy: repeated failed attempts trigger temporary block (HTTP 429).
+
+3. **Password Strength Enforcement**
+- Added schema-level password policy for invite-based registration.
+- Policy now requires minimum length and mixed character classes (upper/lower/number/special).
+
+4. **JWT and Runtime Security Config Hardening**
+- Auth utility now uses centralized runtime settings (secret, algorithm, expiry) instead of duplicate env reads.
+- Added `iat` and `nbf` claims to issued JWTs.
+- Added startup config guards for non-debug mode:
+  - weak/short `SECRET_KEY` is rejected
+  - wildcard `CORS_ORIGINS` is rejected
+  - token expiry bounds validated
+
+5. **Sensitive Error Message Reduction**
+- Superadmin system-wipe password verification responses no longer reveal which entry failed.
+
+6. **File Upload Safety Improvement**
+- Added filename sanitization before save:
+  - force basename
+  - strip unsafe characters
+  - preserve extension validation
+
+7. **Credential Hygiene in Utilities**
+- Removed hardcoded credentials from test data seed and smoke test scripts.
+- Added environment-variable driven credential configuration for safer local and CI usage.
+
+### Files Updated (March 15 Scope)
+
+- `app/config.py`
+- `app/utils/auth.py`
+- `app/schemas/schemas.py`
+- `app/services/auth_service.py`
+- `app/routes/auth_routes.py`
+- `app/routes/admin_router.py`
+- `app/utils/file_handler.py`
+- `seed_test_data.py`
+- `e2e_smoke_test.ps1`
+- `../CharityConnect/src/api/charityClient.js`
+
+### Validation Notes
+
+- Updated backend files passed diagnostics checks after changes.
+- Login flow now supports rate-limit responses under repeated failed attempts.
+- Import timeout issue reproduced and mitigated in frontend client flow.
+
+---
+
 ## Detailed Changes
 
 ### 1. Admin Bulk Operations 500 Error Fix

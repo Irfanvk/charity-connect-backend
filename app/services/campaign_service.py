@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import func, distinct
 from app.models import Campaign, Challan
 from app.models.models import ChallanType
 from app.schemas import CampaignCreate, CampaignUpdate
@@ -9,6 +10,56 @@ from datetime import datetime
 
 class CampaignService:
     """Campaign management service."""
+
+    @staticmethod
+    def _attach_campaign_stats(db: Session, campaign: Campaign | None):
+        if not campaign:
+            return campaign
+
+        collected_amount, participants_count = db.query(
+            func.coalesce(func.sum(Challan.amount), 0.0),
+            func.count(distinct(Challan.member_id)),
+        ).filter(
+            Challan.campaign_id == campaign.id,
+            Challan.type == ChallanType.CAMPAIGN,
+            Challan.status == "approved",
+        ).one()
+
+        campaign.collected_amount = float(collected_amount or 0.0)
+        campaign.participants_count = int(participants_count or 0)
+        return campaign
+
+    @staticmethod
+    def _attach_campaign_stats_bulk(db: Session, campaigns: list[Campaign]):
+        if not campaigns:
+            return campaigns
+
+        campaign_ids = [campaign.id for campaign in campaigns]
+
+        stats_rows = db.query(
+            Challan.campaign_id,
+            func.coalesce(func.sum(Challan.amount), 0.0).label("collected_amount"),
+            func.count(distinct(Challan.member_id)).label("participants_count"),
+        ).filter(
+            Challan.campaign_id.in_(campaign_ids),
+            Challan.type == ChallanType.CAMPAIGN,
+            Challan.status == "approved",
+        ).group_by(Challan.campaign_id).all()
+
+        stats_by_campaign_id = {
+            row.campaign_id: {
+                "collected_amount": float(row.collected_amount or 0.0),
+                "participants_count": int(row.participants_count or 0),
+            }
+            for row in stats_rows
+        }
+
+        for campaign in campaigns:
+            stats = stats_by_campaign_id.get(campaign.id, None)
+            campaign.collected_amount = stats["collected_amount"] if stats else 0.0
+            campaign.participants_count = stats["participants_count"] if stats else 0
+
+        return campaigns
     
     @staticmethod
     def create_campaign(db: Session, campaign_data: CampaignCreate, admin_id: int):
@@ -27,7 +78,7 @@ class CampaignService:
         db.commit()
         db.refresh(new_campaign)
         
-        return new_campaign
+        return CampaignService._attach_campaign_stats(db, new_campaign)
 
     @staticmethod
     def import_campaign_payments_file(
@@ -179,7 +230,7 @@ class CampaignService:
                 detail="Campaign not found",
             )
         
-        return campaign
+        return CampaignService._attach_campaign_stats(db, campaign)
     
     @staticmethod
     def get_all_campaigns(db: Session, skip: int = 0, limit: int = 100, active_only: bool = False):
@@ -189,7 +240,8 @@ class CampaignService:
         if active_only:
             query = query.filter(Campaign.is_active == True)
         
-        return query.offset(skip).limit(limit).all()
+        campaigns = query.offset(skip).limit(limit).all()
+        return CampaignService._attach_campaign_stats_bulk(db, campaigns)
     
     @staticmethod
     def update_campaign(db: Session, campaign_id: int, update_data: CampaignUpdate):
@@ -204,7 +256,7 @@ class CampaignService:
         db.commit()
         db.refresh(campaign)
         
-        return campaign
+        return CampaignService._attach_campaign_stats(db, campaign)
     
     @staticmethod
     def delete_campaign(db: Session, campaign_id: int):

@@ -3,23 +3,77 @@ from app.models import User, Member, Invite
 from app.schemas import UserRegisterWithInvite, UserLogin
 from app.utils import hash_password, verify_password, generate_member_code
 from fastapi import HTTPException, status
-from datetime import datetime
+from datetime import datetime, timedelta
 
 
 class AuthService:
     """Authentication and user management service."""
+
+    _failed_login_attempts: dict[str, dict] = {}
+    _max_attempts = 5
+    _window_minutes = 15
+    _lockout_minutes = 15
+
+    @staticmethod
+    def _build_rate_limit_keys(identifier: str, source_ip: str | None = None) -> list[str]:
+        keys = [f"id:{identifier.lower()}".strip()]
+        if source_ip:
+            keys.append(f"ip:{source_ip}".strip())
+        return keys
+
+    @staticmethod
+    def _assert_not_rate_limited(keys: list[str]):
+        now = datetime.utcnow()
+        for key in keys:
+            entry = AuthService._failed_login_attempts.get(key)
+            if not entry:
+                continue
+            blocked_until = entry.get("blocked_until")
+            if blocked_until and blocked_until > now:
+                remaining = max(int((blocked_until - now).total_seconds() // 60), 1)
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Too many failed login attempts. Try again in {remaining} minute(s).",
+                )
+
+    @staticmethod
+    def _register_failed_attempt(keys: list[str]):
+        now = datetime.utcnow()
+        window_start = now - timedelta(minutes=AuthService._window_minutes)
+
+        for key in keys:
+            entry = AuthService._failed_login_attempts.get(key)
+            if not entry or entry.get("first_attempt_at") < window_start:
+                AuthService._failed_login_attempts[key] = {
+                    "count": 1,
+                    "first_attempt_at": now,
+                    "blocked_until": None,
+                }
+                continue
+
+            entry["count"] = int(entry.get("count", 0)) + 1
+            if entry["count"] >= AuthService._max_attempts:
+                entry["blocked_until"] = now + timedelta(minutes=AuthService._lockout_minutes)
+
+    @staticmethod
+    def _reset_failed_attempts(keys: list[str]):
+        for key in keys:
+            AuthService._failed_login_attempts.pop(key, None)
     
     @staticmethod
-    def login(db: Session, user_login: UserLogin):
+    def login(db: Session, user_login: UserLogin, source_ip: str | None = None):
         """Authenticate user with username OR email (single field)."""
         # Get the identifier (could be username or email)
-        identifier = user_login.username or user_login.email
+        identifier = (user_login.username or user_login.email or "").strip()
         
-        if not identifier:
+        if identifier == "":
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Username or email required",
             )
+
+        rate_limit_keys = AuthService._build_rate_limit_keys(identifier, source_ip)
+        AuthService._assert_not_rate_limited(rate_limit_keys)
         
         # Try to find user by username first, then by email
         user = db.query(User).filter(User.username == identifier).first()
@@ -27,6 +81,7 @@ class AuthService:
             user = db.query(User).filter(User.email == identifier).first()
         
         if not user or not verify_password(user_login.password, user.password_hash):
+            AuthService._register_failed_attempt(rate_limit_keys)
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid username/email or password",
@@ -37,6 +92,8 @@ class AuthService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="User account is inactive",
             )
+
+        AuthService._reset_failed_attempts(rate_limit_keys)
         
         return user
     

@@ -1,22 +1,24 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas import UserLogin, UserRegisterWithInvite, UserResponse, TokenResponse
 from app.services import AuthService
 from app.utils import create_access_token, get_current_user
+from app.config import settings
 from datetime import timedelta
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(credentials: UserLogin, db: Session = Depends(get_db)):
+def login(credentials: UserLogin, request: Request, db: Session = Depends(get_db)):
     """
     Login user and get JWT token.
     """
-    user = AuthService.login(db, credentials)
+    source_ip = request.client.host if request.client else None
+    user = AuthService.login(db, credentials, source_ip=source_ip)
     
-    access_token_expires = timedelta(minutes=60)
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": str(user.id), "role": user.role},
         expires_delta=access_token_expires,
@@ -36,7 +38,7 @@ def register(registration: UserRegisterWithInvite, db: Session = Depends(get_db)
     """
     user = AuthService.register_with_invite(db, registration)
 
-    access_token_expires = timedelta(minutes=60)
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": str(user.id), "role": user.role},
         expires_delta=access_token_expires,

@@ -3,7 +3,7 @@ Seed test data for integration testing
 Creates admin user, multiple member users, valid invite code, and bulk challan test data
 """
 from datetime import datetime, timedelta
-from sqlalchemy.orm import Session
+import os
 from app.database import SessionLocal, engine
 from app.models.models import Base, User, Member, Invite, UserRole, BulkChallanGroup, Challan, ChallanType, ChallanStatus
 from app.utils.auth import hash_password, generate_invite_code, generate_member_code
@@ -14,9 +14,13 @@ Base.metadata.create_all(bind=engine)
 
 def seed_test_data():
     db = SessionLocal()
+    admin_seed_password = os.getenv("SEED_ADMIN_PASSWORD", "ChangeMe_Admin@123")
+    member_seed_password = os.getenv("SEED_MEMBER_PASSWORD", "ChangeMe_Member@123")
     
     try:
         print("🌱 Seeding test data...")
+        if admin_seed_password == "ChangeMe_Admin@123" or member_seed_password == "ChangeMe_Member@123":
+            print("⚠️  Using default seed passwords. Set SEED_ADMIN_PASSWORD and SEED_MEMBER_PASSWORD for safer local setups.")
         
         # === ADMIN USER ===
         existing_admin = db.query(User).filter(User.username == "admin").first()
@@ -28,7 +32,7 @@ def seed_test_data():
                 username="admin",
                 email="admin@charityconnect.com",
                 phone="+1234567890",
-                password_hash=hash_password("Admin@123"),
+                password_hash=hash_password(admin_seed_password),
                 role=UserRole.ADMIN,
                 is_active=True
             )
@@ -63,7 +67,7 @@ def seed_test_data():
                     username=username,
                     email=email,
                     phone=f"+987654{i:04d}",
-                    password_hash=hash_password("Member@123"),
+                    password_hash=hash_password(member_seed_password),
                     role=UserRole.MEMBER,
                     is_active=True
                 )
@@ -135,7 +139,7 @@ def seed_test_data():
                 db.commit()
                 print(f"✅ Bulk group created: {bulk_group_id} (5 challans for member {member_profile.member_code})")
             
-            print(f"✅ Created 2 pending bulk groups with 10 total challans")
+            print("✅ Created 2 pending bulk groups with 10 total challans")
         
         # === INVITE CODE ===
         existing_invite = db.query(Invite).filter(
@@ -170,7 +174,7 @@ def seed_test_data():
         print("\n🔑 Admin User:")
         print(f"   Email: {admin_user.email}")
         print(f"   Username: {admin_user.username}")
-        print(f"   Password: Admin@123")
+        print(f"   Password: {admin_seed_password}")
         print(f"   Role: {admin_user.role}")
         
         print("\n👥 Member Users (5 total):")
@@ -178,7 +182,7 @@ def seed_test_data():
             print(f"\n   Member {i}:")
             print(f"     Email: {user.email}")
             print(f"     Username: {user.username}")
-            print(f"     Password: Member@123")
+            print(f"     Password: {member_seed_password}")
             print(f"     Member Code: {profile.member_code}")
             print(f"     Monthly Amount: {profile.monthly_amount} Rs")
         
@@ -197,7 +201,7 @@ def seed_test_data():
         print("\n📦 Bulk Operations Test Data:")
         print(f"   Pending bulk groups: {bulk_count}")
         print(f"   Linked challans: {challan_count}")
-        print(f"   API endpoint: GET /admin/bulk-pending-review")
+        print("   API endpoint: GET /admin/bulk-pending-review")
         
         print("\n" + "="*70)
         print("✅ Test data seeded successfully! Ready for v1.1 testing.")

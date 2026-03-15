@@ -1,7 +1,7 @@
 import os
 import json
 from typing import Any
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     DB_POOL_RECYCLE: int = int(os.getenv("DB_POOL_RECYCLE", "1800"))
     
     # JWT
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
     ALGORITHM: str = "HS256"
     
@@ -81,6 +81,32 @@ class Settings(BaseSettings):
                     pass
             return [item.strip() for item in stripped.split(",") if item.strip()]
         raise ValueError("ALLOWED_HOSTS must be a list or a string")
+
+    @field_validator("ACCESS_TOKEN_EXPIRE_MINUTES")
+    @classmethod
+    def validate_access_token_expiry(cls, value: int) -> int:
+        if value < 5 or value > 1440:
+            raise ValueError("ACCESS_TOKEN_EXPIRE_MINUTES must be between 5 and 1440")
+        return value
+
+    @model_validator(mode="after")
+    def validate_security_settings(self):
+        weak_defaults = {
+            "",
+            "your-secret-key-change-in-production",
+            "changeme",
+            "secret",
+            "test-secret-key-for-development-only",
+        }
+
+        if self.SECRET_KEY in weak_defaults or len(self.SECRET_KEY) < 32:
+            if not self.DEBUG:
+                raise ValueError("SECRET_KEY must be set to a strong value (minimum 32 characters) when DEBUG=false")
+
+        if "*" in self.CORS_ORIGINS and not self.DEBUG:
+            raise ValueError("CORS_ORIGINS cannot contain '*' when DEBUG=false")
+
+        return self
     
     # File Upload
     MAX_UPLOAD_SIZE_MB: int = 3
