@@ -146,6 +146,11 @@ class MemberImportSummary(BaseModel):
     errors: list[str]
 
 
+class MemberSummaryResponse(BaseModel):
+    total_members: int
+    active_members: int
+
+
 class ChallanHistoryImportSummary(BaseModel):
     total_rows: int
     challans_created: int
@@ -305,6 +310,14 @@ class ChallanResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ChallanSummaryResponse(BaseModel):
+    total_challans: int
+    approved_count: int
+    pending_count: int
+    total_collected: float
+    monthly_collection: float
 
 
 # Notification Schemas

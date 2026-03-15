@@ -1,9 +1,9 @@
 from fastapi import HTTPException
 from app.models.models import ChallanStatus
-from fastapi import APIRouter, Depends, status, UploadFile, File, Query
+from fastapi import APIRouter, Depends, status as http_status, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanUpdate, ChallanHistoryImportSummary
+from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse
 from app.services import ChallanService, MemberService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin
 from typing import List, Optional
@@ -15,7 +15,25 @@ def _is_admin(current_user: dict) -> bool:
     return current_user.get("role") in ["admin", "superadmin"]
 
 
-@router.post("/import/history", response_model=ChallanHistoryImportSummary, status_code=status.HTTP_201_CREATED)
+@router.get("/summary", response_model=ChallanSummaryResponse)
+def get_challan_summary(
+    month: Optional[str] = Query(default=None),
+    member_id: Optional[int] = Query(default=None),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get aggregate challan metrics for dashboard cards."""
+    summary_member_id = member_id
+    if not _is_admin(current_user):
+        member = MemberService.get_member_for_user(db, current_user["user_id"])
+        if not member:
+            raise HTTPException(status_code=404, detail="Member not found")
+        summary_member_id = member.id
+
+    return ChallanService.get_challan_summary(db, month=month, member_id=summary_member_id)
+
+
+@router.post("/import/history", response_model=ChallanHistoryImportSummary, status_code=http_status.HTTP_201_CREATED)
 async def import_challan_history(
     file: UploadFile = File(...),
     _current_user: dict = Depends(get_current_superadmin),
@@ -45,7 +63,7 @@ async def import_challan_history(
 # ------------------------------------------------------------------
 # CREATE CHALLAN (MEMBER)
 # ------------------------------------------------------------------
-@router.post("/", response_model=ChallanResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=ChallanResponse, status_code=http_status.HTTP_201_CREATED)
 def create_challan(
     challan_data: ChallanCreate,
     current_user: dict = Depends(get_current_user),

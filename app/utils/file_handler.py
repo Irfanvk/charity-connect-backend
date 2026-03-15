@@ -1,42 +1,43 @@
-from datetime import datetime
 from pathlib import Path
-import re
+import secrets
 
 
-def _sanitize_filename(filename: str) -> str:
-    """Normalize filename to a safe basename and strip unsafe characters."""
-    base_name = Path(str(filename or "")).name
-    safe = re.sub(r"[^A-Za-z0-9._-]", "_", base_name)
-    return safe or "upload.bin"
+def _safe_extension(filename: str) -> str:
+    """Extract a safe lowercase extension from filename (e.g. '.pdf', '.jpg')."""
+    ext = Path(str(filename or "")).suffix.lower()
+    # Only allow known safe extensions to prevent extension spoofing
+    return ext if ext in {".jpg", ".jpeg", ".png", ".pdf"} else ".bin"
 
 
 def save_file(file_content: bytes, subfolder: str, filename: str) -> str:
     """
-    Save uploaded file and return relative path.
-    
+    Save uploaded file under a random, opaque filename that carries no PII.
+
+    The original filename is intentionally discarded — only its extension is
+    reused so the file remains openable by standard tools.  Ownership is
+    tracked via the database FK (Challan.member_id → members → users), not
+    via the filename on disk.
+
     Args:
         file_content: File bytes
-        subfolder: Subdirectory in uploads folder
-        filename: Name to save file as
-    
+        subfolder: Subdirectory inside uploads/
+        filename: Original filename (used only for extension extraction)
+
     Returns:
-        Relative path to saved file
+        Relative path to saved file (safe to store in DB)
     """
-    # Create uploads directory if it doesn't exist
     upload_dir = Path(__file__).parent.parent / "uploads" / subfolder
     upload_dir.mkdir(parents=True, exist_ok=True)
-    
-    # Add timestamp to filename to ensure uniqueness
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_")
-    final_filename = timestamp + _sanitize_filename(filename)
-    
-    file_path = upload_dir / final_filename
-    
+
+    ext = _safe_extension(filename)
+    # 16-byte URL-safe random token → 22-char string: zero PII, collision-resistant
+    opaque_name = secrets.token_urlsafe(16) + ext
+    file_path = upload_dir / opaque_name
+
     with open(file_path, "wb") as f:
         f.write(file_content)
-    
-    # Return relative path
-    return f"uploads/{subfolder}/{final_filename}"
+
+    return f"uploads/{subfolder}/{opaque_name}"
 
 
 def validate_file(file_content: bytes, filename: str, max_size_mb: int = 3) -> bool:
@@ -55,13 +56,11 @@ def validate_file(file_content: bytes, filename: str, max_size_mb: int = 3) -> b
     file_size_mb = len(file_content) / (1024 * 1024)
     if file_size_mb > max_size_mb:
         raise ValueError(f"File size exceeds {max_size_mb}MB limit")
-    
-    # Check file extension
+
+    # Check file extension using the safe extractor
+    ext = _safe_extension(filename)
     allowed_extensions = {".jpg", ".jpeg", ".png", ".pdf"}
-    safe_name = _sanitize_filename(filename)
-    file_ext = Path(safe_name).suffix.lower()
-    
-    if file_ext not in allowed_extensions:
+    if ext not in allowed_extensions:
         raise ValueError(f"File type not allowed. Allowed types: {', '.join(allowed_extensions)}")
     
     return True

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, status, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.schemas import MemberResponse, MemberUpdate, MemberCreate, MemberImportSummary
+from app.schemas import MemberResponse, MemberUpdate, MemberCreate, MemberImportSummary, MemberSummaryResponse
 from app.services import MemberService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin
 from typing import List
@@ -11,6 +11,15 @@ router = APIRouter(prefix="/members", tags=["Members"])
 
 def _is_admin(current_user: dict) -> bool:
     return current_user.get("role") in ["admin", "superadmin"]
+
+
+@router.get("/summary", response_model=MemberSummaryResponse)
+def get_members_summary(
+    _current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Get aggregate member counts for dashboard cards (Admin only)."""
+    return MemberService.get_members_summary(db)
 
 
 @router.get("/", response_model=List[MemberResponse])

@@ -133,10 +133,11 @@ def wipe_system_data(
                 {
                     "purpose": purpose,
                     "deleted_at": deleted_at,
+                    # Store only user_id + role — no username/email in audit log
+                    # to avoid embedding PII inside JSON blobs that may be
+                    # exported or inspected outside a proper access-controlled view.
                     "performed_by": {
                         "user_id": actor.id,
-                        "username": actor.username,
-                        "email": actor.email,
                         "role": str(actor.role),
                     },
                     "keep_admins": payload.keep_admins,

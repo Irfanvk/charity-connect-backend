@@ -127,8 +127,9 @@ def bulk_create_challans(
             detail=[{"loc": ["body", "proof_file_id"], "msg": "Proof file ID required", "type": "value_error"}]
         )
     
-    # Generate bulk group ID
-    bulk_group_id = f"bulk-{datetime.utcnow().strftime('%Y%m%d')}-{str(uuid.uuid4())[:8]}"
+    # Generate bulk group ID — pure UUID, no date prefix so creation time
+    # cannot be decoded from the ID itself (timestamp is already in created_at).
+    bulk_group_id = f"bulk-{uuid.uuid4()}"
     
     # Create individual challans
     challan_ids = []

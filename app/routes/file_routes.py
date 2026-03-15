@@ -1,12 +1,16 @@
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from app.utils.file_handler import validate_file, save_file
+from app.utils.auth import get_current_user
 import uuid
 
 router = APIRouter(prefix="/files", tags=["Files"])
 
 
 @router.post("/upload")
-async def upload_file(file: UploadFile = File(...)):
+async def upload_file(
+    file: UploadFile = File(...),
+    _current_user: dict = Depends(get_current_user),
+):
     """
     Upload file and return public URL.
     

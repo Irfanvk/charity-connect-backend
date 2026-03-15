@@ -45,18 +45,21 @@ class MemberService:
         return base[:24]
 
     @staticmethod
-    def _generate_unique_offline_username(db: Session, full_name: Optional[str], member_code: str) -> str:
-        seed = MemberService._safe_username_seed(full_name, fallback="member")
+    def _generate_unique_offline_username(db: Session, _full_name: Optional[str], member_code: str) -> str:
+        # Intentionally do NOT embed the member's real name in the username.
+        # Name-derived seeds would leak PII into audit logs, notifications and
+        # any context where usernames are displayed.  The code_seed is used only
+        # as a collision-reduction hint; the random suffix provides uniqueness.
         code_seed = re.sub(r"[^a-zA-Z0-9]", "", member_code.lower())[-6:] or "mem"
 
         for _ in range(20):
-            suffix = secrets.token_hex(2)
-            candidate = f"offline_{seed}_{code_seed}_{suffix}"[:255]
+            suffix = secrets.token_hex(4)
+            candidate = f"offline_{code_seed}_{suffix}"[:255]
             exists = db.query(User).filter(User.username == candidate).first()
             if not exists:
                 return candidate
 
-        return f"offline_{secrets.token_hex(8)}"
+        return f"offline_{secrets.token_hex(12)}"
 
     @staticmethod
     def _next_member_code(db: Session) -> str:
@@ -327,6 +330,15 @@ class MemberService:
 
         # Pagination
         return query.offset(skip).limit(limit).all()
+
+    @staticmethod
+    def get_members_summary(db: Session) -> dict:
+        total_members = db.query(Member).count()
+        active_members = db.query(Member).filter(Member.status == "active").count()
+        return {
+            "total_members": int(total_members),
+            "active_members": int(active_members),
+        }
 
     @staticmethod
     def create_member(db: Session, member_data: MemberCreate):

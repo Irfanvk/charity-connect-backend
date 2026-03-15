@@ -1,6 +1,8 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import String, cast
+from sqlalchemy import func
 from sqlalchemy import or_
+from sqlalchemy import case
 from app.models import Challan, Member, User
 from app.models.models import ChallanStatus, ChallanType
 from app.schemas import ChallanCreate, ChallanReject, ChallanUpdate
@@ -425,3 +427,41 @@ class ChallanService:
         )
 
         return query.offset(skip).limit(limit).all()
+
+    @staticmethod
+    def get_challan_summary(
+        db: Session,
+        month: str | None = None,
+        member_id: int | None = None,
+    ) -> dict:
+        base_query = db.query(Challan)
+        if member_id is not None:
+            base_query = base_query.filter(Challan.member_id == member_id)
+
+        total_challans, approved_count, pending_count = base_query.with_entities(
+            func.coalesce(func.sum(case((Challan.id.isnot(None), 1), else_=0)), 0),
+            func.coalesce(func.sum(case((Challan.status == ChallanStatus.APPROVED, 1), else_=0)), 0),
+            func.coalesce(func.sum(case((Challan.status == ChallanStatus.PENDING, 1), else_=0)), 0),
+        ).one()
+
+        total_collected = base_query.filter(
+            Challan.status == ChallanStatus.APPROVED
+        ).with_entities(func.coalesce(func.sum(Challan.amount), 0.0)).scalar() or 0.0
+
+        monthly_query = base_query.filter(Challan.status == ChallanStatus.APPROVED)
+        if month:
+            monthly_query = monthly_query.filter(Challan.month == month)
+        else:
+            monthly_query = monthly_query.filter(Challan.month.is_(None))
+
+        monthly_collection = monthly_query.with_entities(
+            func.coalesce(func.sum(Challan.amount), 0.0)
+        ).scalar() or 0.0
+
+        return {
+            "total_challans": int(total_challans),
+            "approved_count": int(approved_count),
+            "pending_count": int(pending_count),
+            "total_collected": float(total_collected),
+            "monthly_collection": float(monthly_collection),
+        }
