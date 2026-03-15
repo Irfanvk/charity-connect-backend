@@ -5,7 +5,7 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
-from app.database import engine, Base
+from app.database import engine, Base, ensure_runtime_schema
 from app.config import settings
 from app.routes import (
     auth_router,
@@ -42,6 +42,7 @@ app = FastAPI(
 
 # Create all tables
 Base.metadata.create_all(bind=engine)
+ensure_runtime_schema()
 
 # Add CORS middleware FIRST (so it executes LAST, before TrustedHost)
 app.add_middleware(

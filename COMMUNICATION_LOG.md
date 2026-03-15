@@ -11,6 +11,8 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-03-16 | Campaign backend now supports `targeted` vs `unlimited` goals and `fixed` vs `open` duration | Backend | ✅ | Added `target_mode`, `min_amount`, `end_date_mode`, nullable `target_amount`, nullable `end_date`; startup migration updates existing PostgreSQL campaign tables safely |
+| 2026-03-16 | Challans list API now returns pagination metadata for frontend server-side paging | Backend | ✅ | `GET /challans/` now returns `{ items, total, skip, limit }`, enabling the challans management page to page correctly without loading the full dataset |
 | 2026-03-15 | Extended frontend member import request timeout to prevent 15-second abort during large CSV/XLSX uploads | Frontend | ✅ | Added per-request timeout override in API client and set member import to 5 minutes; standard API calls remain on default timeout |
 | 2026-03-15 | Introduced login brute-force protection (identifier+IP) | Backend | ✅ | Added in-memory failed-attempt window/lockout logic in auth service and wired client IP from login route |
 | 2026-03-15 | Enforced password strength policy on registration payloads | Backend | ✅ | Registration now requires min length + upper/lower/number/special char validation in schema layer |

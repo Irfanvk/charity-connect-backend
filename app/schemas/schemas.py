@@ -1,5 +1,5 @@
 import re
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -21,6 +21,16 @@ class ChallanStatus(str, Enum):
 class ChallanType(str, Enum):
     MONTHLY = "monthly"
     CAMPAIGN = "campaign"
+
+
+class CampaignTargetMode(str, Enum):
+    TARGETED = "targeted"
+    UNLIMITED = "unlimited"
+
+
+class CampaignEndDateMode(str, Enum):
+    FIXED = "fixed"
+    OPEN = "open"
 
 
 # Auth Schemas
@@ -233,29 +243,77 @@ class InviteUpdate(BaseModel):
 class CampaignCreate(BaseModel):
     title: str
     description: Optional[str] = None
-    target_amount: float
+    target_mode: CampaignTargetMode = CampaignTargetMode.TARGETED
+    target_amount: Optional[float] = None
+    min_amount: float = 100.0
     start_date: datetime
-    end_date: datetime
+    end_date_mode: CampaignEndDateMode = CampaignEndDateMode.FIXED
+    end_date: Optional[datetime] = None
+
+    @model_validator(mode="after")
+    def validate_campaign_rules(self):
+        if self.min_amount <= 0:
+            raise ValueError("Minimum amount must be greater than 0")
+
+        if self.target_mode == CampaignTargetMode.TARGETED:
+            if self.target_amount is None or self.target_amount <= 0:
+                raise ValueError("Target amount must be greater than 0 for targeted campaigns")
+        else:
+            self.target_amount = None
+
+        if self.end_date_mode == CampaignEndDateMode.FIXED:
+            if self.end_date is None:
+                raise ValueError("End date is required for fixed-duration campaigns")
+            if self.end_date < self.start_date:
+                raise ValueError("End date cannot be earlier than start date")
+        else:
+            self.end_date = None
+
+        return self
 
 
 class CampaignUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    target_mode: Optional[CampaignTargetMode] = None
     target_amount: Optional[float] = None
+    min_amount: Optional[float] = None
     start_date: Optional[datetime] = None
+    end_date_mode: Optional[CampaignEndDateMode] = None
     end_date: Optional[datetime] = None
     is_active: Optional[bool] = None
+
+    @model_validator(mode="after")
+    def validate_partial_campaign_rules(self):
+        if self.min_amount is not None and self.min_amount <= 0:
+            raise ValueError("Minimum amount must be greater than 0")
+
+        if self.target_mode == CampaignTargetMode.UNLIMITED:
+            self.target_amount = None
+        elif self.target_amount is not None and self.target_amount <= 0:
+            raise ValueError("Target amount must be greater than 0")
+
+        if self.end_date_mode == CampaignEndDateMode.OPEN:
+            self.end_date = None
+
+        if self.start_date and self.end_date and self.end_date < self.start_date:
+            raise ValueError("End date cannot be earlier than start date")
+
+        return self
 
 
 class CampaignResponse(BaseModel):
     id: int
     title: str
     description: Optional[str]
-    target_amount: float
+    target_mode: CampaignTargetMode = CampaignTargetMode.TARGETED
+    target_amount: Optional[float]
+    min_amount: float = 100.0
     collected_amount: float = 0.0
     participants_count: int = 0
     start_date: datetime
-    end_date: datetime
+    end_date_mode: CampaignEndDateMode = CampaignEndDateMode.FIXED
+    end_date: Optional[datetime]
     is_active: bool
     created_at: datetime
     updated_at: datetime
@@ -318,6 +376,13 @@ class ChallanSummaryResponse(BaseModel):
     pending_count: int
     total_collected: float
     monthly_collection: float
+
+
+class ChallanListResponse(BaseModel):
+    items: List[ChallanResponse]
+    total: int
+    skip: int
+    limit: int
 
 
 # Notification Schemas

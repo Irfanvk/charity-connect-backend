@@ -1,5 +1,23 @@
 # API Changelog
 
+## 2026-03-16
+
+### Changed
+- **Campaign schema now supports unlimited goals and open-ended duration**
+  - `CampaignCreate`, `CampaignUpdate`, and `CampaignResponse` now support:
+    - `target_mode` (`targeted` | `unlimited`)
+    - nullable `target_amount`
+    - `min_amount`
+    - `end_date_mode` (`fixed` | `open`)
+    - nullable `end_date`
+  - Campaign create/update validation now enforces goal and date rules consistently.
+  - Historical campaign records auto-created from imports now default to `target_mode=unlimited` and `end_date_mode=open`.
+  - Existing PostgreSQL deployments are upgraded at startup through a safe runtime schema migration.
+
+- **Challans list endpoint now returns pagination metadata**
+  - `GET /challans/` now returns `{ items, total, skip, limit }` instead of a bare list.
+  - This enables the frontend challans management page to use real server-side pagination.
+
 ## 2026-03-15
 
 ### Added

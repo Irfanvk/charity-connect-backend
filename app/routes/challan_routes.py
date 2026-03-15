@@ -3,7 +3,7 @@ from app.models.models import ChallanStatus
 from fastapi import APIRouter, Depends, status as http_status, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse
+from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse
 from app.services import ChallanService, MemberService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin
 from typing import List, Optional
@@ -136,7 +136,7 @@ def upload_proof(
 # ------------------------------------------------------------------
 # GET CHALLANS (ADMIN: ALL WITH FILTERS, MEMBER: OWN WITH FILTERS)
 # ------------------------------------------------------------------
-@router.get("/", response_model=List[ChallanResponse])
+@router.get("/", response_model=ChallanListResponse)
 def get_challans(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=200),

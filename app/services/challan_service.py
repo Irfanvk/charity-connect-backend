@@ -420,13 +420,21 @@ class ChallanService:
                 )
             )
 
+        total = query.order_by(None).count()
+
         # ── sorting ──────────────────────────────────────────────────────────
         sort_column = ChallanService.SORTABLE_COLUMNS.get(sort_by, Challan.created_at)
         query = query.order_by(
             sort_column.desc() if sort_order == "desc" else sort_column.asc()
         )
 
-        return query.offset(skip).limit(limit).all()
+        items = query.offset(skip).limit(limit).all()
+        return {
+            "items": items,
+            "total": int(total),
+            "skip": int(skip),
+            "limit": int(limit),
+        }
 
     @staticmethod
     def get_challan_summary(

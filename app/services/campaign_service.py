@@ -12,6 +12,50 @@ class CampaignService:
     """Campaign management service."""
 
     @staticmethod
+    def _normalize_campaign_values(
+        *,
+        target_mode: str,
+        target_amount: float | None,
+        min_amount: float,
+        start_date: datetime,
+        end_date_mode: str,
+        end_date: datetime | None,
+    ) -> dict:
+        if min_amount <= 0:
+            raise ValueError("Minimum amount must be greater than 0")
+
+        if target_mode not in ("targeted", "unlimited"):
+            raise ValueError("target_mode must be 'targeted' or 'unlimited'")
+
+        if end_date_mode not in ("fixed", "open"):
+            raise ValueError("end_date_mode must be 'fixed' or 'open'")
+
+        normalized_target_amount = float(target_amount) if target_amount is not None else None
+        if target_mode == "targeted":
+            if normalized_target_amount is None or normalized_target_amount <= 0:
+                raise ValueError("Target amount must be greater than 0 for targeted campaigns")
+        else:
+            normalized_target_amount = None
+
+        normalized_end_date = end_date
+        if end_date_mode == "fixed":
+            if normalized_end_date is None:
+                raise ValueError("End date is required for fixed-duration campaigns")
+            if normalized_end_date < start_date:
+                raise ValueError("End date cannot be earlier than start date")
+        else:
+            normalized_end_date = None
+
+        return {
+            "target_mode": target_mode,
+            "target_amount": normalized_target_amount,
+            "min_amount": float(min_amount),
+            "start_date": start_date,
+            "end_date_mode": end_date_mode,
+            "end_date": normalized_end_date,
+        }
+
+    @staticmethod
     def _attach_campaign_stats(db: Session, campaign: Campaign | None):
         if not campaign:
             return campaign
@@ -64,13 +108,24 @@ class CampaignService:
     @staticmethod
     def create_campaign(db: Session, campaign_data: CampaignCreate, admin_id: int):
         """Create new campaign."""
+        normalized = CampaignService._normalize_campaign_values(
+            target_mode=campaign_data.target_mode.value if hasattr(campaign_data.target_mode, "value") else str(campaign_data.target_mode),
+            target_amount=campaign_data.target_amount,
+            min_amount=campaign_data.min_amount,
+            start_date=campaign_data.start_date,
+            end_date_mode=campaign_data.end_date_mode.value if hasattr(campaign_data.end_date_mode, "value") else str(campaign_data.end_date_mode),
+            end_date=campaign_data.end_date,
+        )
         
         new_campaign = Campaign(
             title=campaign_data.title,
             description=campaign_data.description,
-            target_amount=campaign_data.target_amount,
-            start_date=campaign_data.start_date,
-            end_date=campaign_data.end_date,
+            target_mode=normalized["target_mode"],
+            target_amount=normalized["target_amount"],
+            min_amount=normalized["min_amount"],
+            start_date=normalized["start_date"],
+            end_date_mode=normalized["end_date_mode"],
+            end_date=normalized["end_date"],
             created_by_admin_id=admin_id,
         )
         
@@ -248,10 +303,27 @@ class CampaignService:
         """Update campaign information."""
         campaign = CampaignService.get_campaign(db, campaign_id)
         
-        update_fields = update_data.dict(exclude_unset=True)
+        update_fields = update_data.model_dump(exclude_unset=True)
+
+        resolved = CampaignService._normalize_campaign_values(
+            target_mode=update_fields.get("target_mode", campaign.target_mode),
+            target_amount=update_fields.get("target_amount", campaign.target_amount),
+            min_amount=update_fields.get("min_amount", campaign.min_amount),
+            start_date=update_fields.get("start_date", campaign.start_date),
+            end_date_mode=update_fields.get("end_date_mode", campaign.end_date_mode),
+            end_date=update_fields.get("end_date", campaign.end_date),
+        )
+
         for key, value in update_fields.items():
             if value is not None:
                 setattr(campaign, key, value)
+
+        campaign.target_mode = resolved["target_mode"]
+        campaign.target_amount = resolved["target_amount"]
+        campaign.min_amount = resolved["min_amount"]
+        campaign.start_date = resolved["start_date"]
+        campaign.end_date_mode = resolved["end_date_mode"]
+        campaign.end_date = resolved["end_date"]
         
         db.commit()
         db.refresh(campaign)

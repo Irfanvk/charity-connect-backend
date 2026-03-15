@@ -235,9 +235,12 @@ class MemberService:
         campaign = Campaign(
             title=title,
             description="Imported historical one-time/campaign donations",
-            target_amount=0.0,
+            target_mode="unlimited",
+            target_amount=None,
+            min_amount=100.0,
             start_date=now,
-            end_date=now,
+            end_date_mode="open",
+            end_date=None,
             is_active=False,
             created_by_admin_id=created_by_user_id,
         )
