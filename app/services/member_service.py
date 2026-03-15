@@ -23,11 +23,19 @@ class MemberService:
         return str(code).strip().upper()
 
     @staticmethod
+    def normalize_member_code(code: Optional[str]) -> Optional[str]:
+        return MemberService._normalize_member_code(code)
+
+    @staticmethod
     def _normalize_contact(value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
         cleaned = str(value).strip()
         return cleaned or None
+
+    @staticmethod
+    def normalize_contact(value: Optional[str]) -> Optional[str]:
+        return MemberService._normalize_contact(value)
 
     @staticmethod
     def _safe_username_seed(name: Optional[str], fallback: str = "member") -> str:
@@ -112,11 +120,16 @@ class MemberService:
     def _si_to_member_code(si_value) -> Optional[str]:
         if si_value in (None, ""):
             return None
+
         try:
             si_int = int(float(str(si_value).strip()))
             return f"MEM-{si_int:04d}"
         except (TypeError, ValueError):
             return None
+
+    @staticmethod
+    def si_to_member_code(si_value) -> Optional[str]:
+        return MemberService._si_to_member_code(si_value)
 
     @staticmethod
     def _parse_month(value: Optional[str]) -> Optional[str]:
@@ -135,6 +148,10 @@ class MemberService:
                 continue
 
         return None
+
+    @staticmethod
+    def parse_month(value: Optional[str]) -> Optional[str]:
+        return MemberService._parse_month(value)
 
     @staticmethod
     def _find_member_by_identifiers(
@@ -173,6 +190,22 @@ class MemberService:
         return None
 
     @staticmethod
+    def find_member_by_identifiers(
+        db: Session,
+        member_code: Optional[str],
+        username: Optional[str],
+        phone: Optional[str],
+        email: Optional[str],
+    ) -> Optional[Member]:
+        return MemberService._find_member_by_identifiers(
+            db=db,
+            member_code=member_code,
+            username=username,
+            phone=phone,
+            email=email,
+        )
+
+    @staticmethod
     def _resolve_campaign_for_import(
         db: Session,
         suggested_campaign_name: Optional[str],
@@ -208,6 +241,30 @@ class MemberService:
         db.add(campaign)
         db.flush()
         return campaign.id
+
+    @staticmethod
+    def resolve_campaign_for_import(
+        db: Session,
+        suggested_campaign_name: Optional[str],
+        imported_by_user_id: Optional[int],
+    ) -> Optional[int]:
+        return MemberService._resolve_campaign_for_import(
+            db=db,
+            suggested_campaign_name=suggested_campaign_name,
+            imported_by_user_id=imported_by_user_id,
+        )
+
+    @staticmethod
+    def row_value(row: dict, keys: list[str]):
+        return MemberService._row_value(row, keys)
+
+    @staticmethod
+    def normalized_row(row: dict) -> dict:
+        return MemberService._normalized_row(row)
+
+    @staticmethod
+    def read_tabular_rows(file_bytes: bytes, filename: str) -> list[dict]:
+        return MemberService._read_tabular_rows(file_bytes, filename)
 
     @staticmethod
     def get_member(db: Session, member_id: int):

@@ -130,6 +130,23 @@ class MemberImportSummary(BaseModel):
     errors: list[str]
 
 
+class ChallanHistoryImportSummary(BaseModel):
+    total_rows: int
+    challans_created: int
+    members_linked_existing: int
+    rows_skipped: int
+    errors: list[str]
+
+
+class CampaignPaymentImportSummary(BaseModel):
+    total_rows: int
+    campaigns_created: int
+    challans_created: int
+    members_linked_existing: int
+    rows_skipped: int
+    errors: list[str]
+
+
 class SystemWipeRequest(BaseModel):
     confirm_text: str
     purpose: str

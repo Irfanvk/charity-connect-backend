@@ -1,5 +1,23 @@
 # API Changelog
 
+## 2026-03-15
+
+### Added
+- **Challan History Import Endpoint**: `POST /challans/import/history` (superadmin only)
+  - Accepts CSV/XLSX historical monthly challan files.
+  - Resolves members by `member_code/member_id/code`, `si_no`, or `username` (+ phone/email fallback).
+  - Creates monthly challans with duplicate protection (`member_id + month + amount + type`).
+  - Returns import summary: `total_rows`, `challans_created`, `members_linked_existing`, `rows_skipped`, `errors`.
+  - Files: `app/routes/challan_routes.py`, `app/services/challan_service.py`, `app/schemas/schemas.py`.
+
+- **Campaign Payments Import Endpoint**: `POST /campaigns/import/payments` (superadmin only)
+  - Accepts CSV/XLSX campaign payment history files.
+  - Resolves members using the same identifier strategy as above.
+  - Resolves/creates campaigns from `suggested_campaign_name/campaign_name` (falls back to `General Fund / One-Time Contribution 2024-2025`).
+  - Creates campaign challans (`type=campaign`) and links each donor payment to the campaign.
+  - Returns import summary: `total_rows`, `campaigns_created`, `challans_created`, `members_linked_existing`, `rows_skipped`, `errors`.
+  - Files: `app/routes/campaign_routes.py`, `app/services/campaign_service.py`, `app/schemas/schemas.py`.
+
 ## 2026-03-14
 
 ### Changed

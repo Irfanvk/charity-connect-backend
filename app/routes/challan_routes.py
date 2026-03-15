@@ -3,9 +3,9 @@ from app.models.models import ChallanStatus
 from fastapi import APIRouter, Depends, status, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanUpdate
+from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanUpdate, ChallanHistoryImportSummary
 from app.services import ChallanService, MemberService
-from app.utils import get_current_user, get_current_admin
+from app.utils import get_current_user, get_current_admin, get_current_superadmin
 from typing import List, Optional
 
 router = APIRouter(prefix="/challans", tags=["Challans"])
@@ -13,6 +13,33 @@ router = APIRouter(prefix="/challans", tags=["Challans"])
 
 def _is_admin(current_user: dict) -> bool:
     return current_user.get("role") in ["admin", "superadmin"]
+
+
+@router.post("/import/history", response_model=ChallanHistoryImportSummary, status_code=status.HTTP_201_CREATED)
+async def import_challan_history(
+    file: UploadFile = File(...),
+    _current_user: dict = Depends(get_current_superadmin),
+    db: Session = Depends(get_db),
+):
+    """
+    Import historical monthly challans from CSV/XLSX (Superadmin only).
+
+    Supported columns include:
+    - username/member_code/si_no (member match)
+    - month/period
+    - amount
+    - status
+    - payment_method
+    """
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    return ChallanService.import_challan_history_file(
+        db=db,
+        file_bytes=content,
+        filename=file.filename or "challan_history.csv",
+    )
 
 
 # ------------------------------------------------------------------

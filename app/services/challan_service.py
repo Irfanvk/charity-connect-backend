@@ -7,6 +7,7 @@ from app.schemas import ChallanCreate, ChallanReject, ChallanUpdate
 from app.utils.file_handler import save_file, validate_file
 from fastapi import HTTPException, status
 from datetime import datetime
+from app.schemas import ChallanHistoryImportSummary
 
 
 class ChallanService:
@@ -74,6 +75,123 @@ class ChallanService:
         db.refresh(new_challan)
         
         return new_challan
+
+    @staticmethod
+    def _normalize_import_status(raw_status: str | None) -> str:
+        normalized_status = "generated"
+        current = (raw_status or "generated").lower()
+        if current in ("approved", "paid", "completed"):
+            normalized_status = "approved"
+        elif current in ("pending",):
+            normalized_status = "pending"
+        elif current in ("rejected", "failed"):
+            normalized_status = "rejected"
+        return normalized_status
+
+    @staticmethod
+    def import_challan_history_file(
+        db: Session,
+        file_bytes: bytes,
+        filename: str,
+    ) -> ChallanHistoryImportSummary:
+        from app.services.member_service import MemberService
+
+        rows = MemberService.read_tabular_rows(file_bytes, filename)
+
+        total_rows = len(rows)
+        challans_created = 0
+        members_linked_existing = 0
+        rows_skipped = 0
+        errors: list[str] = []
+
+        for idx, raw_row in enumerate(rows, start=2):
+            row = MemberService.normalized_row(raw_row)
+
+            try:
+                username = MemberService.normalize_contact(
+                    MemberService.row_value(row, ["username", "user_name"])
+                )
+                member_code = MemberService.normalize_member_code(
+                    MemberService.row_value(row, ["member_code", "member_id", "code"])
+                )
+                si_code = MemberService.si_to_member_code(
+                    MemberService.row_value(row, ["si_no", "si", "serial_no"])
+                )
+                member_code = member_code or si_code
+
+                member = MemberService.find_member_by_identifiers(
+                    db=db,
+                    member_code=member_code,
+                    username=username,
+                    phone=MemberService.normalize_contact(MemberService.row_value(row, ["phone", "mobile"])),
+                    email=MemberService.normalize_contact(MemberService.row_value(row, ["email", "email_address"])),
+                )
+
+                if not member:
+                    rows_skipped += 1
+                    errors.append(f"Row {idx}: member not found for identifier fields")
+                    continue
+
+                members_linked_existing += 1
+
+                donation_month = MemberService.normalize_contact(
+                    MemberService.row_value(row, ["month", "donation_month", "payment_month", "period"])
+                )
+                donation_month = MemberService.parse_month(donation_month)
+                if not donation_month:
+                    rows_skipped += 1
+                    errors.append(f"Row {idx}: missing valid month for monthly challan")
+                    continue
+
+                donation_amount_raw = MemberService.row_value(row, ["amount", "donation_amount", "paid_amount"])
+                if donation_amount_raw in (None, ""):
+                    rows_skipped += 1
+                    errors.append(f"Row {idx}: amount is required")
+                    continue
+
+                donation_amount = float(donation_amount_raw)
+                payment_method = MemberService.normalize_contact(
+                    MemberService.row_value(row, ["payment_method", "method"])
+                )
+                raw_status = MemberService.normalize_contact(
+                    MemberService.row_value(row, ["status", "donation_status", "challan_status", "payment_status"])
+                )
+                normalized_status = ChallanService._normalize_import_status(raw_status)
+
+                duplicate = db.query(Challan).filter(
+                    Challan.member_id == member.id,
+                    Challan.type == ChallanType.MONTHLY,
+                    Challan.month == donation_month,
+                    Challan.amount == donation_amount,
+                ).first()
+                if duplicate:
+                    continue
+
+                challan = Challan(
+                    member_id=member.id,
+                    type=ChallanType.MONTHLY,
+                    month=donation_month,
+                    amount=donation_amount,
+                    payment_method=payment_method,
+                    status=normalized_status,
+                )
+                if normalized_status == "approved":
+                    challan.approved_at = datetime.utcnow()
+                db.add(challan)
+                challans_created += 1
+            except (ValueError, TypeError) as exc:
+                rows_skipped += 1
+                errors.append(f"Row {idx}: {exc}")
+
+        db.commit()
+
+        return ChallanHistoryImportSummary(
+            total_rows=total_rows,
+            challans_created=challans_created,
+            members_linked_existing=members_linked_existing,
+            rows_skipped=rows_skipped,
+            errors=errors[:50],
+        )
     
     @staticmethod
     def upload_proof(db: Session, challan_id: int, file_content: bytes, filename: str):

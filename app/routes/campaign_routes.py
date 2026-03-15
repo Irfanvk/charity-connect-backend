@@ -1,12 +1,40 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.schemas import CampaignCreate, CampaignResponse, CampaignUpdate
+from app.schemas import CampaignCreate, CampaignResponse, CampaignUpdate, CampaignPaymentImportSummary
 from app.services import CampaignService
-from app.utils import get_current_user, get_current_admin
+from app.utils import get_current_user, get_current_admin, get_current_superadmin
 from typing import List
 
 router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
+
+
+@router.post("/import/payments", response_model=CampaignPaymentImportSummary, status_code=status.HTTP_201_CREATED)
+async def import_campaign_payments(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_superadmin),
+    db: Session = Depends(get_db),
+):
+    """
+    Import campaign payment history from CSV/XLSX (Superadmin only).
+
+    Supported columns include:
+    - username/member_code/si_no (member match)
+    - amount
+    - status
+    - payment_method
+    - suggested_campaign_name/campaign_name
+    """
+    content = await file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    return CampaignService.import_campaign_payments_file(
+        db=db,
+        file_bytes=content,
+        filename=file.filename or "campaign_payments.csv",
+        imported_by_user_id=current_user.get("user_id"),
+    )
 
 
 @router.post("/", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)
