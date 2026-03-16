@@ -608,6 +608,7 @@ class MemberService:
         filename: str,
         include_donations: bool = True,
         imported_by_user_id: Optional[int] = None,
+        progress_callback=None,
     ) -> MemberImportSummary:
         rows = MemberService._read_tabular_rows(file_bytes, filename)
 
@@ -617,6 +618,61 @@ class MemberService:
         challans_created = 0
         rows_skipped = 0
         errors: list[str] = []
+        if progress_callback:
+            progress_callback(5, total_rows, "Preparing member import")
+
+        # Preload lookups to avoid per-row DB roundtrips on remote databases.
+        users = db.query(User).all()
+        members = db.query(Member).all()
+
+        user_by_username = {str(u.username).strip().lower(): u for u in users if u.username}
+        user_by_email = {str(u.email).strip().lower(): u for u in users if u.email}
+        user_by_phone = {str(u.phone).strip(): u for u in users if u.phone}
+        member_by_code = {str(m.member_code).strip().upper(): m for m in members if m.member_code}
+        member_by_user_id = {m.user_id: m for m in members}
+
+        def challan_type_value(raw) -> str:
+            return raw.value if hasattr(raw, "value") else str(raw)
+
+        challan_keys = {
+            (
+                c.member_id,
+                challan_type_value(c.type),
+                float(c.amount),
+                c.month or "",
+                c.campaign_id or 0,
+            )
+            for c in db.query(Challan.member_id, Challan.type, Challan.amount, Challan.month, Challan.campaign_id).all()
+        }
+
+        def resolve_member(member_code: Optional[str], username: Optional[str], phone: Optional[str], email: Optional[str]):
+            if member_code:
+                found = member_by_code.get(member_code)
+                if found:
+                    return found
+
+            if username:
+                user = user_by_username.get(username.lower())
+                if user:
+                    found = member_by_user_id.get(user.id)
+                    if found:
+                        return found
+
+            if email:
+                user = user_by_email.get(email.lower())
+                if user:
+                    found = member_by_user_id.get(user.id)
+                    if found:
+                        return found
+
+            if phone:
+                user = user_by_phone.get(phone)
+                if user:
+                    found = member_by_user_id.get(user.id)
+                    if found:
+                        return found
+
+            return None
 
         for idx, raw_row in enumerate(rows, start=2):
             row = MemberService._normalized_row(raw_row)
@@ -668,13 +724,7 @@ class MemberService:
                     errors.append(f"Row {idx}: missing identifier fields")
                     continue
 
-                member = MemberService._find_member_by_identifiers(
-                    db=db,
-                    member_code=member_code,
-                    username=username,
-                    phone=phone,
-                    email=email,
-                )
+                member = resolve_member(member_code, username, phone, email)
 
                 if member:
                     members_linked_existing += 1
@@ -682,20 +732,36 @@ class MemberService:
                     if not member_code:
                         member_code = MemberService._next_member_code(db)
 
-                    user, created_new_user = MemberService._get_or_create_user_for_admin_member(
-                        db=db,
-                        full_name=full_name or username or "Member",
-                        phone=phone,
-                        email=email,
-                        member_code=member_code,
-                    )
+                    existing_user = None
+                    if email:
+                        existing_user = user_by_email.get(email.lower())
+                    if not existing_user and phone:
+                        existing_user = user_by_phone.get(phone)
+
+                    if existing_user:
+                        user = existing_user
+                        created_new_user = False
+                    else:
+                        user, created_new_user = MemberService._get_or_create_user_for_admin_member(
+                            db=db,
+                            full_name=full_name or username or "Member",
+                            phone=phone,
+                            email=email,
+                            member_code=member_code,
+                        )
+                        if user.username:
+                            user_by_username[str(user.username).strip().lower()] = user
+                        if user.email:
+                            user_by_email[str(user.email).strip().lower()] = user
+                        if user.phone:
+                            user_by_phone[str(user.phone).strip()] = user
 
                     if username and user.username.startswith("offline_"):
                         duplicate_username = db.query(User).filter(User.username == username, User.id != user.id).first()
                         if not duplicate_username:
                             user.username = username
 
-                    member = db.query(Member).filter(Member.user_id == user.id).first()
+                    member = member_by_user_id.get(user.id)
                     if member:
                         members_linked_existing += 1
                     else:
@@ -709,6 +775,9 @@ class MemberService:
                         )
                         db.add(member)
                         db.flush()
+                        member_by_user_id[user.id] = member
+                        if member.member_code:
+                            member_by_code[str(member.member_code).strip().upper()] = member
                         members_created += 1
                         if not created_new_user:
                             members_linked_existing += 1
@@ -761,18 +830,15 @@ class MemberService:
                                 imported_by_user_id,
                             )
 
-                        duplicate_query = db.query(Challan).filter(
-                            Challan.member_id == member.id,
-                            Challan.type == challan_type,
-                            Challan.amount == donation_amount,
+                        challan_key = (
+                            member.id,
+                            challan_type,
+                            float(donation_amount),
+                            donation_month if challan_type == "monthly" else "",
+                            campaign_id or 0,
                         )
-                        if challan_type == "monthly":
-                            duplicate_query = duplicate_query.filter(Challan.month == donation_month)
-                        else:
-                            duplicate_query = duplicate_query.filter(Challan.campaign_id == campaign_id)
-                        duplicate_challan = duplicate_query.first()
 
-                        if not duplicate_challan:
+                        if challan_key not in challan_keys:
                             challan = Challan(
                                 member_id=member.id,
                                 type=challan_type,
@@ -785,13 +851,21 @@ class MemberService:
                             if normalized_status == "approved":
                                 challan.approved_at = datetime.utcnow()
                             db.add(challan)
+                            challan_keys.add(challan_key)
                             challans_created += 1
 
             except (ValueError, TypeError) as exc:
                 rows_skipped += 1
                 errors.append(f"Row {idx}: {exc}")
 
+            if progress_callback:
+                processed = idx - 1
+                progress = 5 + int((processed / max(total_rows, 1)) * 90)
+                progress_callback(progress, total_rows, f"Processed {processed}/{total_rows} rows")
+
         db.commit()
+        if progress_callback:
+            progress_callback(100, total_rows, "Member import completed")
 
         return MemberImportSummary(
             total_rows=total_rows,

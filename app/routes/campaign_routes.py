@@ -1,8 +1,9 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
 from sqlalchemy.orm import Session
-from app.database import get_db
-from app.schemas import CampaignCreate, CampaignResponse, CampaignUpdate, CampaignPaymentImportSummary
+from app.database import get_db, SessionLocal
+from app.schemas import CampaignCreate, CampaignResponse, CampaignUpdate, CampaignPaymentImportSummary, ImportJobCreateResponse, ImportJobStatusResponse
 from app.services import CampaignService
+from app.services.import_job_service import ImportJobService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin
 from typing import List
 
@@ -35,6 +36,54 @@ def import_campaign_payments(
         filename=file.filename or "campaign_payments.csv",
         imported_by_user_id=current_user.get("user_id"),
     )
+
+
+@router.post("/import/payments/jobs", response_model=ImportJobCreateResponse, status_code=status.HTTP_202_ACCEPTED)
+def import_campaign_payments_async(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_superadmin),
+):
+    content = file.file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    filename = file.filename or "campaign_payments.csv"
+    job_id = ImportJobService.create_job(job_type="campaign_payments_import", filename=filename)
+    imported_by_user_id = current_user.get("user_id")
+
+    def _runner():
+        db_bg = SessionLocal()
+        try:
+            summary = CampaignService.import_campaign_payments_file(
+                db=db_bg,
+                file_bytes=content,
+                filename=filename,
+                imported_by_user_id=imported_by_user_id,
+                progress_callback=lambda progress, _total, message: ImportJobService.update_progress(
+                    job_id,
+                    progress=progress,
+                    message=message,
+                ),
+            )
+            if hasattr(summary, "model_dump"):
+                return summary.model_dump()
+            return summary.dict()
+        finally:
+            db_bg.close()
+
+    ImportJobService.run_in_thread(job_id=job_id, runner=_runner)
+    return ImportJobCreateResponse(job_id=job_id, status="queued", message="Campaign payments import job queued")
+
+
+@router.get("/import/payments/jobs/{job_id}", response_model=ImportJobStatusResponse)
+def get_campaign_import_job_status(
+    job_id: str,
+    _current_user: dict = Depends(get_current_superadmin),
+):
+    job = ImportJobService.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Import job not found")
+    return ImportJobStatusResponse(**job)
 
 
 @router.post("/", response_model=CampaignResponse, status_code=status.HTTP_201_CREATED)

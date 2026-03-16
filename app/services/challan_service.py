@@ -95,6 +95,7 @@ class ChallanService:
         db: Session,
         file_bytes: bytes,
         filename: str,
+        progress_callback=None,
     ) -> ChallanHistoryImportSummary:
         from app.services.member_service import MemberService
 
@@ -105,6 +106,53 @@ class ChallanService:
         members_linked_existing = 0
         rows_skipped = 0
         errors: list[str] = []
+        if progress_callback:
+            progress_callback(5, total_rows, "Preparing challan history import")
+
+        # Preload member/user lookup maps to avoid per-row database roundtrips.
+        users = db.query(User).all()
+        members = db.query(Member).all()
+        member_by_code = {str(m.member_code).strip().upper(): m for m in members if m.member_code}
+        member_by_user_id = {m.user_id: m for m in members}
+        user_by_username = {str(u.username).strip().lower(): u for u in users if u.username}
+        user_by_email = {str(u.email).strip().lower(): u for u in users if u.email}
+        user_by_phone = {str(u.phone).strip(): u for u in users if u.phone}
+
+        def resolve_member(member_code: str | None, username: str | None, phone: str | None, email: str | None):
+            if member_code:
+                found = member_by_code.get(member_code)
+                if found:
+                    return found
+
+            if username:
+                user = user_by_username.get(username.lower())
+                if user:
+                    found = member_by_user_id.get(user.id)
+                    if found:
+                        return found
+
+            if email:
+                user = user_by_email.get(email.lower())
+                if user:
+                    found = member_by_user_id.get(user.id)
+                    if found:
+                        return found
+
+            if phone:
+                user = user_by_phone.get(phone)
+                if user:
+                    found = member_by_user_id.get(user.id)
+                    if found:
+                        return found
+
+            return None
+
+        existing_monthly_keys = {
+            (c.member_id, c.month, float(c.amount))
+            for c in db.query(Challan.member_id, Challan.month, Challan.amount)
+            .filter(Challan.type == ChallanType.MONTHLY)
+            .all()
+        }
 
         for idx, raw_row in enumerate(rows, start=2):
             row = MemberService.normalized_row(raw_row)
@@ -121,13 +169,9 @@ class ChallanService:
                 )
                 member_code = member_code or si_code
 
-                member = MemberService.find_member_by_identifiers(
-                    db=db,
-                    member_code=member_code,
-                    username=username,
-                    phone=MemberService.normalize_contact(MemberService.row_value(row, ["phone", "mobile"])),
-                    email=MemberService.normalize_contact(MemberService.row_value(row, ["email", "email_address"])),
-                )
+                phone = MemberService.normalize_contact(MemberService.row_value(row, ["phone", "mobile"]))
+                email = MemberService.normalize_contact(MemberService.row_value(row, ["email", "email_address"]))
+                member = resolve_member(member_code, username, phone, email)
 
                 if not member:
                     rows_skipped += 1
@@ -160,13 +204,8 @@ class ChallanService:
                 )
                 normalized_status = ChallanService._normalize_import_status(raw_status)
 
-                duplicate = db.query(Challan).filter(
-                    Challan.member_id == member.id,
-                    Challan.type == ChallanType.MONTHLY,
-                    Challan.month == donation_month,
-                    Challan.amount == donation_amount,
-                ).first()
-                if duplicate:
+                duplicate_key = (member.id, donation_month, float(donation_amount))
+                if duplicate_key in existing_monthly_keys:
                     continue
 
                 challan = Challan(
@@ -180,12 +219,20 @@ class ChallanService:
                 if normalized_status == "approved":
                     challan.approved_at = datetime.utcnow()
                 db.add(challan)
+                existing_monthly_keys.add(duplicate_key)
                 challans_created += 1
             except (ValueError, TypeError) as exc:
                 rows_skipped += 1
                 errors.append(f"Row {idx}: {exc}")
 
+            if progress_callback:
+                processed = idx - 1
+                progress = 5 + int((processed / max(total_rows, 1)) * 90)
+                progress_callback(progress, total_rows, f"Processed {processed}/{total_rows} rows")
+
         db.commit()
+        if progress_callback:
+            progress_callback(100, total_rows, "Challan history import completed")
 
         return ChallanHistoryImportSummary(
             total_rows=total_rows,

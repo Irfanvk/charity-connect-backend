@@ -2,9 +2,10 @@ from fastapi import HTTPException
 from app.models.models import ChallanStatus
 from fastapi import APIRouter, Depends, status as http_status, UploadFile, File, Query
 from sqlalchemy.orm import Session
-from app.database import get_db
-from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse
+from app.database import get_db, SessionLocal
+from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse, ImportJobCreateResponse, ImportJobStatusResponse
 from app.services import ChallanService, MemberService
+from app.services.import_job_service import ImportJobService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin
 from typing import List, Optional
 
@@ -58,6 +59,52 @@ def import_challan_history(
         file_bytes=content,
         filename=file.filename or "challan_history.csv",
     )
+
+
+@router.post("/import/history/jobs", response_model=ImportJobCreateResponse, status_code=http_status.HTTP_202_ACCEPTED)
+def import_challan_history_async(
+    file: UploadFile = File(...),
+    _current_user: dict = Depends(get_current_superadmin),
+):
+    content = file.file.read()
+    if not content:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty")
+
+    filename = file.filename or "challan_history.csv"
+    job_id = ImportJobService.create_job(job_type="challan_history_import", filename=filename)
+
+    def _runner():
+        db_bg = SessionLocal()
+        try:
+            summary = ChallanService.import_challan_history_file(
+                db=db_bg,
+                file_bytes=content,
+                filename=filename,
+                progress_callback=lambda progress, _total, message: ImportJobService.update_progress(
+                    job_id,
+                    progress=progress,
+                    message=message,
+                ),
+            )
+            if hasattr(summary, "model_dump"):
+                return summary.model_dump()
+            return summary.dict()
+        finally:
+            db_bg.close()
+
+    ImportJobService.run_in_thread(job_id=job_id, runner=_runner)
+    return ImportJobCreateResponse(job_id=job_id, status="queued", message="Challan history import job queued")
+
+
+@router.get("/import/history/jobs/{job_id}", response_model=ImportJobStatusResponse)
+def get_challan_import_job_status(
+    job_id: str,
+    _current_user: dict = Depends(get_current_superadmin),
+):
+    job = ImportJobService.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Import job not found")
+    return ImportJobStatusResponse(**job)
 
 
 # ------------------------------------------------------------------

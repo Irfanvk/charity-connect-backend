@@ -1,6 +1,6 @@
 import re
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional, List
+from typing import Optional, List, Any
 from datetime import datetime
 from enum import Enum
 
@@ -176,6 +176,25 @@ class CampaignPaymentImportSummary(BaseModel):
     members_linked_existing: int
     rows_skipped: int
     errors: list[str]
+
+
+class ImportJobCreateResponse(BaseModel):
+    job_id: str
+    status: str
+    message: str
+
+
+class ImportJobStatusResponse(BaseModel):
+    job_id: str
+    job_type: str
+    filename: str
+    status: str
+    progress: int
+    message: str
+    created_at: str
+    updated_at: str
+    result: Optional[Any] = None
+    error: Optional[str] = None
 
 
 class SystemWipeRequest(BaseModel):
