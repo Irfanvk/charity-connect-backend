@@ -17,7 +17,7 @@ def get_requests(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=200),
     sort_by: str = Query(default="created_at"),
-    sort_order: str = Query(default="desc", regex="^(asc|desc)$"),
+    sort_order: str = Query(default="desc", pattern="^(asc|desc)$"),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

@@ -34,7 +34,7 @@ def get_challan_summary(
 
 
 @router.post("/import/history", response_model=ChallanHistoryImportSummary, status_code=http_status.HTTP_201_CREATED)
-async def import_challan_history(
+def import_challan_history(
     file: UploadFile = File(...),
     _current_user: dict = Depends(get_current_superadmin),
     db: Session = Depends(get_db),
@@ -49,7 +49,7 @@ async def import_challan_history(
     - status
     - payment_method
     """
-    content = await file.read()
+    content = file.file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 

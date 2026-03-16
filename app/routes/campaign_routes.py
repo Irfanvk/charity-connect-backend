@@ -10,7 +10,7 @@ router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
 
 
 @router.post("/import/payments", response_model=CampaignPaymentImportSummary, status_code=status.HTTP_201_CREATED)
-async def import_campaign_payments(
+def import_campaign_payments(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_superadmin),
     db: Session = Depends(get_db),
@@ -25,7 +25,7 @@ async def import_campaign_payments(
     - payment_method
     - suggested_campaign_name/campaign_name
     """
-    content = await file.read()
+    content = file.file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 

@@ -36,11 +36,7 @@ CREATE TABLE IF NOT EXISTS users (
     role user_role DEFAULT 'member' NOT NULL,
     is_active BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_username (username),
-    INDEX idx_email (email),
-    INDEX idx_phone (phone),
-    INDEX idx_role (role)
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Create members table
@@ -54,10 +50,7 @@ CREATE TABLE IF NOT EXISTS members (
     status VARCHAR(50) DEFAULT 'active',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    INDEX idx_member_code (member_code),
-    INDEX idx_user_id (user_id),
-    INDEX idx_status (status)
+    FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 -- Create invites table
@@ -72,11 +65,7 @@ CREATE TABLE IF NOT EXISTS invites (
     created_by_admin_id INTEGER NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (used_by_user_id) REFERENCES users(id),
-    FOREIGN KEY (created_by_admin_id) REFERENCES users(id),
-    INDEX idx_invite_code (invite_code),
-    INDEX idx_email (email),
-    INDEX idx_is_used (is_used),
-    INDEX idx_expiry_date (expiry_date)
+    FOREIGN KEY (created_by_admin_id) REFERENCES users(id)
 );
 
 -- Create campaigns table
@@ -94,10 +83,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
     created_by_admin_id INTEGER NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (created_by_admin_id) REFERENCES users(id),
-    INDEX idx_is_active (is_active),
-    INDEX idx_created_by (created_by_admin_id),
-    INDEX idx_date_range (start_date, end_date)
+    FOREIGN KEY (created_by_admin_id) REFERENCES users(id)
 );
 
 -- Create challans table
@@ -120,12 +106,7 @@ CREATE TABLE IF NOT EXISTS challans (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (member_id) REFERENCES members(id),
     FOREIGN KEY (campaign_id) REFERENCES campaigns(id),
-    FOREIGN KEY (approved_by_admin_id) REFERENCES users(id),
-    INDEX idx_member_id (member_id),
-    INDEX idx_status (status),
-    INDEX idx_campaign_id (campaign_id),
-    INDEX idx_bulk_group_id (bulk_group_id),
-    INDEX idx_month (month)
+    FOREIGN KEY (approved_by_admin_id) REFERENCES users(id)
 );
 
 -- Create challan_bulk_groups table
@@ -150,10 +131,7 @@ CREATE TABLE IF NOT EXISTS challan_bulk_groups (
     notes TEXT,
     FOREIGN KEY (member_id) REFERENCES members(id),
     FOREIGN KEY (created_by_user_id) REFERENCES users(id),
-    FOREIGN KEY (approved_by_admin_id) REFERENCES users(id),
-    INDEX idx_bulk_group_id (bulk_group_id),
-    INDEX idx_member_id (member_id),
-    INDEX idx_status (status)
+    FOREIGN KEY (approved_by_admin_id) REFERENCES users(id)
 );
 
 -- Add foreign key to challans for bulk_group_id
@@ -171,10 +149,7 @@ CREATE TABLE IF NOT EXISTS notifications (
     is_read BOOLEAN DEFAULT false,
     read_at TIMESTAMP,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    INDEX idx_user_id (user_id),
-    INDEX idx_is_read (is_read),
-    INDEX idx_created_at (created_at)
+    FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 -- Create audit_logs table
@@ -188,11 +163,7 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     new_values TEXT,
     ip_address VARCHAR(45),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id),
-    INDEX idx_user_id (user_id),
-    INDEX idx_entity (entity_type, entity_id),
-    INDEX idx_created_at (created_at),
-    INDEX idx_action (action)
+    FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
 -- Seed initial admin user (password: admin123, bcrypt hash)
@@ -202,11 +173,44 @@ VALUES ('admin', 'admin@charitconnect.local', '$2b$12$8pMLxMNY7YBNaG5RZqQpKOzHMv
 ON CONFLICT (username) DO NOTHING;
 
 -- Create indexes for performance optimization
+-- users
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
 CREATE INDEX IF NOT EXISTS idx_users_role ON users(role);
 CREATE INDEX IF NOT EXISTS idx_users_is_active ON users(is_active);
+-- members
+CREATE INDEX IF NOT EXISTS idx_members_member_code ON members(member_code);
+CREATE INDEX IF NOT EXISTS idx_members_user_id ON members(user_id);
 CREATE INDEX IF NOT EXISTS idx_members_status ON members(status);
+-- invites
+CREATE INDEX IF NOT EXISTS idx_invites_invite_code ON invites(invite_code);
+CREATE INDEX IF NOT EXISTS idx_invites_email ON invites(email);
+CREATE INDEX IF NOT EXISTS idx_invites_is_used ON invites(is_used);
+CREATE INDEX IF NOT EXISTS idx_invites_expiry_date ON invites(expiry_date);
+-- campaigns
+CREATE INDEX IF NOT EXISTS idx_campaigns_is_active ON campaigns(is_active);
+CREATE INDEX IF NOT EXISTS idx_campaigns_created_by ON campaigns(created_by_admin_id);
+CREATE INDEX IF NOT EXISTS idx_campaigns_date_range ON campaigns(start_date, end_date);
+-- challans
+CREATE INDEX IF NOT EXISTS idx_challans_member_id ON challans(member_id);
+CREATE INDEX IF NOT EXISTS idx_challans_status ON challans(status);
+CREATE INDEX IF NOT EXISTS idx_challans_campaign_id ON challans(campaign_id);
+CREATE INDEX IF NOT EXISTS idx_challans_bulk_group_id ON challans(bulk_group_id);
+CREATE INDEX IF NOT EXISTS idx_challans_month ON challans(month);
 CREATE INDEX IF NOT EXISTS idx_challans_member_month ON challans(member_id, month);
+-- challan_bulk_groups
+CREATE INDEX IF NOT EXISTS idx_bulk_groups_member_id ON challan_bulk_groups(member_id);
+CREATE INDEX IF NOT EXISTS idx_bulk_groups_status ON challan_bulk_groups(status);
+-- notifications
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
+CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at);
 CREATE INDEX IF NOT EXISTS idx_notifications_user_read ON notifications(user_id, is_read);
+-- audit_logs
+CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id, created_at);
 
 -- Create function to automatically update updated_at timestamps

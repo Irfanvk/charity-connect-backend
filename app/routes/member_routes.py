@@ -92,7 +92,7 @@ def create_member(
 
 
 @router.post("/import", response_model=MemberImportSummary, status_code=status.HTTP_201_CREATED)
-async def import_members(
+def import_members(
     file: UploadFile = File(...),
     include_donations: bool = Query(default=True),
     current_user: dict = Depends(get_current_superadmin),
@@ -110,7 +110,7 @@ async def import_members(
             amount/donation_amount/paid_amount, payment_method, donation_status,
             suggested_campaign_name
     """
-    content = await file.read()
+    content = file.file.read()
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
