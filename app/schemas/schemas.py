@@ -33,6 +33,15 @@ class CampaignEndDateMode(str, Enum):
     OPEN = "open"
 
 
+class RequestType(str, Enum):
+    APPROVAL = "approval"
+    QUESTION = "question"
+    COMPLAINT = "complaint"
+    SUGGESTION = "suggestion"
+    PAYMENT_CHANGE = "payment_change"
+    OTHER = "other"
+
+
 # Auth Schemas
 class UserLogin(BaseModel):
     username: Optional[str] = None  # Can be username or email
@@ -49,6 +58,15 @@ class UserRegisterWithInvite(BaseModel):
     phone: Optional[str] = None
     address: Optional[str] = None
     monthly_amount: Optional[float] = 0.0
+
+    @field_validator("monthly_amount")
+    @classmethod
+    def validate_monthly_amount(cls, value: Optional[float]) -> float:
+        if value is None:
+            return 0.0
+        if value and (value < 50 or value > 10000):
+            raise ValueError("Monthly amount must be between ₹50 and ₹10,000")
+        return value
 
     @field_validator("password")
     @classmethod
@@ -126,6 +144,13 @@ class MemberUpdate(BaseModel):
     join_date: Optional[datetime] = None
     city: Optional[str] = None
     notes: Optional[str] = None
+
+    @field_validator("monthly_amount")
+    @classmethod
+    def validate_monthly_amount(cls, value: Optional[float]) -> Optional[float]:
+        if value is not None and (value < 50 or value > 10000):
+            raise ValueError("Monthly amount must be between ₹50 and ₹10,000")
+        return value
 
 
 class MemberResponse(BaseModel):
@@ -461,10 +486,18 @@ class NotificationSentDeleteResponse(BaseModel):
 
 
 class RequestCreate(BaseModel):
-    request_type: str = "question"
+    request_type: RequestType = RequestType.QUESTION
     subject: str
     message: str
     priority: str = "medium"
+
+    @field_validator("priority")
+    @classmethod
+    def validate_priority(cls, value: str) -> str:
+        allowed = ["low", "medium", "high"]
+        if value.lower() not in allowed:
+            raise ValueError(f"Priority must be one of: {', '.join(allowed)}")
+        return value.lower()
 
 
 class RequestUpdate(BaseModel):

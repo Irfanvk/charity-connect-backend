@@ -23,6 +23,15 @@ class ChallanType(str, enum.Enum):
     CAMPAIGN = "campaign"
 
 
+class RequestType(str, enum.Enum):
+    APPROVAL = "approval"
+    QUESTION = "question"
+    COMPLAINT = "complaint"
+    SUGGESTION = "suggestion"
+    PAYMENT_CHANGE = "payment_change"
+    OTHER = "other"
+
+
 class NotificationStatus(str, enum.Enum):
     SENT = "sent"
     READ = "read"
@@ -210,7 +219,7 @@ class Request(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    request_type = Column(String(50), nullable=False, default="question")
+    request_type = Column(Enum(RequestType), nullable=False, default=RequestType.QUESTION)
     subject = Column(String(255), nullable=False)
     message = Column(Text, nullable=False)
     priority = Column(String(20), nullable=False, default="medium")

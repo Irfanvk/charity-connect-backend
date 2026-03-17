@@ -16,7 +16,7 @@ class RequestService:
 
     @staticmethod
     def _validate_request_type(request_type: str) -> str:
-        allowed = {"approval", "question", "complaint", "suggestion", "other"}
+        allowed = {"approval", "question", "complaint", "suggestion", "payment_change", "other"}
         value = (request_type or "question").strip().lower()
         if value not in allowed:
             raise HTTPException(
