@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas import RequestCreate, RequestResponse, RequestUpdate
+from app.schemas import MemberUpdate, RequestCreate, RequestResponse, RequestUpdate
 from app.services.request_service import RequestService
 from app.utils import get_current_admin, get_current_user
 
@@ -42,6 +42,19 @@ def create_request(
     return RequestService.serialize_with_creator([item], db)[0]
 
 
+@router.post("/profile-update", response_model=RequestResponse, status_code=201)
+def create_profile_update_request(
+    payload: MemberUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if current_user.get("role") != "member":
+        raise HTTPException(status_code=403, detail="Only members can submit profile update requests")
+
+    item = RequestService.create_profile_update_request(db, current_user["user_id"], payload)
+    return RequestService.serialize_with_creator([item], db)[0]
+
+
 @router.get("/{request_id}", response_model=RequestResponse)
 def get_request(
     request_id: int,
@@ -59,8 +72,8 @@ def get_request(
 def update_request(
     request_id: int,
     payload: RequestUpdate,
-    _current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    item = RequestService.update_request(db, request_id, payload)
+    item = RequestService.update_request(db, request_id, payload, current_user)
     return RequestService.serialize_with_creator([item], db)[0]

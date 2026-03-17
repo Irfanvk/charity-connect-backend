@@ -105,6 +105,15 @@ Authorization: Bearer <access_token>
 | PUT | `/notifications/{id}` | Admin | Update notification |
 | DELETE | `/notifications/{id}` | Admin | Delete notification |
 
+#### 📨 Requests
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| GET | `/requests/` | User | List requests (admin: all, member: own) |
+| POST | `/requests/` | User | Create generic request |
+| POST | `/requests/profile-update` | Member | Submit profile-update approval request |
+| GET | `/requests/{id}` | Admin/Self | Get request details |
+| PUT | `/requests/{id}` | Admin | Update status/response (approve/reject/resolve) |
+
 #### 📁 Files
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
@@ -208,6 +217,67 @@ Authorization: Bearer <access_token>
   "message": "Deleted 7 notifications"
 }
 ```
+
+### Member Profile Update Requests
+
+#### Submit Profile Update Request (Member)
+**POST** `/requests/profile-update`
+
+Only changed fields are captured. If all submitted fields are unchanged vs current profile, request is rejected with `400`.
+
+**Request (example):**
+```json
+{
+  "address": "New address line",
+  "monthly_amount": 700.0,
+  "phone": "017XXXXXXXX"
+}
+```
+
+Critical fields (`email`, `phone`, `full_name`, `username`, `father_name`) require superadmin approval at approve-time.
+
+#### Request Response Contract (including profile metadata)
+All request endpoints now return these additional fields:
+
+- `is_profile_update` (boolean)
+- `profile_update_member_id` (number or null)
+- `profile_update_changed_fields` (object or null)
+- `profile_update_submitted_at` (ISO datetime string or null)
+
+**Response (200/201 example):**
+```json
+{
+  "id": 41,
+  "created_by_user_id": 17,
+  "created_by": "member@example.com",
+  "request_type": "approval",
+  "subject": "member_profile_update:5",
+  "message": "PROFILE_UPDATE_PAYLOAD::{...}",
+  "priority": "medium",
+  "status": "pending",
+  "admin_response": null,
+  "resolved_by": null,
+  "resolved_at": null,
+  "is_profile_update": true,
+  "profile_update_member_id": 5,
+  "profile_update_changed_fields": {
+    "address": "New address line",
+    "monthly_amount": 700.0
+  },
+  "profile_update_submitted_at": "2026-03-17T08:55:10.112233",
+  "created_at": "2026-03-17T08:55:10.120000",
+  "updated_at": "2026-03-17T08:55:10.120000"
+}
+```
+
+#### Approval Effects
+When admin/superadmin updates request status to `approved`:
+
+- Member profile changes are applied in backend DB in the same transaction.
+- Request owner receives a notification.
+- Audit log is written with action:
+  - `profile_update_request_approved`
+  - `profile_update_request_rejected`
 
 ### Error Response Standard
 All 4xx/5xx responses normalized to:

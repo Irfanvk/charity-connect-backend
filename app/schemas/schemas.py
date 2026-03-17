@@ -486,6 +486,10 @@ class RequestResponse(BaseModel):
     admin_response: Optional[str] = None
     resolved_by: Optional[str] = None
     resolved_at: Optional[datetime] = None
+    is_profile_update: bool = False
+    profile_update_member_id: Optional[int] = None
+    profile_update_changed_fields: Optional[dict[str, Any]] = None
+    profile_update_submitted_at: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
