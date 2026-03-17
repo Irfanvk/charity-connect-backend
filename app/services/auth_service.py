@@ -1,4 +1,5 @@
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from app.models import User, Member, Invite
 from app.schemas import UserRegisterWithInvite, UserLogin
 from app.utils import hash_password, verify_password, generate_member_code
@@ -26,6 +27,13 @@ class AuthService:
         if email is None:
             return None
         cleaned = str(email).strip().lower()
+        return cleaned or None
+
+    @staticmethod
+    def _normalize_username(username: str | None) -> str | None:
+        if username is None:
+            return None
+        cleaned = str(username).strip().lower()
         return cleaned or None
 
     @staticmethod
@@ -79,6 +87,7 @@ class AuthService:
         """Authenticate user with username OR email (single field)."""
         # Get the identifier (could be username or email)
         identifier = (user_login.username or user_login.email or "").strip()
+        normalized_identifier = identifier.lower()
         
         if identifier == "":
             raise HTTPException(
@@ -86,13 +95,13 @@ class AuthService:
                 detail="Username or email required",
             )
 
-        rate_limit_keys = AuthService._build_rate_limit_keys(identifier, source_ip)
+        rate_limit_keys = AuthService._build_rate_limit_keys(normalized_identifier, source_ip)
         AuthService._assert_not_rate_limited(rate_limit_keys)
         
-        # Try to find user by username first, then by email
-        user = db.query(User).filter(User.username == identifier).first()
+        # Try to find user by username first (case-insensitive), then by email
+        user = db.query(User).filter(func.lower(User.username) == normalized_identifier).first()
         if not user:
-            user = db.query(User).filter(User.email == identifier).first()
+            user = db.query(User).filter(User.email == normalized_identifier).first()
         
         if not user or not verify_password(user_login.password, user.password_hash):
             AuthService._register_failed_attempt(rate_limit_keys)
@@ -114,6 +123,13 @@ class AuthService:
     @staticmethod
     def register_with_invite(db: Session, registration: UserRegisterWithInvite):
         """Register new user with valid invite code."""
+        normalized_username = AuthService._normalize_username(registration.username)
+        if not normalized_username:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username is required",
+            )
+
         normalized_registration_email = AuthService._normalize_email(registration.email)
         normalized_registration_phone = AuthService._normalize_phone(registration.phone)
         
@@ -165,7 +181,7 @@ class AuthService:
             return claimable_user
         
         # Check username doesn't exist
-        existing_user = db.query(User).filter(User.username == registration.username).first()
+        existing_user = db.query(User).filter(User.username == normalized_username).first()
         if existing_user:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -183,7 +199,7 @@ class AuthService:
         
         # Create user
         new_user = User(
-            username=registration.username,
+            username=normalized_username,
             email=normalized_registration_email,
             phone=normalized_registration_phone,
             password_hash=hash_password(registration.password),
@@ -262,7 +278,14 @@ class AuthService:
         invite: Invite,
         registration: UserRegisterWithInvite,
     ):
-        username_owner = db.query(User).filter(User.username == registration.username, User.id != user.id).first()
+        normalized_username = AuthService._normalize_username(registration.username)
+        if not normalized_username:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Username is required",
+            )
+
+        username_owner = db.query(User).filter(User.username == normalized_username, User.id != user.id).first()
         if username_owner:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
@@ -291,7 +314,7 @@ class AuthService:
                     detail="Phone already taken",
                 )
 
-        user.username = registration.username
+        user.username = normalized_username
         if registration.email:
             user.email = AuthService._normalize_email(registration.email)
         if registration.phone:

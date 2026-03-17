@@ -429,6 +429,15 @@ class ChallanListResponse(BaseModel):
     limit: int
 
 
+class ChallanPayableMonthsResponse(BaseModel):
+    member_id: int
+    current_month: str
+    pending_months: List[str]
+    current_month_payable: bool
+    upcoming_months: List[str]
+    all_months: List[str]
+
+
 # Notification Schemas
 class NotificationCreate(BaseModel):
     user_id: Optional[int] = None

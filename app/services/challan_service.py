@@ -8,7 +8,7 @@ from app.models.models import ChallanStatus, ChallanType
 from app.schemas import ChallanCreate, ChallanReject, ChallanUpdate
 from app.utils.file_handler import save_file, validate_file
 from fastapi import HTTPException, status
-from datetime import datetime
+from datetime import datetime, date
 from app.schemas import ChallanHistoryImportSummary
 
 
@@ -22,6 +22,93 @@ class ChallanService:
         "status": Challan.status,
         "month": Challan.month,
     }
+
+    @staticmethod
+    def _parse_month_start(month: str) -> date:
+        try:
+            return datetime.strptime(month, "%Y-%m").date().replace(day=1)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Invalid month format. Use YYYY-MM",
+            ) from exc
+
+    @staticmethod
+    def _format_month(value: date) -> str:
+        return value.strftime("%Y-%m")
+
+    @staticmethod
+    def _add_months(value: date, months: int) -> date:
+        month_index = (value.month - 1) + months
+        year = value.year + (month_index // 12)
+        month = (month_index % 12) + 1
+        return date(year, month, 1)
+
+    @staticmethod
+    def _month_sequence(start_month: date, end_month: date) -> list[str]:
+        if start_month > end_month:
+            return []
+
+        months: list[str] = []
+        cursor = start_month
+        while cursor <= end_month:
+            months.append(ChallanService._format_month(cursor))
+            cursor = ChallanService._add_months(cursor, 1)
+        return months
+
+    @staticmethod
+    def get_payable_months(
+        db: Session,
+        member_id: int,
+        include_upcoming: bool = False,
+        upcoming_count: int = 3,
+    ) -> dict:
+        member = db.query(Member).filter(Member.id == member_id).first()
+        if not member:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
+
+        today = datetime.utcnow().date().replace(day=1)
+        join_date = (member.join_date.date() if member.join_date else today).replace(day=1)
+        start_month = join_date if join_date <= today else today
+
+        existing_monthly = (
+            db.query(Challan.month)
+            .filter(
+                Challan.member_id == member_id,
+                Challan.type == ChallanType.MONTHLY,
+                Challan.status != ChallanStatus.REJECTED,
+                Challan.month.isnot(None),
+            )
+            .all()
+        )
+        paid_or_existing_months = {row[0] for row in existing_monthly if row and row[0]}
+
+        due_through_current = ChallanService._month_sequence(start_month, today)
+        pending_months = [m for m in due_through_current if m not in paid_or_existing_months and m != today.strftime("%Y-%m")]
+        current_month = today.strftime("%Y-%m")
+        current_month_payable = current_month not in paid_or_existing_months
+
+        upcoming_months: list[str] = []
+        safe_upcoming_count = max(0, min(int(upcoming_count or 0), 12))
+        if include_upcoming and safe_upcoming_count > 0:
+            for i in range(1, safe_upcoming_count + 1):
+                month_value = ChallanService._format_month(ChallanService._add_months(today, i))
+                if month_value not in paid_or_existing_months:
+                    upcoming_months.append(month_value)
+
+        all_months = list(pending_months)
+        if current_month_payable:
+            all_months.append(current_month)
+        all_months.extend(upcoming_months)
+
+        return {
+            "member_id": member_id,
+            "current_month": current_month,
+            "pending_months": pending_months,
+            "current_month_payable": current_month_payable,
+            "upcoming_months": upcoming_months,
+            "all_months": all_months,
+        }
     
     @staticmethod
     def create_challan(db: Session, member_id: int, challan_data: ChallanCreate):
@@ -50,6 +137,18 @@ class ChallanService:
         
         # Check if monthly challan already exists for this month
         if challan_data.type == ChallanType.MONTHLY:
+            payable = ChallanService.get_payable_months(
+                db,
+                member_id,
+                include_upcoming=True,
+                upcoming_count=3,
+            )
+            if challan_data.month not in set(payable["all_months"]):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Selected month is not currently payable for this member",
+                )
+
             existing = db.query(Challan).filter(
                 Challan.member_id == member_id,
                 Challan.type == ChallanType.MONTHLY,

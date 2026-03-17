@@ -3,7 +3,7 @@ from app.models.models import ChallanStatus
 from fastapi import APIRouter, Depends, status as http_status, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
-from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse, ImportJobCreateResponse, ImportJobStatusResponse
+from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse, ChallanPayableMonthsResponse, ImportJobCreateResponse, ImportJobStatusResponse
 from app.services import ChallanService, MemberService
 from app.services.import_job_service import ImportJobService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin
@@ -145,6 +145,34 @@ def create_challan(
         raise HTTPException(status_code=400, detail="Cannot create challan for inactive member")
 
     return ChallanService.create_challan(db, member.id, challan_data)
+
+
+@router.get("/payable-months", response_model=ChallanPayableMonthsResponse)
+def get_payable_months(
+    member_id: Optional[int] = Query(default=None),
+    include_upcoming: bool = Query(default=False),
+    upcoming_count: int = Query(default=3, ge=0, le=12),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return pending/current payable months and optional upcoming payable months."""
+    target_member_id = member_id
+
+    if _is_admin(current_user):
+        if target_member_id is None:
+            raise HTTPException(status_code=400, detail="member_id is required for admin")
+    else:
+        member = MemberService.get_member_for_user(db, current_user["user_id"])
+        if not member:
+            raise HTTPException(status_code=404, detail="Member not found")
+        target_member_id = member.id
+
+    return ChallanService.get_payable_months(
+        db,
+        member_id=target_member_id,
+        include_upcoming=include_upcoming,
+        upcoming_count=upcoming_count,
+    )
 
 
 # ------------------------------------------------------------------

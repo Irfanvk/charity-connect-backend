@@ -20,6 +20,7 @@ from app.models.models import (
     UserRole,
 )
 from app.utils.auth import get_current_user
+from app.services.challan_service import ChallanService
 
 
 router = APIRouter(prefix="/challans", tags=["bulk-challans"])
@@ -98,6 +99,24 @@ def bulk_create_challans(
         raise HTTPException(
             status_code=400,
             detail="Cannot create bulk challan for inactive member"
+        )
+
+    payable = ChallanService.get_payable_months(
+        db,
+        member_id=member_id,
+        include_upcoming=True,
+        upcoming_count=3,
+    )
+    allowed_months = set(payable["all_months"])
+    invalid_months = sorted([m for m in months_set if m not in allowed_months])
+    if invalid_months:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "message": "One or more selected months are not currently payable",
+                "invalid_months": invalid_months,
+                "allowed_months": sorted(allowed_months),
+            },
         )
 
     existing_monthly = (
