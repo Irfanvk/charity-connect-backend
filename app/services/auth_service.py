@@ -15,6 +15,20 @@ class AuthService:
     _lockout_minutes = 15
 
     @staticmethod
+    def _normalize_phone(phone: str | None) -> str | None:
+        if phone is None:
+            return None
+        cleaned = "".join(str(phone).split())
+        return cleaned or None
+
+    @staticmethod
+    def _normalize_email(email: str | None) -> str | None:
+        if email is None:
+            return None
+        cleaned = str(email).strip().lower()
+        return cleaned or None
+
+    @staticmethod
     def _build_rate_limit_keys(identifier: str, source_ip: str | None = None) -> list[str]:
         keys = [f"id:{identifier.lower()}".strip()]
         if source_ip:
@@ -100,11 +114,16 @@ class AuthService:
     @staticmethod
     def register_with_invite(db: Session, registration: UserRegisterWithInvite):
         """Register new user with valid invite code."""
+        normalized_registration_email = AuthService._normalize_email(registration.email)
+        normalized_registration_phone = AuthService._normalize_phone(registration.phone)
         
         # Validate invite code
         invite = db.query(Invite).filter(
             Invite.invite_code == registration.invite_code
         ).first()
+
+        normalized_invite_email = AuthService._normalize_email(invite.email) if invite else None
+        normalized_invite_phone = AuthService._normalize_phone(invite.phone) if invite else None
         
         if not invite:
             raise HTTPException(
@@ -125,13 +144,13 @@ class AuthService:
             )
         
         # Validate invite matches email or phone
-        if invite.email and registration.email != invite.email:
+        if invite.email and normalized_registration_email != normalized_invite_email:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email does not match invite",
             )
         
-        if invite.phone and registration.phone != invite.phone:
+        if invite.phone and normalized_registration_phone != normalized_invite_phone:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Phone does not match invite",
@@ -154,8 +173,8 @@ class AuthService:
             )
 
         # Check email doesn't exist (if provided)
-        if registration.email:
-            existing_email_user = db.query(User).filter(User.email == registration.email).first()
+        if normalized_registration_email:
+            existing_email_user = db.query(User).filter(User.email == normalized_registration_email).first()
             if existing_email_user:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -165,8 +184,8 @@ class AuthService:
         # Create user
         new_user = User(
             username=registration.username,
-            email=registration.email,
-            phone=registration.phone,
+            email=normalized_registration_email,
+            phone=normalized_registration_phone,
             password_hash=hash_password(registration.password),
             role="member",
         )
@@ -202,8 +221,22 @@ class AuthService:
     def _find_claimable_member_user(db: Session, invite: Invite, registration: UserRegisterWithInvite):
         candidates: list[User] = []
 
-        possible_emails = [value for value in [invite.email, registration.email] if value]
-        possible_phones = [value for value in [invite.phone, registration.phone] if value]
+        possible_emails = [
+            value
+            for value in [
+                AuthService._normalize_email(invite.email),
+                AuthService._normalize_email(registration.email),
+            ]
+            if value
+        ]
+        possible_phones = [
+            value
+            for value in [
+                AuthService._normalize_phone(invite.phone),
+                AuthService._normalize_phone(registration.phone),
+            ]
+            if value
+        ]
 
         for email in possible_emails:
             user = db.query(User).filter(User.email == email).first()
@@ -237,7 +270,10 @@ class AuthService:
             )
 
         if registration.email:
-            email_owner = db.query(User).filter(User.email == registration.email, User.id != user.id).first()
+            email_owner = db.query(User).filter(
+                User.email == AuthService._normalize_email(registration.email),
+                User.id != user.id,
+            ).first()
             if email_owner:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -245,7 +281,10 @@ class AuthService:
                 )
 
         if registration.phone:
-            phone_owner = db.query(User).filter(User.phone == registration.phone, User.id != user.id).first()
+            phone_owner = db.query(User).filter(
+                User.phone == AuthService._normalize_phone(registration.phone),
+                User.id != user.id,
+            ).first()
             if phone_owner:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -254,9 +293,9 @@ class AuthService:
 
         user.username = registration.username
         if registration.email:
-            user.email = registration.email
+            user.email = AuthService._normalize_email(registration.email)
         if registration.phone:
-            user.phone = registration.phone
+            user.phone = AuthService._normalize_phone(registration.phone)
         user.password_hash = hash_password(registration.password)
         user.is_active = True
 

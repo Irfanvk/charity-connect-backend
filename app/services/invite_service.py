@@ -12,6 +12,21 @@ class InviteService:
     """Invite management service."""
 
     @staticmethod
+    def _normalize_phone(phone: str | None) -> str | None:
+        """Normalize phone by trimming and removing all whitespace characters."""
+        if phone is None:
+            return None
+        cleaned = "".join(str(phone).split())
+        return cleaned or None
+
+    @staticmethod
+    def _normalize_email(value: str | None) -> str | None:
+        if value is None:
+            return None
+        cleaned = str(value).strip().lower()
+        return cleaned or None
+
+    @staticmethod
     def _to_utc_naive(dt: datetime) -> datetime:
         """Convert datetime to UTC-naive for consistent DB comparisons/storage."""
         if dt.tzinfo is None:
@@ -66,10 +81,13 @@ class InviteService:
                 detail="Expiry date must be in the future",
             )
         
+        normalized_email = InviteService._normalize_email(invite_data.email)
+        normalized_phone = InviteService._normalize_phone(invite_data.phone)
+
         new_invite = Invite(
             invite_code=invite_code,
-            email=invite_data.email or None,
-            phone=invite_data.phone,
+            email=normalized_email,
+            phone=normalized_phone,
             expiry_date=expiry_date,
             created_by_admin_id=admin_id,
         )
@@ -101,10 +119,14 @@ class InviteService:
             return {"valid": False, "message": "Invite code expired"}
         
         # Check if email or phone matches
-        if invite.email and invite.email.lower() == validate_data.email_or_phone.lower():
+        normalized_input = (validate_data.email_or_phone or "").strip()
+        normalized_input_email = InviteService._normalize_email(normalized_input)
+        normalized_input_phone = InviteService._normalize_phone(normalized_input)
+
+        if invite.email and InviteService._normalize_email(invite.email) == normalized_input_email:
             return {"valid": True, "message": "Invite valid for email", "type": "email"}
         
-        if invite.phone and invite.phone == validate_data.email_or_phone:
+        if invite.phone and InviteService._normalize_phone(invite.phone) == normalized_input_phone:
             return {"valid": True, "message": "Invite valid for phone", "type": "phone"}
         
         return {"valid": False, "message": "Email or phone does not match"}
@@ -174,9 +196,9 @@ class InviteService:
             invite.expiry_date = expiry_date
 
         if update_data.email is not None:
-            invite.email = update_data.email or None
+            invite.email = InviteService._normalize_email(update_data.email)
         if update_data.phone is not None:
-            invite.phone = update_data.phone
+            invite.phone = InviteService._normalize_phone(update_data.phone)
 
         db.commit()
         db.refresh(invite)
