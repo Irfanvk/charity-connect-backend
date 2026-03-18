@@ -9,6 +9,7 @@ __pycache__/
 
 # Environment
 .env
+.env.example
 
 # IDE
 .vscode/

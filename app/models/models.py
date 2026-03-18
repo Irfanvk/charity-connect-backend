@@ -23,13 +23,27 @@ class ChallanType(str, enum.Enum):
     CAMPAIGN = "campaign"
 
 
-class RequestType(str, enum.Enum):
+class LegacyRequestType(str, enum.Enum):
     APPROVAL = "approval"
     QUESTION = "question"
     COMPLAINT = "complaint"
     SUGGESTION = "suggestion"
     PAYMENT_CHANGE = "payment_change"
     OTHER = "other"
+
+
+class RequestType(str, enum.Enum):
+    MONTHLY_AMOUNT_CHANGE = "monthly_amount_change"
+    PROFILE_UPDATE = "profile_update"
+    COMPLAINT = "complaint"
+    SUGGESTION = "suggestion"
+    GENERAL = "general"
+
+
+class RequestStatus(str, enum.Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class NotificationStatus(str, enum.Enum):
@@ -72,6 +86,7 @@ class Member(Base):
     address = Column(Text, nullable=True)
     join_date = Column(DateTime, server_default=func.now())
     status = Column(String(50), default="active")  # active, inactive, suspended
+    notes = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
@@ -219,7 +234,7 @@ class Request(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    request_type = Column(Enum(RequestType), nullable=False, default=RequestType.QUESTION)
+    request_type = Column(Enum(LegacyRequestType, name="requesttype"), nullable=False, default=LegacyRequestType.QUESTION)
     subject = Column(String(255), nullable=False)
     message = Column(Text, nullable=False)
     priority = Column(String(20), nullable=False, default="medium")
@@ -232,6 +247,35 @@ class Request(Base):
 
     # Relationships
     created_by_user = relationship("User", back_populates="requests")
+
+
+class MemberRequest(Base):
+    __tablename__ = "member_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    request_type = Column(Enum(RequestType, name="requesttype_v2"), nullable=False)
+    status = Column(Enum(RequestStatus, name="requeststatus"), nullable=False, default=RequestStatus.PENDING)
+
+    subject = Column(String(255), nullable=True)
+    message = Column(Text, nullable=False)
+
+    requested_amount = Column(Float, nullable=True)
+    current_amount = Column(Float, nullable=True)
+    requested_changes = Column(Text, nullable=True)
+
+    admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    admin_notes = Column(Text, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
+    resolved_at = Column(DateTime, nullable=True)
+
+    member = relationship("Member", foreign_keys=[member_id])
+    user = relationship("User", foreign_keys=[user_id])
+    admin = relationship("User", foreign_keys=[admin_id])
 
 
 class AuditLog(Base):

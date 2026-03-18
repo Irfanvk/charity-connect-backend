@@ -1,5 +1,9 @@
 from pathlib import Path
 import secrets
+import os
+from uuid import uuid4
+
+import boto3
 
 
 def _safe_extension(filename: str) -> str:
@@ -26,11 +30,31 @@ def save_file(file_content: bytes, subfolder: str, filename: str) -> str:
     Returns:
         Relative path to saved file (safe to store in DB)
     """
+    ext = _safe_extension(filename)
+    r2_endpoint = os.getenv("R2_ENDPOINT_URL", "").strip()
+    r2_bucket = os.getenv("R2_BUCKET_NAME", "").strip()
+    r2_public_url = os.getenv("R2_PUBLIC_URL", "").rstrip("/").strip()
+    use_cloud = bool(r2_endpoint and r2_bucket and r2_public_url)
+
+    if use_cloud:
+        key = f"{subfolder}/{uuid4().hex}{ext}"
+        client = boto3.client(
+            "s3",
+            endpoint_url=r2_endpoint,
+            aws_access_key_id=os.getenv("R2_ACCESS_KEY_ID"),
+            aws_secret_access_key=os.getenv("R2_SECRET_ACCESS_KEY"),
+            region_name="auto",
+        )
+        client.put_object(
+            Bucket=r2_bucket,
+            Key=key,
+            Body=file_content,
+            ContentType=_content_type_from_ext(ext),
+        )
+        return f"{r2_public_url}/{key}"
+
     upload_dir = Path(__file__).parent.parent / "uploads" / subfolder
     upload_dir.mkdir(parents=True, exist_ok=True)
-
-    ext = _safe_extension(filename)
-    # 16-byte URL-safe random token → 22-char string: zero PII, collision-resistant
     opaque_name = secrets.token_urlsafe(16) + ext
     file_path = upload_dir / opaque_name
 
@@ -38,6 +62,16 @@ def save_file(file_content: bytes, subfolder: str, filename: str) -> str:
         f.write(file_content)
 
     return f"uploads/{subfolder}/{opaque_name}"
+
+
+def _content_type_from_ext(ext: str) -> str:
+    if ext in {".jpg", ".jpeg"}:
+        return "image/jpeg"
+    if ext == ".png":
+        return "image/png"
+    if ext == ".pdf":
+        return "application/pdf"
+    return "application/octet-stream"
 
 
 def validate_file(file_content: bytes, filename: str, max_size_mb: int = 3) -> bool:

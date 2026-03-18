@@ -133,6 +133,65 @@ This addendum captures high-priority security and reliability updates delivered 
 
 ---
 
+## Addendum: March 18, 2026 - Member Requests v2.12 + Storage Enhancements
+
+### Executive Summary
+
+This addendum documents delivery of the v2.12 request lifecycle backend, approval side effects for member data updates, and cloud-ready file storage support.
+
+### Changes Delivered
+
+1. **New Member Request Domain (`member_requests`)**
+- Added dedicated `MemberRequest` model and enum set:
+  - `RequestType`: `monthly_amount_change`, `profile_update`, `complaint`, `suggestion`, `general`
+  - `RequestStatus`: `pending`, `approved`, `rejected`
+- Kept legacy request model in place for backward compatibility while migrating active routes to v2.12 contracts.
+
+2. **New Request API Contract and Service Layer**
+- Replaced request service and route handlers to support:
+  - member create/list/get/delete own requests
+  - admin list/filter/paginate all requests
+  - admin approve/reject endpoints
+- Added request lifecycle audit logging and outcome notifications.
+
+3. **Approval Side Effects (Auto-Apply Changes)**
+- Approving `monthly_amount_change` now updates `members.monthly_amount`.
+- Approving `profile_update` now applies structured `requested_changes` to member profile fields.
+- Rejections preserve current data and log the admin rationale.
+
+4. **Member Notes Schema Support**
+- Added `notes` field support for members.
+- Included runtime additive migration check in DB startup logic.
+- Added SQL migration script for explicit DB rollout.
+
+5. **Cloudflare R2 Upload Support**
+- Added R2 integration in file handler with env-based configuration.
+- Added safe local-storage fallback when R2 is not configured.
+- Added `boto3` dependency and documented R2 variables in `.env.example`.
+
+### Files Updated (March 18 Scope)
+
+- `app/models/models.py`
+- `app/models/__init__.py`
+- `app/schemas/schemas.py`
+- `app/schemas/__init__.py`
+- `app/services/request_service.py`
+- `app/routes/request_routes.py`
+- `app/routes/admin_router.py`
+- `app/database.py`
+- `app/utils/file_handler.py`
+- `migrations/20260318_member_requests.sql`
+- `requirements.txt`
+- `.env.example`
+
+### Validation Notes
+
+- Endpoint wiring updated for member/admin request separation.
+- Request approval/rejection paths now produce notifications and audit entries.
+- Storage flow supports both cloud (R2) and local fallback modes.
+
+---
+
 ## Detailed Changes
 
 ### 1. Admin Bulk Operations 500 Error Fix

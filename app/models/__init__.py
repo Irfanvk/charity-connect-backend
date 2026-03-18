@@ -1,6 +1,8 @@
 from .models import (
     User,
+    LegacyRequestType,
     RequestType,
+    RequestStatus,
     Member,
     Invite,
     Campaign,
@@ -8,17 +10,19 @@ from .models import (
     BulkChallanGroup,
     Notification,
     Request,
+    MemberRequest,
     AuditLog,
     UserRole,
     ChallanStatus,
     ChallanType,
-    RequestType,
     NotificationStatus,
 )
 
 __all__ = [
     "User",
+    "LegacyRequestType",
     "RequestType",
+    "RequestStatus",
     "Member",
     "Invite",
     "Campaign",
@@ -26,10 +30,10 @@ __all__ = [
     "BulkChallanGroup",
     "Notification",
     "Request",
+    "MemberRequest",
     "AuditLog",
     "UserRole",
     "ChallanStatus",
     "ChallanType",
-    "RequestType",
     "NotificationStatus",
 ]

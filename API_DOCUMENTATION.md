@@ -3,7 +3,7 @@
 **Base URL:** `http://localhost:8000`  
 **Production:** Update BASE_URL in environment configuration  
 **Version:** 1.0  
-**Last Updated:** March 7, 2026
+**Last Updated:** March 18, 2026
 
 ---
 
@@ -108,11 +108,13 @@ Authorization: Bearer <access_token>
 #### 📨 Requests
 | Method | Endpoint | Auth | Description |
 |--------|----------|------|-------------|
-| GET | `/requests/` | User | List requests (admin: all, member: own) |
-| POST | `/requests/` | User | Create generic request |
-| POST | `/requests/profile-update` | Member | Submit profile-update approval request |
-| GET | `/requests/{id}` | Admin/Self | Get request details |
-| PUT | `/requests/{id}` | Admin | Update status/response (approve/reject/resolve) |
+| POST | `/requests/` | Member/Admin | Create member request |
+| GET | `/requests/` | Member/Admin | List own requests (filter by status/type) |
+| GET | `/requests/{id}` | Member/Admin | Get own request details |
+| DELETE | `/requests/{id}` | Member/Admin | Cancel own pending request |
+| GET | `/admin/requests/` | Admin/Superadmin | List all requests with pagination and filters |
+| PATCH | `/requests/{id}/approve` | Admin/Superadmin | Approve request and apply eligible changes |
+| PATCH | `/requests/{id}/reject` | Admin/Superadmin | Reject request with reason |
 
 #### 📁 Files
 | Method | Endpoint | Auth | Description |
@@ -218,66 +220,64 @@ Authorization: Bearer <access_token>
 }
 ```
 
-### Member Profile Update Requests
+### Member Requests v2.12
 
-#### Submit Profile Update Request (Member)
-**POST** `/requests/profile-update`
+#### Request Types
+- `monthly_amount_change`
+- `profile_update`
+- `complaint`
+- `suggestion`
+- `general`
 
-Only changed fields are captured. If all submitted fields are unchanged vs current profile, request is rejected with `400`.
+#### Request Statuses
+- `pending`
+- `approved`
+- `rejected`
+
+#### Create Request (Member)
+**POST** `/requests/`
 
 **Request (example):**
 ```json
 {
-  "address": "New address line",
-  "monthly_amount": 700.0,
-  "phone": "017XXXXXXXX"
+  "request_type": "profile_update",
+  "subject": "Phone number correction",
+  "message": "Please update my phone number in profile.",
+  "requested_changes": "{\"phone\":\"+971501234567\"}"
 }
 ```
 
-Critical fields (`email`, `phone`, `full_name`, `username`, `father_name`) require superadmin approval at approve-time.
+For `monthly_amount_change`, include `requested_amount`.
 
-#### Request Response Contract (including profile metadata)
-All request endpoints now return these additional fields:
-
-- `is_profile_update` (boolean)
-- `profile_update_member_id` (number or null)
-- `profile_update_changed_fields` (object or null)
-- `profile_update_submitted_at` (ISO datetime string or null)
-
-**Response (200/201 example):**
+#### Request Response Shape
 ```json
 {
-  "id": 41,
-  "created_by_user_id": 17,
+  "id": 145,
+  "member_id": 23,
   "created_by": "member@example.com",
-  "request_type": "approval",
-  "subject": "member_profile_update:5",
-  "message": "PROFILE_UPDATE_PAYLOAD::{...}",
-  "priority": "medium",
+  "request_type": "profile_update",
   "status": "pending",
-  "admin_response": null,
+  "subject": "Phone number correction",
+  "message": "Please update my phone number in profile.",
+  "requested_amount": null,
+  "current_amount": 500.0,
+  "requested_changes": "{\"phone\":\"+971501234567\"}",
+  "admin_notes": null,
+  "rejection_reason": null,
   "resolved_by": null,
   "resolved_at": null,
-  "is_profile_update": true,
-  "profile_update_member_id": 5,
-  "profile_update_changed_fields": {
-    "address": "New address line",
-    "monthly_amount": 700.0
-  },
-  "profile_update_submitted_at": "2026-03-17T08:55:10.112233",
-  "created_at": "2026-03-17T08:55:10.120000",
-  "updated_at": "2026-03-17T08:55:10.120000"
+  "created_at": "2026-03-18T10:30:00",
+  "updated_at": "2026-03-18T10:30:00"
 }
 ```
 
 #### Approval Effects
-When admin/superadmin updates request status to `approved`:
+When admin/superadmin approves:
 
-- Member profile changes are applied in backend DB in the same transaction.
-- Request owner receives a notification.
-- Audit log is written with action:
-  - `profile_update_request_approved`
-  - `profile_update_request_rejected`
+- `monthly_amount_change` updates `members.monthly_amount`.
+- `profile_update` applies parsed `requested_changes` to the linked member profile.
+- Member receives request outcome notification.
+- Audit log entry is written for approve/reject actions.
 
 ### Error Response Standard
 All 4xx/5xx responses normalized to:

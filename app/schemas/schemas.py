@@ -34,12 +34,17 @@ class CampaignEndDateMode(str, Enum):
 
 
 class RequestType(str, Enum):
-    APPROVAL = "approval"
-    QUESTION = "question"
+    MONTHLY_AMOUNT_CHANGE = "monthly_amount_change"
+    PROFILE_UPDATE = "profile_update"
     COMPLAINT = "complaint"
     SUGGESTION = "suggestion"
-    PAYMENT_CHANGE = "payment_change"
-    OTHER = "other"
+    GENERAL = "general"
+
+
+class RequestStatus(str, Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 # Auth Schemas
@@ -494,49 +499,67 @@ class NotificationSentDeleteResponse(BaseModel):
     message: str
 
 
-class RequestCreate(BaseModel):
-    request_type: RequestType = RequestType.QUESTION
-    subject: str
+class MemberRequestCreate(BaseModel):
+    request_type: RequestType
+    subject: Optional[str] = None
     message: str
-    priority: str = "medium"
+    requested_amount: Optional[float] = None
+    requested_changes: Optional[dict[str, Any]] = None
 
-    @field_validator("priority")
+    @field_validator("message")
     @classmethod
-    def validate_priority(cls, value: str) -> str:
-        allowed = ["low", "medium", "high"]
-        if value.lower() not in allowed:
-            raise ValueError(f"Priority must be one of: {', '.join(allowed)}")
-        return value.lower()
+    def validate_message(cls, value: str) -> str:
+        text = (value or "").strip()
+        if not text:
+            raise ValueError("message is required")
+        if len(text) < 5:
+            raise ValueError("message must be at least 5 characters")
+        return text
 
 
-class RequestUpdate(BaseModel):
-    status: Optional[str] = None
-    admin_response: Optional[str] = None
-    resolved_by: Optional[str] = None
-    resolved_at: Optional[datetime] = None
-
-
-class RequestResponse(BaseModel):
+class MemberRequestResponse(BaseModel):
     id: int
-    created_by_user_id: int
-    created_by: Optional[str] = None
+    member_id: int
+    user_id: int
     request_type: str
-    subject: str
-    message: str
-    priority: str
     status: str
-    admin_response: Optional[str] = None
-    resolved_by: Optional[str] = None
-    resolved_at: Optional[datetime] = None
-    is_profile_update: bool = False
-    profile_update_member_id: Optional[int] = None
-    profile_update_changed_fields: Optional[dict[str, Any]] = None
-    profile_update_submitted_at: Optional[str] = None
+    subject: Optional[str]
+    message: str
+    requested_amount: Optional[float]
+    current_amount: Optional[float]
+    requested_changes: Optional[str]
+    admin_notes: Optional[str]
+    rejection_reason: Optional[str]
+    admin_id: Optional[int]
     created_at: datetime
     updated_at: datetime
+    resolved_at: Optional[datetime]
+    member_name: Optional[str] = None
+    member_code: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+class MemberRequestAdminAction(BaseModel):
+    action: str
+    admin_notes: Optional[str] = None
+    rejection_reason: Optional[str] = None
+
+    @field_validator("action")
+    @classmethod
+    def validate_action(cls, value: str) -> str:
+        action = (value or "").strip().lower()
+        if action not in {"approve", "reject"}:
+            raise ValueError("action must be 'approve' or 'reject'")
+        return action
+
+
+class MemberRequestListResponse(BaseModel):
+    items: List[MemberRequestResponse]
+    total: int
+    skip: int
+    limit: int
 
 
 # Audit Log Schemas

@@ -28,6 +28,12 @@ def ensure_runtime_schema() -> None:
     """Apply additive schema updates for existing deployments."""
     with engine.begin() as connection:
         inspector = inspect(connection)
+
+        if inspector.has_table("members"):
+            member_columns = {column["name"]: column for column in inspector.get_columns("members")}
+            if "notes" not in member_columns:
+                connection.execute(text("ALTER TABLE members ADD COLUMN notes TEXT"))
+
         if not inspector.has_table("campaigns"):
             return
 

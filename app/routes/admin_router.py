@@ -27,7 +27,7 @@ from app.models.models import (
     Invite,
     Campaign,
     Notification,
-    Request,
+    MemberRequest,
 )
 from app.utils.auth import get_current_user, get_current_superadmin, verify_password
 
@@ -102,7 +102,7 @@ def wipe_system_data(
         campaigns_deleted = db.query(Campaign).count()
         invites_deleted = db.query(Invite).count()
         notifications_deleted = db.query(Notification).count()
-        requests_deleted = db.query(Request).count()
+        requests_deleted = db.query(MemberRequest).count()
         audit_logs_deleted = db.query(AuditLog).count()
         bulk_groups_deleted = db.query(BulkChallanGroup).count()
         users_deleted = db.query(User).filter(~User.role.in_(keep_roles)).count()
@@ -113,7 +113,7 @@ def wipe_system_data(
         db.query(Member).delete(synchronize_session=False)
         db.query(Invite).delete(synchronize_session=False)
         db.query(Notification).delete(synchronize_session=False)
-        db.query(Request).delete(synchronize_session=False)
+        db.query(MemberRequest).delete(synchronize_session=False)
         db.query(Campaign).delete(synchronize_session=False)
         db.query(AuditLog).delete(synchronize_session=False)
 

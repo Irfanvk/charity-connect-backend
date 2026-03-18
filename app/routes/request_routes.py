@@ -1,79 +1,119 @@
-from typing import List
-
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.schemas import MemberUpdate, RequestCreate, RequestResponse, RequestUpdate
+from app.schemas import (
+    MemberRequestAdminAction,
+    MemberRequestCreate,
+    MemberRequestListResponse,
+    MemberRequestResponse,
+)
 from app.services.request_service import RequestService
 from app.utils import get_current_admin, get_current_user
 
+router = APIRouter(tags=["Requests"])
 
-router = APIRouter(prefix="/requests", tags=["Requests"])
 
-
-@router.get("/", response_model=List[RequestResponse])
-def get_requests(
-    skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=100, ge=1, le=200),
-    sort_by: str = Query(default="created_at"),
-    sort_order: str = Query(default="desc", pattern="^(asc|desc)$"),
+@router.post("/requests/", response_model=MemberRequestResponse, status_code=201)
+def create_request(
+    payload: MemberRequestCreate,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    items = RequestService.list_requests(
+    return RequestService.create_request(
+        db=db,
+        current_user=current_user,
+        request_type=payload.request_type,
+        subject=payload.subject,
+        message=payload.message,
+        requested_amount=payload.requested_amount,
+        requested_changes=payload.requested_changes,
+    )
+
+
+@router.get("/requests/", response_model=list[MemberRequestResponse])
+def list_requests(
+    status: str | None = Query(default=None),
+    request_type: str | None = Query(default=None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return RequestService.list_requests(
         db,
         current_user=current_user,
         skip=skip,
         limit=limit,
-        sort_by=sort_by,
-        sort_order=sort_order,
+        status_filter=status,
+        request_type=request_type,
     )
-    return RequestService.serialize_with_creator(items, db)
 
 
-@router.post("/", response_model=RequestResponse, status_code=201)
-def create_request(
-    payload: RequestCreate,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    item = RequestService.create_request(db, current_user["user_id"], payload)
-    return RequestService.serialize_with_creator([item], db)[0]
-
-
-@router.post("/profile-update", response_model=RequestResponse, status_code=201)
-def create_profile_update_request(
-    payload: MemberUpdate,
-    current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db),
-):
-    if current_user.get("role") != "member":
-        raise HTTPException(status_code=403, detail="Only members can submit profile update requests")
-
-    item = RequestService.create_profile_update_request(db, current_user["user_id"], payload)
-    return RequestService.serialize_with_creator([item], db)[0]
-
-
-@router.get("/{request_id}", response_model=RequestResponse)
+@router.get("/requests/{request_id}", response_model=MemberRequestResponse)
 def get_request(
     request_id: int,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    item = RequestService.get_request(db, request_id)
-    if current_user.get("role") not in ["admin", "superadmin"] and item.created_by_user_id != current_user["user_id"]:
-        raise HTTPException(status_code=403, detail="You are not allowed to access this request")
-
-    return RequestService.serialize_with_creator([item], db)[0]
+    return RequestService.get_request(db, current_user=current_user, request_id=request_id)
 
 
-@router.put("/{request_id}", response_model=RequestResponse)
-def update_request(
+@router.delete("/requests/{request_id}", status_code=204)
+def cancel_request(
     request_id: int,
-    payload: RequestUpdate,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    item = RequestService.update_request(db, request_id, payload, current_user)
-    return RequestService.serialize_with_creator([item], db)[0]
+    RequestService.delete_request(db, current_user=current_user, request_id=request_id)
+
+
+@router.patch("/requests/{request_id}/approve", response_model=MemberRequestResponse)
+def approve_request(
+    request_id: int,
+    payload: MemberRequestAdminAction,
+    current_admin: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    return RequestService.approve_request(
+        db,
+        current_admin=current_admin,
+        request_id=request_id,
+        admin_notes=payload.admin_notes,
+    )
+
+
+@router.patch("/requests/{request_id}/reject", response_model=MemberRequestResponse)
+def reject_request(
+    request_id: int,
+    payload: MemberRequestAdminAction,
+    current_admin: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    return RequestService.reject_request(
+        db,
+        current_admin=current_admin,
+        request_id=request_id,
+        rejection_reason=payload.rejection_reason or "",
+        admin_notes=payload.admin_notes,
+    )
+
+
+@router.get("/admin/requests/", response_model=MemberRequestListResponse)
+def admin_requests(
+    status: str | None = Query(default=None),
+    request_type: str | None = Query(default=None),
+    member_id: int | None = Query(default=None),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    _current_admin: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    return RequestService.admin_list_requests(
+        db=db,
+        status_filter=status,
+        request_type=request_type,
+        member_id=member_id,
+        skip=skip,
+        limit=limit,
+    )

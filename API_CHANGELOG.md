@@ -1,5 +1,43 @@
 # API Changelog
 
+## 2026-03-18
+
+### Added
+- **New Admin Request Listing Endpoint**: `GET /admin/requests/` (admin/superadmin)
+  - Returns paginated envelope with filters (`status`, `request_type`, `search`, `skip`, `limit`).
+  - Designed for request moderation UI and pending badge counters.
+
+- **Request Moderation Endpoints**
+  - `PATCH /requests/{id}/approve`
+  - `PATCH /requests/{id}/reject`
+  - Admin actions now include optional notes/rejection reason and emit notifications + audit logs.
+
+### Changed
+- **Request Domain Migrated to v2.12 Lifecycle**
+  - `POST /requests/`, `GET /requests/`, `GET /requests/{id}`, `DELETE /requests/{id}` now operate on new `member_requests` records.
+  - Request types changed to:
+    - `monthly_amount_change`
+    - `profile_update`
+    - `complaint`
+    - `suggestion`
+    - `general`
+  - Request statuses standardized to:
+    - `pending`
+    - `approved`
+    - `rejected`
+
+- **Approval Side Effects**
+  - Approving `monthly_amount_change` applies `requested_amount` to member monthly amount.
+  - Approving `profile_update` applies structured `requested_changes` to member profile.
+
+- **Wipe Endpoint Alignment**
+  - `POST /admin/system/wipe` request deletion scope updated to clear `member_requests` counts.
+
+### Infrastructure
+- Added additive schema support for `members.notes`.
+- Added SQL migration script: `migrations/20260318_member_requests.sql`.
+- Added optional Cloudflare R2 support for file uploads with local fallback.
+
 ## 2026-03-16
 
 ### Changed

@@ -3,7 +3,7 @@
 **Project:** CharityConnect  
 **Purpose:** Decisions, meeting minutes, and action items  
 **Owner:** Integration Lead  
-**Last Updated:** 2026-03-15
+**Last Updated:** 2026-03-18
 
 ---
 
@@ -11,6 +11,10 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-03-18 | v2.12 member request lifecycle implemented as dedicated backend module | Backend | ✅ | Added `member_requests` model/schema/service/routes with explicit `pending/approved/rejected` flow and member/admin endpoint split |
+| 2026-03-18 | Approved profile/monthly requests now auto-apply member data changes | Backend | ✅ | Approval path updates `members.monthly_amount` and profile fields from structured `requested_changes`, then writes audit and notification entries |
+| 2026-03-18 | Proof upload storage now supports Cloudflare R2 with local fallback | Backend | ✅ | `file_handler` now uploads to R2 when configured; falls back to local disk for dev/local environments |
+| 2026-03-18 | Member notes persistence support added | Backend | ✅ | Added `members.notes` field support through runtime additive migration and SQL migration script |
 | 2026-03-16 | Campaign backend now supports `targeted` vs `unlimited` goals and `fixed` vs `open` duration | Backend | ✅ | Added `target_mode`, `min_amount`, `end_date_mode`, nullable `target_amount`, nullable `end_date`; startup migration updates existing PostgreSQL campaign tables safely |
 | 2026-03-16 | Challans list API now returns pagination metadata for frontend server-side paging | Backend | ✅ | `GET /challans/` now returns `{ items, total, skip, limit }`, enabling the challans management page to page correctly without loading the full dataset |
 | 2026-03-15 | Extended frontend member import request timeout to prevent 15-second abort during large CSV/XLSX uploads | Frontend | ✅ | Added per-request timeout override in API client and set member import to 5 minutes; standard API calls remain on default timeout |
