@@ -11,6 +11,10 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-03-18 | `task_default_queue="default"` added to Celery config to fix silent PENDING task accumulation | Backend | ✅ | Root cause: tasks routed to queue `default` but workers listening on Celery's built-in `celery` queue; fix aligns both sides; verified end-to-end with `send_invite_message` → state `SUCCESS` |
+| 2026-03-18 | `extra = "ignore"` added to Pydantic `Settings.Config` to allow legacy `.env` keys | Backend | ✅ | Legacy fields (`r2_endpoint_url`, `r2_bucket_name`, `r2_public_url`, `allowed_origins`, `import_default_password`) are present in `.env` but not in the Settings model; adding `extra = "ignore"` prevents startup crash |
+| 2026-03-18 | `celerybeat-schedule*` runtime files added to `.gitignore` | Backend | ✅ | `celerybeat-schedule`, `celerybeat-schedule-shm`, `celerybeat-schedule-wal` are SQLite-based runtime artifacts written by the Beat scheduler; should not be tracked |
+| 2026-03-18 | Smoke test confirmed: Redis service running (PONG), FastAPI healthy, Celery worker active (inspect ping), Beat scheduler writing schedule, frontend serving HTTP 200 | Backend + Frontend | ✅ | Full local stack validated on 2026-03-18; PostgreSQL not installed locally — SQLite used as temporary runtime DB via `DATABASE_URL=sqlite:///./local_test.db` override |
 | 2026-03-18 | CharityHub backend rebrand applied in config/runtime metadata | Backend | ✅ | App root metadata and defaults now use CharityHub naming while preserving existing route contracts |
 | 2026-03-18 | Redis + Celery + Celery Beat integrated for queued notifications and reminders | Backend | ✅ | Added `app/workers/celery_app.py` + `app/workers/tasks.py`; monthly membership reminder scheduler replaces weekly reminder |
 | 2026-03-18 | New notification feed/read APIs enabled for frontend context synchronization | Both | ✅ | Added `GET /notifications/feed` and `PATCH /notifications/read` to support centralized unread count and selective/bulk read workflows |

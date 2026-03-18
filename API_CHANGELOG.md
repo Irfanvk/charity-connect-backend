@@ -2,6 +2,35 @@
 
 ## 2026-03-18
 
+### Git Commits (2026-03-18)
+
+| Commit | Message | Files Changed |
+|--------|---------|---------------|
+| `f915b7a` | feat: add Celery worker, beat scheduler, and Redis task queue | 28 files, +586 lines |
+
+**Commit `f915b7a` details:**
+- `app/workers/celery_app.py` — Celery app factory; broker + results backend on Redis; `task_default_queue="default"` set to align worker queue with task routing
+- `app/workers/tasks.py` — 4 async tasks: `send_invite_message`, `send_welcome_notification`, `send_user_notification`, `send_monthly_membership_reminders`
+- `app/workers/__init__.py` — Package init
+- `app/services/whatsapp_service.py` — WhatsApp dispatch stub (dev-safe, no real API key required in dev)
+- `app/routes/notification_routes.py` — `GET /notifications/feed`, `PATCH /notifications/read`
+- `app/routes/admin_router.py` — `GET /admin/dashboard/charts` aggregation endpoint
+- `app/services/notification_service.py` — Feed query (unread-first), bulk-read logic
+- `app/services/auth_service.py` — Dispatch `send_welcome_notification` on registration
+- `app/services/invite_service.py` — Dispatch `send_invite_message` via Celery on invite creation
+- `app/config.py` — `extra = "ignore"` added to `Settings.Config`; prevents `ValidationError` for legacy `.env` keys
+- `requirements.txt` — Added `celery`, `redis`, `kombu`
+
+### Infrastructure Fixes (found during smoke testing)
+
+- **`app/config.py` — Pydantic extra field fix**
+  - Added `extra = "ignore"` to `Settings.Config` inner class.
+  - Legacy `.env` keys (`r2_endpoint_url`, `r2_bucket_name`, `r2_public_url`, `allowed_origins`, `import_default_password`) caused startup `ValidationError`; now silently ignored.
+
+- **`app/workers/celery_app.py` — Queue routing alignment fix**
+  - Added `task_default_queue="default"` to `celery.conf.update()`.
+  - Without this, tasks dispatched to queue `default` were invisible to workers consuming the built-in `celery` queue, causing tasks to remain `PENDING` indefinitely.
+
 ### Added
 - **Redis + Celery Infrastructure (CharityHub branding update)**
   - Added Redis/Celery settings in backend configuration.
