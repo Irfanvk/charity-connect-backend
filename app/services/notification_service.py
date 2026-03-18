@@ -9,6 +9,52 @@ class NotificationService:
     """Notification service."""
 
     @staticmethod
+    def create_user_notification(
+        db: Session,
+        user_id: int,
+        title: str,
+        message: str,
+        target_role: str | None = None,
+    ):
+        """Create a direct notification for a single user."""
+        user = db.query(User).filter(User.id == user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="User not found",
+            )
+
+        normalized_role = target_role or user.role
+        notification = Notification(
+            user_id=user_id,
+            title=title,
+            message=message,
+            target_role=normalized_role,
+        )
+
+        db.add(notification)
+        db.commit()
+        db.refresh(notification)
+        return notification
+
+    @staticmethod
+    def enqueue_user_notification(
+        user_id: int,
+        title: str,
+        message: str,
+        target_role: str | None = None,
+    ) -> dict:
+        """Queue notification creation via Celery with safe fallback."""
+        try:
+            from app.workers.tasks import send_user_notification
+
+            send_user_notification.delay(user_id, title, message, target_role)
+            return {"queued": True, "worker": "celery"}
+        except Exception:
+            # Keep API behavior resilient even if worker is unavailable.
+            return {"queued": False, "worker": "fallback"}
+
+    @staticmethod
     def create_notification(db: Session, notification_data: NotificationCreate, _admin_id: int = None):
         """Create and send notification."""
 
@@ -256,6 +302,16 @@ class NotificationService:
         )
 
     @staticmethod
+    def get_user_notification_feed(db: Session, user_id: int, skip: int = 0, limit: int = 50):
+        """Frontend-friendly notification feed payload."""
+        items = NotificationService.get_user_notifications(db, user_id, skip=skip, limit=limit)
+        unread_count = NotificationService.get_unread_notifications_count(db, user_id)
+        return {
+            "items": items,
+            "unread_count": unread_count,
+        }
+
+    @staticmethod
     def mark_as_read(db: Session, notification_id: int, user_id: int):
         """Mark notification as read, scoped to the requesting user."""
         notification = db.query(Notification).filter(
@@ -293,5 +349,25 @@ class NotificationService:
             .update({"is_read": True, "read_at": now}, synchronize_session=False)
         )
 
+        db.commit()
+        return {"marked_read": updated_count, "message": f"Marked {updated_count} notifications as read"}
+
+    @staticmethod
+    def mark_selected_as_read(db: Session, user_id: int, notification_ids: list[int]):
+        """Mark selected notification ids as read for the requesting user."""
+        ids = list({int(item) for item in notification_ids if item is not None})
+        if not ids:
+            return {"marked_read": 0, "message": "No notifications selected"}
+
+        now = datetime.utcnow()
+        updated_count = (
+            db.query(Notification)
+            .filter(
+                Notification.user_id == user_id,
+                Notification.id.in_(ids),
+                Notification.is_read == False,
+            )
+            .update({"is_read": True, "read_at": now}, synchronize_session=False)
+        )
         db.commit()
         return {"marked_read": updated_count, "message": f"Marked {updated_count} notifications as read"}

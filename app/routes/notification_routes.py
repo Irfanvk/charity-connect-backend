@@ -5,6 +5,7 @@ from app.schemas import (
     NotificationCreate,
     NotificationResponse,
     NotificationAdminUpdate,
+    NotificationReadPatchRequest,
     NotificationSentBatchResponse,
     NotificationSentDeleteRequest,
     NotificationSentDeleteResponse,
@@ -53,6 +54,22 @@ def get_unread_count(
     """
     count = NotificationService.get_unread_notifications_count(db, current_user["user_id"])
     return {"unread_count": count}
+
+
+@router.get("/feed")
+def get_notification_feed(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Feed payload for frontend state context (items + unread_count)."""
+    return NotificationService.get_user_notification_feed(
+        db,
+        user_id=current_user["user_id"],
+        skip=skip,
+        limit=limit,
+    )
 
 
 @router.get("/admin/sent", response_model=List[NotificationSentBatchResponse])
@@ -123,6 +140,22 @@ def mark_all_as_read(
     Mark all of current user's unread notifications as read.
     """
     return NotificationService.mark_all_as_read(db, current_user["user_id"])
+
+
+@router.patch("/read")
+def patch_mark_read(
+    payload: NotificationReadPatchRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Mark notifications as read using PATCH semantics.
+    - mark_all=true marks all unread notifications.
+    - notification_ids=[...] marks selected notifications.
+    """
+    if payload.mark_all:
+        return NotificationService.mark_all_as_read(db, current_user["user_id"])
+    return NotificationService.mark_selected_as_read(db, current_user["user_id"], payload.notification_ids or [])
 
 
 @router.put("/{notification_id}", response_model=NotificationResponse)

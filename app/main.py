@@ -24,6 +24,13 @@ from app.routes import (
 import logging
 import app.models as _models
 
+try:
+    import redis.asyncio as redis
+    from fastapi_limiter import FastAPILimiter
+except Exception:
+    redis = None
+    FastAPILimiter = None
+
 # Configure logging
 logging.basicConfig(
     level=settings.LOG_LEVEL,
@@ -73,6 +80,29 @@ app.include_router(request_router)
 app.include_router(file_router)
 app.include_router(user_router)
 app.include_router(audit_log_router)
+
+
+@app.on_event("startup")
+async def startup_event() -> None:
+    if not settings.ENABLE_FASTAPI_LIMITER:
+        return
+
+    if redis is None or FastAPILimiter is None:
+        logger.warning("fastapi-limiter is enabled but Redis/FastAPILimiter import failed")
+        return
+
+    redis_client = redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
+    try:
+        await FastAPILimiter.init(redis_client)
+        logger.info("FastAPI limiter initialized")
+    except Exception as exc:
+        logger.warning("FastAPI limiter initialization failed: %s", exc)
+
+
+@app.on_event("shutdown")
+async def shutdown_event() -> None:
+    if FastAPILimiter and getattr(FastAPILimiter, "redis", None):
+        await FastAPILimiter.close()
 
 
 def _ensure_detail_list(detail, default_loc=None, default_type="error"):
@@ -128,7 +158,7 @@ async def unhandled_exception_handler(_request: Request, _exc: Exception):
 @app.get("/")
 def root():
     return {
-        "message": "Charity Connect Backend",
+        "message": "CharityHub Backend",
         "version": settings.APP_VERSION,
         "status": "running",
     }

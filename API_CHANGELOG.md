@@ -3,6 +3,31 @@
 ## 2026-03-18
 
 ### Added
+- **Redis + Celery Infrastructure (CharityHub branding update)**
+  - Added Redis/Celery settings in backend configuration.
+  - Added Celery worker bootstrap and task registry under `app/workers/`.
+  - Added Celery Beat monthly scheduler for membership reminders.
+
+- **Notification Feed + Patch Read APIs**
+  - `GET /notifications/feed`
+    - Returns `{ items, unread_count }` for frontend notification context state.
+  - `PATCH /notifications/read`
+    - Supports selective read (`notification_ids`) and bulk read (`mark_all=true`).
+
+- **Admin Dashboard Charts Endpoint**
+  - `GET /admin/dashboard/charts`
+  - Returns chart-ready aggregates for:
+    - campaign progress
+    - monthly donations
+    - top donors
+
+- **Queue-backed Notification and Messaging Tasks**
+  - Added Celery tasks for:
+    - invite message dispatch
+    - welcome notification creation for newly registered users
+    - monthly membership reminder notifications
+  - Queue enqueue paths use safe synchronous fallback if worker infrastructure is unavailable.
+
 - **New Admin Request Listing Endpoint**: `GET /admin/requests/` (admin/superadmin)
   - Returns paginated envelope with filters (`status`, `request_type`, `search`, `skip`, `limit`).
   - Designed for request moderation UI and pending badge counters.

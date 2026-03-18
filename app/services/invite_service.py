@@ -95,6 +95,23 @@ class InviteService:
         db.add(new_invite)
         db.commit()
         db.refresh(new_invite)
+
+        if new_invite.phone:
+            try:
+                from app.workers.tasks import send_invite_message
+
+                send_invite_message.delay(new_invite.phone, new_invite.invite_code)
+            except Exception:
+                from app.services.whatsapp_service import send_whatsapp_message
+
+                send_whatsapp_message(
+                    new_invite.phone,
+                    (
+                        "Assalamu Alaikum\n\n"
+                        "You are invited to join CharityHub.\n\n"
+                        f"Invite Code: {new_invite.invite_code}"
+                    ),
+                )
         
         # Reload with relationship to get invited_by
         invite_with_relation = db.query(Invite).options(joinedload(Invite.created_by)).filter(Invite.id == new_invite.id).first()

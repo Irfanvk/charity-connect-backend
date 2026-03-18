@@ -230,6 +230,21 @@ class AuthService:
         
         db.commit()
         db.refresh(new_user)
+
+        try:
+            from app.workers.tasks import send_welcome_notification
+
+            send_welcome_notification.delay(new_user.id)
+        except Exception:
+            from app.services.notification_service import NotificationService
+
+            NotificationService.create_user_notification(
+                db=db,
+                user_id=new_user.id,
+                title="Welcome to CharityHub",
+                message="Your account is ready. Complete your profile and begin your charity journey.",
+                target_role=new_user.role,
+            )
         
         return new_user
 
@@ -327,6 +342,21 @@ class AuthService:
         invite.used_by_user_id = user.id
 
         db.commit()
+
+        try:
+            from app.workers.tasks import send_welcome_notification
+
+            send_welcome_notification.delay(user.id)
+        except Exception:
+            from app.services.notification_service import NotificationService
+
+            NotificationService.create_user_notification(
+                db=db,
+                user_id=user.id,
+                title="Welcome to CharityHub",
+                message="Your account is ready. Complete your profile and begin your charity journey.",
+                target_role=user.role,
+            )
     
     @staticmethod
     def get_user(db: Session, user_id: int):

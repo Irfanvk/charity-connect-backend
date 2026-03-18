@@ -461,6 +461,11 @@ class NotificationAdminUpdate(BaseModel):
     is_read: Optional[bool] = None
 
 
+class NotificationReadPatchRequest(BaseModel):
+    notification_ids: Optional[List[int]] = None
+    mark_all: bool = False
+
+
 class NotificationResponse(BaseModel):
     id: int
     user_id: int

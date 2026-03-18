@@ -5,6 +5,7 @@ from .campaign_service import CampaignService
 from .challan_service import ChallanService
 from .notification_service import NotificationService
 from .request_service import RequestService
+from .whatsapp_service import send_whatsapp_message
 
 __all__ = [
     "AuthService",
@@ -14,4 +15,5 @@ __all__ = [
     "ChallanService",
     "NotificationService",
     "RequestService",
+    "send_whatsapp_message",
 ]

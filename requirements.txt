@@ -9,6 +9,7 @@ colorama==0.4.6
 docx2txt==0.9
 ecdsa==0.19.1
 fastapi==0.131.0
+fastapi-limiter==0.1.6
 greenlet==3.3.2
 h11==0.16.0
 idna==3.11
@@ -25,10 +26,12 @@ pyasn1==0.6.2
 pydantic==2.12.5
 pydantic-settings==2.13.1
 pydantic_core==2.41.5
+redis==6.4.0
 python-docx==1.2.0
 python-dotenv==1.2.1
 python-jose==3.5.0
 python-multipart==0.0.22
+celery==5.5.3
 pywin32==311; platform_system=="Windows"
 rsa==4.9.1
 six==1.17.0

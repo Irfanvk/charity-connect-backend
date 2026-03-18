@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -21,6 +22,7 @@ from app.models.models import (
     BulkChallanGroup,
     Challan,
     ChallanStatus,
+    ChallanType,
     Member,
     User,
     AuditLog,
@@ -29,7 +31,7 @@ from app.models.models import (
     Notification,
     MemberRequest,
 )
-from app.utils.auth import get_current_user, get_current_superadmin, verify_password
+from app.utils.auth import get_current_user, get_current_admin, get_current_superadmin, verify_password
 
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -53,6 +55,110 @@ def _build_proof_url(proof_file_id: str | None) -> str | None:
     if cleaned.startswith("uploads/"):
         return f"/{cleaned}"
     return f"/uploads/proofs/{cleaned}"
+
+
+@router.get("/dashboard/charts")
+def get_dashboard_charts(
+    months: int = Query(default=12, ge=1, le=24),
+    top_limit: int = Query(default=10, ge=1, le=25),
+    current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Chart-ready aggregates for admin dashboard widgets."""
+    _ = current_user
+
+    campaign_rows = (
+        db.query(
+            Campaign.id,
+            Campaign.title,
+            Campaign.target_amount,
+            func.coalesce(func.sum(Challan.amount), 0.0).label("collected_amount"),
+        )
+        .outerjoin(
+            Challan,
+            (Challan.campaign_id == Campaign.id)
+            & (Challan.status == ChallanStatus.APPROVED)
+            & (Challan.type == ChallanType.CAMPAIGN),
+        )
+        .group_by(Campaign.id, Campaign.title, Campaign.target_amount)
+        .order_by(Campaign.created_at.desc())
+        .all()
+    )
+
+    campaign_progress = []
+    for row in campaign_rows:
+        collected = float(row.collected_amount or 0.0)
+        target_amount = float(row.target_amount) if row.target_amount is not None else None
+        if target_amount and target_amount > 0:
+            progress_percent = round((collected / target_amount) * 100.0, 2)
+        else:
+            progress_percent = None
+
+        campaign_progress.append(
+            {
+                "campaign_id": row.id,
+                "title": row.title,
+                "target_amount": target_amount,
+                "collected_amount": collected,
+                "progress_percent": progress_percent,
+            }
+        )
+
+    monthly_rows = (
+        db.query(
+            Challan.month,
+            func.coalesce(func.sum(Challan.amount), 0.0).label("total_amount"),
+        )
+        .filter(
+            Challan.type == ChallanType.MONTHLY,
+            Challan.status == ChallanStatus.APPROVED,
+            Challan.month.isnot(None),
+        )
+        .group_by(Challan.month)
+        .order_by(Challan.month.desc())
+        .limit(months)
+        .all()
+    )
+
+    monthly_donations = [
+        {
+            "month": row.month,
+            "amount": float(row.total_amount or 0.0),
+        }
+        for row in reversed(monthly_rows)
+    ]
+
+    top_donor_rows = (
+        db.query(
+            Member.id.label("member_id"),
+            Member.member_code,
+            User.username,
+            func.coalesce(func.sum(Challan.amount), 0.0).label("total_amount"),
+        )
+        .join(Challan, Challan.member_id == Member.id)
+        .join(User, User.id == Member.user_id)
+        .filter(Challan.status == ChallanStatus.APPROVED)
+        .group_by(Member.id, Member.member_code, User.username)
+        .order_by(func.sum(Challan.amount).desc())
+        .limit(top_limit)
+        .all()
+    )
+
+    top_donors = [
+        {
+            "member_id": row.member_id,
+            "member_code": row.member_code,
+            "name": row.username,
+            "total_amount": float(row.total_amount or 0.0),
+        }
+        for row in top_donor_rows
+    ]
+
+    return {
+        "campaign_progress": campaign_progress,
+        "monthly_donations": monthly_donations,
+        "top_donors": top_donors,
+    }
 
 
 @router.post("/system/wipe", response_model=SystemWipeResponse)

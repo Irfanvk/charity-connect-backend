@@ -11,6 +11,11 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-03-18 | CharityHub backend rebrand applied in config/runtime metadata | Backend | ✅ | App root metadata and defaults now use CharityHub naming while preserving existing route contracts |
+| 2026-03-18 | Redis + Celery + Celery Beat integrated for queued notifications and reminders | Backend | ✅ | Added `app/workers/celery_app.py` + `app/workers/tasks.py`; monthly membership reminder scheduler replaces weekly reminder |
+| 2026-03-18 | New notification feed/read APIs enabled for frontend context synchronization | Both | ✅ | Added `GET /notifications/feed` and `PATCH /notifications/read` to support centralized unread count and selective/bulk read workflows |
+| 2026-03-18 | Admin dashboard chart aggregates moved to backend endpoint | Both | ✅ | Added `GET /admin/dashboard/charts` for campaign progress, monthly donations, and top donors (`recharts` frontend consumer) |
+| 2026-03-18 | Invite + registration events now queue async messaging with safe fallback | Backend | ✅ | Invite creation queues WhatsApp task; registration queues welcome notification; fallback path preserves behavior if worker unavailable |
 | 2026-03-18 | v2.12 member request lifecycle implemented as dedicated backend module | Backend | ✅ | Added `member_requests` model/schema/service/routes with explicit `pending/approved/rejected` flow and member/admin endpoint split |
 | 2026-03-18 | Approved profile/monthly requests now auto-apply member data changes | Backend | ✅ | Approval path updates `members.monthly_amount` and profile fields from structured `requested_changes`, then writes audit and notification entries |
 | 2026-03-18 | Proof upload storage now supports Cloudflare R2 with local fallback | Backend | ✅ | `file_handler` now uploads to R2 when configured; falls back to local disk for dev/local environments |

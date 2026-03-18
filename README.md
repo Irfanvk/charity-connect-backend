@@ -117,6 +117,10 @@ Create a `.env` file in project root with:
 DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/charity_connect
 SECRET_KEY=<secure-random-string>
 ACCESS_TOKEN_EXPIRE_MINUTES=60
+REDIS_URL=redis://localhost:6379/0
+CELERY_BROKER_URL=redis://localhost:6379/0
+CELERY_RESULT_BACKEND=redis://localhost:6379/0
+ENABLE_FASTAPI_LIMITER=false
 ```
 
 > **Never** commit `.env` to source control.
@@ -126,6 +130,20 @@ ACCESS_TOKEN_EXPIRE_MINUTES=60
 ```bash
 uvicorn app.main:app --reload
 ```
+
+### Running Worker and Scheduler
+
+Use separate terminals for API, Celery worker, and Celery Beat scheduler.
+
+```bash
+celery -A app.workers.celery_app.celery worker --loglevel=info
+celery -A app.workers.celery_app.celery beat --loglevel=info
+```
+
+This enables:
+- invite WhatsApp queue processing
+- welcome notification queue for newly registered users
+- monthly membership reminder scheduler
 
 - **API Base**: `http://127.0.0.1:8000`
 - **Swagger Docs**: `http://127.0.0.1:8000/docs` (try endpoints interactively)
@@ -226,6 +244,14 @@ POST /auth/register
   - **Endpoints:**
     - `GET /notifications`
     - `POST /notifications`
+    - `GET /notifications/feed`
+    - `PATCH /notifications/read`
+
+### Phase 8 – Dashboard Aggregates
+- `GET /admin/dashboard/charts`
+  - campaign progress
+  - monthly donations
+  - top donors
 
 ---
 

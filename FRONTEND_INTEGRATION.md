@@ -99,6 +99,32 @@ GET /notifications/
 - Don't expect `audience` or `recipient` fields in list responses
 - Admin sees admin notifications, members see member notifications
 
+**New Feed Contract (2026-03-18):**
+```javascript
+GET /notifications/feed?skip=0&limit=50
+// Response
+{
+  "items": [/* notification list */],
+  "unread_count": 3
+}
+```
+
+**Read Patch Contract (2026-03-18):**
+```javascript
+// Mark selected IDs as read
+PATCH /notifications/read
+{
+  "notification_ids": [101, 102],
+  "mark_all": false
+}
+
+// Mark all unread as read
+PATCH /notifications/read
+{
+  "mark_all": true
+}
+```
+
 #### ③ Audit Log Payload Keys
 
 **Required Fields:**
@@ -211,6 +237,23 @@ const getMemberForEdit = async (memberId) => {
 | Audit log keys | ✅ Confirmed | Use canonical keys, pre-stringify JSON |
 | Challan multi-month | ✅ Confirmed | Use Option A or B, or bulk endpoint |
 | Member detail fetch | ✅ Confirmed | Always fetch before editing |
+
+### Admin Dashboard Charts (2026-03-18)
+
+Backend now provides chart-ready aggregate data:
+
+```javascript
+GET /admin/dashboard/charts?months=12&top_limit=10
+```
+
+Response shape:
+- `campaign_progress`: `[{ campaign_id, title, target_amount, collected_amount, progress_percent }]`
+- `monthly_donations`: `[{ month, amount }]`
+- `top_donors`: `[{ member_id, member_code, name, total_amount }]`
+
+Recommended frontend usage:
+- render with `recharts`
+- avoid re-deriving these totals client-side when endpoint data is available
 
 ---
 
