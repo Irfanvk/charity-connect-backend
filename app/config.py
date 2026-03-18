@@ -25,9 +25,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
     ALGORITHM: str = "HS256"
     
-    # CORS Configuration
+    # CORS Configuration - read from ALLOWED_ORIGINS env var
     CORS_ORIGINS: list[str] = Field(
-        default_factory=lambda: [
+        default_factory=lambda: os.getenv(
+            "ALLOWED_ORIGINS",
+            "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,http://127.0.0.1:5173"
+        ).split(",") if os.getenv("ALLOWED_ORIGINS") else [
             "http://localhost:3000",
             "http://127.0.0.1:3000",
             "http://localhost:5173",
