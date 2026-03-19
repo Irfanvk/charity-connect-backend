@@ -125,6 +125,15 @@ class Settings(BaseSettings):
     CELERY_TIMEZONE: str = os.getenv("CELERY_TIMEZONE", "UTC")
     ENABLE_FASTAPI_LIMITER: bool = os.getenv("ENABLE_FASTAPI_LIMITER", "false").lower() == "true"
 
+    # WhatsApp Cloud API
+    WHATSAPP_ENABLED: bool = os.getenv("WHATSAPP_ENABLED", "false").lower() == "true"
+    WHATSAPP_PROVIDER: str = os.getenv("WHATSAPP_PROVIDER", "meta")
+    WHATSAPP_API_VERSION: str = os.getenv("WHATSAPP_API_VERSION", "v22.0")
+    WHATSAPP_API_URL: str = os.getenv("WHATSAPP_API_URL", "")
+    WHATSAPP_API_TOKEN: str = os.getenv("WHATSAPP_API_TOKEN", "")
+    WHATSAPP_PHONE_NUMBER_ID: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
+    WHATSAPP_VERIFY_TOKEN: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
+
     class Config:
         env_file = ".env"
         extra = "ignore"

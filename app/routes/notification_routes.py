@@ -1,4 +1,7 @@
-from fastapi import APIRouter, Depends, status, Query
+import logging
+import json
+
+from fastapi import APIRouter, Depends, status, Query, Request, Response
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas import (
@@ -13,8 +16,30 @@ from app.schemas import (
 from app.services import NotificationService
 from app.utils import get_current_user, get_current_admin
 from typing import List
+from pydantic import BaseModel, Field
+from app.services.whatsapp_service import send_whatsapp_message
+from app.config import settings
 
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
+logger = logging.getLogger(__name__)
+
+
+class WhatsAppSendRequest(BaseModel):
+    phone_number: str = Field(..., min_length=8, max_length=20)
+    message: str = Field(..., min_length=1, max_length=2000)
+
+
+class WhatsAppSendResponse(BaseModel):
+    queued: bool
+    provider_enabled: bool
+    message: str
+
+
+class WhatsAppWebhookAckResponse(BaseModel):
+    received: bool
+    object: str
+    message_events: int
+    status_events: int
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -140,6 +165,114 @@ def mark_all_as_read(
     Mark all of current user's unread notifications as read.
     """
     return NotificationService.mark_all_as_read(db, current_user["user_id"])
+
+
+@router.post("/send-whatsapp", response_model=WhatsAppSendResponse, status_code=status.HTTP_202_ACCEPTED)
+def send_whatsapp_notification(
+    payload: WhatsAppSendRequest,
+    _current_user: dict = Depends(get_current_admin),
+):
+    """
+    Prepare WhatsApp notification delivery.
+
+    This endpoint is intentionally non-destructive when provider credentials are not configured.
+    It is ready for plugging in a provider worker without changing frontend integration.
+    """
+    result = send_whatsapp_message(payload.phone_number, payload.message)
+    status_label = str(result.get("status") or "").lower()
+    queued = status_label in {"queued", "accepted", "sent"}
+    provider_enabled = status_label not in {"disabled", "skipped"} or result.get("reason") not in {
+        "provider_not_configured",
+        "unsupported_provider",
+    }
+
+    if not queued:
+        failure_reason = result.get("reason") or result.get("error") or "delivery_failed"
+        return {
+            "queued": False,
+            "provider_enabled": bool(provider_enabled),
+            "message": f"WhatsApp not sent: {failure_reason}",
+        }
+
+    return {
+        "queued": True,
+        "provider_enabled": bool(provider_enabled),
+        "message": "WhatsApp notification accepted for delivery.",
+    }
+
+
+@router.get("/whatsapp/webhook")
+def verify_whatsapp_webhook(
+    hub_mode: str = Query(default="", alias="hub.mode"),
+    hub_verify_token: str = Query(default="", alias="hub.verify_token"),
+    hub_challenge: str = Query(default="", alias="hub.challenge"),
+):
+    """Meta webhook verification handshake endpoint."""
+    verify_token = str(settings.WHATSAPP_VERIFY_TOKEN or "").strip()
+
+    if hub_mode != "subscribe" or not verify_token or hub_verify_token != verify_token:
+        return Response(content="forbidden", status_code=status.HTTP_403_FORBIDDEN)
+
+    return Response(content=str(hub_challenge), media_type="text/plain", status_code=status.HTTP_200_OK)
+
+
+@router.post("/whatsapp/webhook", response_model=WhatsAppWebhookAckResponse)
+async def receive_whatsapp_webhook(request: Request):
+    """Receive inbound WhatsApp messages and delivery status events from Meta."""
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError:
+        return Response(content="invalid_json", status_code=status.HTTP_400_BAD_REQUEST)
+
+    event_object = str(payload.get("object") or "")
+    if event_object != "whatsapp_business_account":
+        return {
+            "received": True,
+            "object": event_object,
+            "message_events": 0,
+            "status_events": 0,
+        }
+
+    message_events = 0
+    status_events = 0
+
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            value = change.get("value") or {}
+
+            messages = value.get("messages") or []
+            statuses = value.get("statuses") or []
+
+            for item in messages:
+                message_events += 1
+                logger.info(
+                    "WhatsApp inbound message",
+                    extra={
+                        "from": item.get("from"),
+                        "message_id": item.get("id"),
+                        "type": item.get("type"),
+                        "timestamp": item.get("timestamp"),
+                    },
+                )
+
+            for item in statuses:
+                status_events += 1
+                logger.info(
+                    "WhatsApp delivery status",
+                    extra={
+                        "message_id": item.get("id"),
+                        "status": item.get("status"),
+                        "recipient_id": item.get("recipient_id"),
+                        "timestamp": item.get("timestamp"),
+                    },
+                )
+
+    return {
+        "received": True,
+        "object": event_object,
+        "message_events": message_events,
+        "status_events": status_events,
+    }
 
 
 @router.patch("/read")

@@ -70,6 +70,59 @@ ALLOWED_HOSTS=["localhost", "127.0.0.1"]
 CORS_ORIGINS=["http://localhost:5173", "http://localhost:3000"]
 ```
 
+### Redis & Celery (Task Queue)
+
+The background task queue uses **Celery 5** with **Redis** as both broker and result backend.
+
+#### 1. Install Redis locally
+
+**Windows (recommended – Docker):**
+```bash
+docker run -d -p 6379:6379 --name redis redis:7-alpine
+```
+**macOS:**
+```bash
+brew install redis && brew services start redis
+```
+**Linux:**
+```bash
+sudo apt install redis-server && sudo systemctl start redis
+```
+
+#### 2. Add Redis config to `.env`
+```env
+REDIS_URL=redis://localhost:6379/0
+CELERY_BROKER_URL=redis://localhost:6379/0
+CELERY_RESULT_BACKEND=redis://localhost:6379/0
+CELERY_TIMEZONE=UTC
+ENABLE_FASTAPI_LIMITER=false
+```
+
+#### 3. Run workers (each in a separate terminal)
+
+```bash
+# Terminal A – Celery worker (processes queued tasks)
+celery -A app.workers.celery_app.celery worker --loglevel=info --queues=default
+
+# Terminal B – Celery beat (cron scheduler – monthly reminders etc.)
+celery -A app.workers.celery_app.celery beat --loglevel=info
+
+# Terminal C – FastAPI server
+uvicorn app.main:app --reload
+```
+
+#### Registered tasks
+| Task name | Trigger | Description |
+|---|---|---|
+| `send_invite_message` | On invite create | WhatsApp message to invitee |
+| `send_welcome_notification` | On user registration | In-app welcome notification |
+| `send_user_notification` | On demand | Queued in-app notification |
+| `send_monthly_membership_reminders` | Cron – 1st of month 09:00 UTC | Monthly dues reminder to all active members |
+
+#### Rate limiting (`ENABLE_FASTAPI_LIMITER`)
+Set `ENABLE_FASTAPI_LIMITER=true` to activate Redis-backed per-IP rate limiting.
+Requires a live Redis connection; safe to leave `false` in local dev.
+
 ### Testing the Installation
 
 ```bash
