@@ -65,6 +65,10 @@ def update_user(
         raise HTTPException(status_code=404, detail="User not found")
 
     updates = payload.dict(exclude_unset=True)
+
+    # Only allow safe fields to be updated
+    allowed_fields = {"username", "email", "phone", "role", "is_active"}
+    updates = {k: v for k, v in updates.items() if k in allowed_fields}
     
     # Security: Role updates require superadmin
     if 'role' in updates:

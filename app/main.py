@@ -177,6 +177,7 @@ def test_db():
         with engine.connect() as connection:
             result = connection.execute(text("SELECT 1"))
             return {"database_status": "connected", "result": result.scalar()}
-    except SQLAlchemyError as e:
-        return {"database_status": "error", "message": str(e)}
+    except SQLAlchemyError:
+        logger.exception("Database connection test failed")
+        return {"database_status": "error", "message": "Database connection failed"}
 

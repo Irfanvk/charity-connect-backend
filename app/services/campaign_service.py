@@ -380,8 +380,14 @@ class CampaignService:
     
     @staticmethod
     def delete_campaign(db: Session, campaign_id: int):
-        """Delete campaign."""
+        """Delete campaign and unlink any associated challans."""
         campaign = CampaignService.get_campaign(db, campaign_id)
+
+        # Unlink challans referencing this campaign to avoid FK violation
+        db.query(Challan).filter(Challan.campaign_id == campaign_id).update(
+            {"campaign_id": None}, synchronize_session=False
+        )
+        db.flush()
         
         db.delete(campaign)
         db.commit()

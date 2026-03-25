@@ -48,6 +48,7 @@ CREATE TABLE IF NOT EXISTS members (
     address TEXT,
     join_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR(50) DEFAULT 'active',
+    notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
@@ -166,6 +167,43 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
 
+-- Create ENUM types for member_requests
+DO $$ BEGIN
+    CREATE TYPE requeststatus AS ENUM ('pending', 'approved', 'rejected');
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE requesttype_v2 AS ENUM (
+        'monthly_amount_change',
+        'profile_update',
+        'complaint',
+        'suggestion',
+        'general'
+    );
+EXCEPTION WHEN duplicate_object THEN null;
+END $$;
+
+-- Create member_requests table
+CREATE TABLE IF NOT EXISTS member_requests (
+    id SERIAL PRIMARY KEY,
+    member_id INTEGER NOT NULL REFERENCES members(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
+    request_type requesttype_v2 NOT NULL,
+    status requeststatus NOT NULL DEFAULT 'pending',
+    subject VARCHAR(255),
+    message TEXT NOT NULL,
+    requested_amount DOUBLE PRECISION,
+    current_amount DOUBLE PRECISION,
+    requested_changes TEXT,
+    admin_id INTEGER REFERENCES users(id),
+    admin_notes TEXT,
+    rejection_reason TEXT,
+    created_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT now(),
+    updated_at TIMESTAMP WITHOUT TIME ZONE NOT NULL DEFAULT now(),
+    resolved_at TIMESTAMP WITHOUT TIME ZONE
+);
+
 -- Seed initial admin user (password: admin123, bcrypt hash)
 -- This is a default admin for initial setup - MUST be changed in production
 INSERT INTO users (username, email, password_hash, role, is_active)
@@ -212,6 +250,10 @@ CREATE INDEX IF NOT EXISTS idx_audit_logs_user_id ON audit_logs(user_id);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_action ON audit_logs(action);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id, created_at);
+-- member_requests
+CREATE INDEX IF NOT EXISTS idx_member_requests_member_id ON member_requests(member_id);
+CREATE INDEX IF NOT EXISTS idx_member_requests_user_id ON member_requests(user_id);
+CREATE INDEX IF NOT EXISTS idx_member_requests_status ON member_requests(status);
 
 -- Create function to automatically update updated_at timestamps
 CREATE OR REPLACE FUNCTION update_updated_at_column()

@@ -1,7 +1,6 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from app.utils.file_handler import validate_file, save_file
 from app.utils.auth import get_current_user
-import uuid
 
 router = APIRouter(prefix="/files", tags=["Files"])
 
@@ -29,17 +28,18 @@ async def upload_file(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     
-    # Generate unique filename
-    file_extension = file.filename.split('.')[-1] if '.' in file.filename else ''
-    unique_filename = f"{uuid.uuid4()}.{file_extension}" if file_extension else f"{uuid.uuid4()}"
+    # Save file — save_file returns the actual stored path (opaque filename)
+    saved_path = save_file(content, 'proofs', file.filename)
     
-    # Save file (subfolder: 'proofs', filename: unique_filename)
-    save_file(content, 'proofs', unique_filename)
-    
-    # Return URL
-    file_url = f"/uploads/proofs/{unique_filename}"
+    # Build URL from the real saved path
+    if saved_path.startswith("http"):
+        file_url = saved_path
+    elif saved_path.startswith("/"):
+        file_url = saved_path
+    else:
+        file_url = f"/{saved_path}"
     
     return {
         "file_url": file_url,
-        "filename": unique_filename
+        "filename": saved_path.split("/")[-1]
     }
