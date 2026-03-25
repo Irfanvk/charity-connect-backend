@@ -48,7 +48,21 @@ app = FastAPI(
 )
 
 # Create all tables
-Base.metadata.create_all(bind=engine)
+try:
+    Base.metadata.create_all(bind=engine)
+except Exception as e:
+    # If init_db.sql was already run by superadmin, the schema exists.
+    # Charity_user may lack CREATE TYPE permissions for ENUMs, so log warning instead of crashing.
+    error_msg = str(e).lower()
+    if "permission denied" in error_msg or "insufficient privilege" in error_msg:
+        logger.warning(
+            "Schema create_all encountered permission error (expected if init_db.sql was run as superadmin). "
+            "Schema should already exist. Error: %s", str(e)
+        )
+    else:
+        logger.error("Unexpected error during schema creation: %s", str(e))
+        raise
+
 ensure_runtime_schema()
 
 # Add CORS middleware FIRST (so it executes LAST, before TrustedHost)
