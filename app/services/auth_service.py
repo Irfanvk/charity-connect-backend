@@ -11,7 +11,7 @@ class AuthService:
     """Authentication and user management service."""
 
     _failed_login_attempts: dict[str, dict] = {}
-    _max_attempts = 5
+    _max_attempts = 10
     _window_minutes = 15
     _lockout_minutes = 15
 
