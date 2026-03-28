@@ -26,7 +26,10 @@ def get_members_summary(
 @router.get("/", response_model=List[MemberResponse])
 def get_members(
     skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=20, ge=1, le=200),
+    # ✅ FIX: Raised ceiling from 200 → 500 so the dashboard request of
+    # limit=200 (and any future reasonable value) is accepted instead of
+    # returning 422 Unprocessable Entity.
+    limit: int = Query(default=20, ge=1, le=500),
     search: str | None = Query(default=None),
     sort_by: str = Query(default="full_name"),
     sort_order: str = Query(default="asc"),
@@ -39,17 +42,15 @@ def get_members(
     - Member: only their own profile (as list)
     """
     if _is_admin(current_user):
-        # Admin gets all members
         return MemberService.get_all_members(
-    db=db,
-    skip=skip,
-    limit=limit,
-    search=search,
-    sort_by=sort_by,
-    sort_order=sort_order
-)
+            db=db,
+            skip=skip,
+            limit=limit,
+            search=search,
+            sort_by=sort_by,
+            sort_order=sort_order,
+        )
     else:
-        # Member gets only their own profile (returned as list)
         member = MemberService.get_member_for_user(db, current_user["user_id"])
         if not member:
             raise HTTPException(status_code=404, detail="Member profile not found")
@@ -61,9 +62,7 @@ def get_my_profile(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """
-    Get current user's member profile.
-    """
+    """Get current user's member profile."""
     member = MemberService.get_member_for_user(db, current_user["user_id"])
     return member
 
@@ -74,9 +73,7 @@ def get_member_by_code(
     current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    """
-    Get member details by member code (Admin only).
-    """
+    """Get member details by member code (Admin only)."""
     _ = current_user
     member = MemberService.get_member_by_code(db, member_code)
     return member
@@ -102,14 +99,14 @@ def import_members(
     """
     Import members from CSV/XLSX (Superadmin only).
 
-        Supported member columns:
-        - member_code/member_id/code/si_no, full_name/name/member_name, username,
-            phone/mobile, email, address/location/notes, monthly_amount, join_date/join_year, status
+    Supported member columns:
+    - member_code/member_id/code/si_no, full_name/name/member_name, username,
+      phone/mobile, email, address/location/notes, monthly_amount, join_date/join_year, status
 
     Optional donation columns (when include_donations=true):
-        - type, month/donation_month/payment_month/period,
-            amount/donation_amount/paid_amount, payment_method, donation_status,
-            suggested_campaign_name
+    - type, month/donation_month/payment_month/period,
+      amount/donation_amount/paid_amount, payment_method, donation_status,
+      suggested_campaign_name
     """
     content = file.file.read()
     if not content:
@@ -182,11 +179,10 @@ def get_member(
 ):
     member = MemberService.get_member(db, member_id)
 
-    # Allow only admin OR owner
     if not _is_admin(current_user) and member.user_id != current_user["user_id"]:
         raise HTTPException(
             status_code=403,
-            detail="You are not allowed to access this profile"
+            detail="You are not allowed to access this profile",
         )
 
     return member
@@ -199,9 +195,7 @@ def update_member(
     current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    """
-    Update member information (Admin only).
-    """
+    """Update member information (Admin only)."""
     _ = current_user
     member = MemberService.update_member(db, member_id, update_data)
     return member

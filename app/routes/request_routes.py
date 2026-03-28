@@ -20,6 +20,7 @@ def create_request(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Create a new member request."""
     return RequestService.create_request(
         db=db,
         current_user=current_user,
@@ -40,6 +41,7 @@ def list_requests(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """List requests for the current user (members see their own; admins see all)."""
     return RequestService.list_requests(
         db,
         current_user=current_user,
@@ -56,6 +58,7 @@ def get_request(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Get a single request by ID."""
     return RequestService.get_request(db, current_user=current_user, request_id=request_id)
 
 
@@ -65,6 +68,7 @@ def cancel_request(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
+    """Cancel / delete a request (owner or admin)."""
     RequestService.delete_request(db, current_user=current_user, request_id=request_id)
 
 
@@ -75,6 +79,7 @@ def approve_request(
     current_admin: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
+    """Approve a pending request (Admin only)."""
     return RequestService.approve_request(
         db,
         current_admin=current_admin,
@@ -90,6 +95,7 @@ def reject_request(
     current_admin: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
+    """Reject a pending request (Admin only)."""
     return RequestService.reject_request(
         db,
         current_admin=current_admin,
@@ -99,8 +105,11 @@ def reject_request(
     )
 
 
+# ✅ FIX: This endpoint was missing, causing 404 on /admin/requests/.
+# The frontend calls charityClient.requests.adminList() → GET /admin/requests/
+# with optional status/request_type/member_id filters and pagination.
 @router.get("/admin/requests/", response_model=MemberRequestListResponse)
-def admin_requests(
+def admin_list_requests(
     status: str | None = Query(default=None),
     request_type: str | None = Query(default=None),
     member_id: int | None = Query(default=None),
@@ -109,6 +118,16 @@ def admin_requests(
     _current_admin: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
+    """
+    List all member requests with filtering and pagination (Admin only).
+
+    Query parameters:
+    - status:       Filter by request status (pending | approved | rejected)
+    - request_type: Filter by type (monthly_amount_change | profile_update | complaint | etc.)
+    - member_id:    Filter by specific member ID
+    - skip:         Pagination offset (default: 0)
+    - limit:        Page size (default: 50, max: 200)
+    """
     return RequestService.admin_list_requests(
         db=db,
         status_filter=status,
