@@ -12,6 +12,7 @@ from .models import (
     Request,
     MemberRequest,
     AuditLog,
+    AppSetting,
     UserRole,
     ChallanStatus,
     ChallanType,

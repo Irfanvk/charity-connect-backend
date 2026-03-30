@@ -63,6 +63,29 @@ def ensure_runtime_schema() -> None:
                 dialect,
             )
 
+        # ── app_settings table ────────────────────────────────────────────
+        if not inspector.has_table("app_settings"):
+            if dialect == "postgresql":
+                connection.execute(text("""
+                    CREATE TABLE app_settings (
+                        id SERIAL PRIMARY KEY,
+                        key VARCHAR(100) NOT NULL UNIQUE,
+                        value TEXT NOT NULL DEFAULT '',
+                        updated_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            else:
+                connection.execute(text("""
+                    CREATE TABLE app_settings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        key VARCHAR(100) NOT NULL UNIQUE,
+                        value TEXT NOT NULL DEFAULT '',
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """))
+            connection.execute(text("CREATE INDEX ix_app_settings_key ON app_settings (key)"))
+            logger.info("Created app_settings table")
+
 def get_db():
     db = SessionLocal()
     try:

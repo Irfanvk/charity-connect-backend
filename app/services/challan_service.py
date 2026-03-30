@@ -682,3 +682,53 @@ class ChallanService:
             "total_collected": float(total_collected),
             "monthly_collection": float(monthly_collection),
         }
+
+    @staticmethod
+    def get_collection_stats(
+        db: Session,
+        member_id: int | None = None,
+    ) -> dict:
+        """Aggregate approved-challan amounts by time period."""
+        from datetime import timedelta
+
+        now = datetime.utcnow()
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        # Monday-based week
+        week_start = (today_start - timedelta(days=today_start.weekday()))
+        month_start = today_start.replace(day=1)
+        year_start = today_start.replace(month=1, day=1)
+
+        base = db.query(Challan).filter(Challan.status == ChallanStatus.APPROVED)
+        if member_id is not None:
+            base = base.filter(Challan.member_id == member_id)
+
+        # Use approved_at when available, fall back to created_at
+        effective_date = func.coalesce(Challan.approved_at, Challan.created_at)
+
+        all_time = base.with_entities(
+            func.coalesce(func.sum(Challan.amount), 0.0)
+        ).scalar() or 0.0
+
+        this_year = base.filter(effective_date >= year_start).with_entities(
+            func.coalesce(func.sum(Challan.amount), 0.0)
+        ).scalar() or 0.0
+
+        this_month = base.filter(effective_date >= month_start).with_entities(
+            func.coalesce(func.sum(Challan.amount), 0.0)
+        ).scalar() or 0.0
+
+        this_week = base.filter(effective_date >= week_start).with_entities(
+            func.coalesce(func.sum(Challan.amount), 0.0)
+        ).scalar() or 0.0
+
+        today = base.filter(effective_date >= today_start).with_entities(
+            func.coalesce(func.sum(Challan.amount), 0.0)
+        ).scalar() or 0.0
+
+        return {
+            "today": float(today),
+            "this_week": float(this_week),
+            "this_month": float(this_month),
+            "this_year": float(this_year),
+            "all_time": float(all_time),
+        }

@@ -17,6 +17,8 @@ from app.schemas.schemas import (
     BulkChallanLinkedChallan,
     SystemWipeRequest,
     SystemWipeResponse,
+    AppSettingsResponse,
+    AppSettingsUpdate,
 )
 from app.models.models import (
     BulkChallanGroup,
@@ -30,6 +32,7 @@ from app.models.models import (
     Campaign,
     Notification,
     MemberRequest,
+    AppSetting,
 )
 from app.utils.auth import get_current_user, get_current_admin, get_current_superadmin, verify_password
 
@@ -55,6 +58,53 @@ def _build_proof_url(proof_file_id: str | None) -> str | None:
     if cleaned.startswith("uploads/"):
         return f"/{cleaned}"
     return f"/uploads/proofs/{cleaned}"
+
+
+# ─── App Settings ─────────────────────────────────────────────────────────────
+
+KNOWN_SETTINGS = {
+    "member_stats_visible": "0",  # "0" = hidden, "1" = visible
+}
+
+
+def _get_setting(db: Session, key: str) -> str:
+    row = db.query(AppSetting).filter(AppSetting.key == key).first()
+    return row.value if row else KNOWN_SETTINGS.get(key, "")
+
+
+def _set_setting(db: Session, key: str, value: str) -> None:
+    row = db.query(AppSetting).filter(AppSetting.key == key).first()
+    if row:
+        row.value = value
+    else:
+        db.add(AppSetting(key=key, value=value))
+    db.commit()
+
+
+@router.get("/settings", response_model=AppSettingsResponse)
+def get_app_settings(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get application settings. All authenticated users can read settings."""
+    return AppSettingsResponse(
+        member_stats_visible=_get_setting(db, "member_stats_visible") == "1",
+    )
+
+
+@router.put("/settings", response_model=AppSettingsResponse)
+def update_app_settings(
+    payload: AppSettingsUpdate,
+    current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Update application settings (admin only)."""
+    if payload.member_stats_visible is not None:
+        _set_setting(db, "member_stats_visible", "1" if payload.member_stats_visible else "0")
+
+    return AppSettingsResponse(
+        member_stats_visible=_get_setting(db, "member_stats_visible") == "1",
+    )
 
 
 # ─── Dashboard Charts ─────────────────────────────────────────────────────────

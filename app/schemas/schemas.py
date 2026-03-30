@@ -428,6 +428,22 @@ class ChallanSummaryResponse(BaseModel):
     monthly_collection: float
 
 
+class CollectionStatsResponse(BaseModel):
+    today: float
+    this_week: float
+    this_month: float
+    this_year: float
+    all_time: float
+
+
+class AppSettingsResponse(BaseModel):
+    member_stats_visible: bool = False
+
+
+class AppSettingsUpdate(BaseModel):
+    member_stats_visible: Optional[bool] = None
+
+
 class ChallanListResponse(BaseModel):
     items: List[ChallanResponse]
     total: int

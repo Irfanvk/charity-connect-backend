@@ -3,7 +3,7 @@ from app.models.models import ChallanStatus
 from fastapi import APIRouter, Depends, status as http_status, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
-from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse, ChallanPayableMonthsResponse, ImportJobCreateResponse, ImportJobStatusResponse
+from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse, ChallanPayableMonthsResponse, ImportJobCreateResponse, ImportJobStatusResponse, CollectionStatsResponse
 from app.services import ChallanService, MemberService
 from app.services.import_job_service import ImportJobService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin
@@ -32,6 +32,25 @@ def get_challan_summary(
         summary_member_id = member.id
 
     return ChallanService.get_challan_summary(db, month=month, member_id=summary_member_id)
+
+
+@router.get("/collection-stats", response_model=CollectionStatsResponse)
+def get_collection_stats(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Aggregated collection amounts by period: today, this week, this month, this year, all-time.
+    Members are scoped to their own challans; admins see org-wide totals.
+    """
+    stats_member_id = None
+    if not _is_admin(current_user):
+        member = MemberService.get_member_for_user(db, current_user["user_id"])
+        if not member:
+            raise HTTPException(status_code=404, detail="Member not found")
+        stats_member_id = member.id
+
+    return ChallanService.get_collection_stats(db, member_id=stats_member_id)
 
 
 @router.post("/import/history", response_model=ChallanHistoryImportSummary, status_code=http_status.HTTP_201_CREATED)
