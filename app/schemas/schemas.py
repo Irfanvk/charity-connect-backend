@@ -403,6 +403,7 @@ class ChallanReject(BaseModel):
 class ChallanResponse(BaseModel):
     id: int
     member_id: int
+    member_name: Optional[str] = None
     type: ChallanType
     month: Optional[str]
     campaign_id: Optional[int]

@@ -175,6 +175,13 @@ class ChallanService:
         db.commit()
         db.refresh(new_challan)
         
+        # Add member_name before returning
+        db.refresh(new_challan, ["member"])
+        if new_challan.member:
+            new_challan.member_name = new_challan.member.full_name
+        else:
+            new_challan.member_name = None
+        
         return new_challan
 
     @staticmethod
@@ -375,6 +382,13 @@ class ChallanService:
         db.commit()
         db.refresh(challan)
         
+        # Add member_name before returning
+        db.refresh(challan, ["member"])
+        if challan.member:
+            challan.member_name = challan.member.full_name
+        else:
+            challan.member_name = None
+        
         return challan
     
     @staticmethod
@@ -401,6 +415,13 @@ class ChallanService:
         db.commit()
         db.refresh(challan)
         
+        # Add member_name before returning
+        db.refresh(challan, ["member"])
+        if challan.member:
+            challan.member_name = challan.member.full_name
+        else:
+            challan.member_name = None
+        
         return challan
     
     @staticmethod
@@ -426,6 +447,13 @@ class ChallanService:
         db.commit()
         db.refresh(challan)
         
+        # Add member_name before returning
+        db.refresh(challan, ["member"])
+        if challan.member:
+            challan.member_name = challan.member.full_name
+        else:
+            challan.member_name = None
+        
         return challan
 
     @staticmethod
@@ -444,6 +472,14 @@ class ChallanService:
 
         db.commit()
         db.refresh(challan)
+        
+        # Add member_name before returning
+        db.refresh(challan, ["member"])
+        if challan.member:
+            challan.member_name = challan.member.full_name
+        else:
+            challan.member_name = None
+        
         return challan
     
     @staticmethod
@@ -470,9 +506,24 @@ class ChallanService:
     ):
         """Get all challans for a member."""
         query = db.query(Challan).filter(Challan.member_id == member_id)
+        
+        # Eagerly load member relationship
+        from sqlalchemy.orm import joinedload
+        query = query.options(joinedload(Challan.member))
+        
         sort_column = ChallanService.SORTABLE_COLUMNS.get(sort_by, Challan.created_at)
         query = query.order_by(sort_column.desc() if sort_order == "desc" else sort_column.asc())
-        return query.offset(skip).limit(limit).all()
+        
+        items = query.offset(skip).limit(limit).all()
+        
+        # Add member_name to each challan
+        for challan in items:
+            if challan.member:
+                challan.member_name = challan.member.full_name
+            else:
+                challan.member_name = None
+        
+        return items
     
     @staticmethod
     def get_all_challans(
@@ -574,7 +625,19 @@ class ChallanService:
             sort_column.desc() if sort_order == "desc" else sort_column.asc()
         )
 
+        # ── ensure member is joined for member_name ──────────────────────────
+        query = ensure_member_join(query)
+
         items = query.offset(skip).limit(limit).all()
+        
+        # ── add member_name to each challan ──────────────────────────────────
+        for challan in items:
+            if challan.member:
+                # Member.full_name returns user.username if user exists
+                challan.member_name = challan.member.full_name
+            else:
+                challan.member_name = None
+
         return {
             "items": items,
             "total": int(total),
