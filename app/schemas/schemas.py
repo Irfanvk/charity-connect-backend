@@ -272,6 +272,10 @@ class InviteResponse(BaseModel):
     created_at: datetime
     invited_by: Optional[str] = None
     status: str = "pending"
+    registration_url: Optional[str] = None
+    expiry_label: Optional[str] = None
+    share_message: Optional[str] = None
+    whatsapp_share_url: Optional[str] = None
 
     class Config:
         from_attributes = True

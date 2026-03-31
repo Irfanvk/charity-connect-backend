@@ -4,6 +4,7 @@ from app.database import SessionLocal
 from app.models import Member, User
 from app.services.notification_service import NotificationService
 from app.services.whatsapp_service import send_whatsapp_message
+from app.utils.invite_share import build_invite_share_message
 from app.utils.message_format import with_islamic_greeting
 from app.workers.celery_app import celery
 
@@ -14,10 +15,15 @@ WELCOME_MESSAGE = with_islamic_greeting(
 
 
 @celery.task(name="app.workers.tasks.send_invite_message", ignore_result=True)
-def send_invite_message(phone: str, invite_code: str):
-    message = with_islamic_greeting(
-        f"You are invited to join CharityHub.\n\nInvite Code: {invite_code}"
-    )
+def send_invite_message(phone: str, invite_code: str, expiry_date: str | None = None):
+    parsed_expiry_date = None
+    if expiry_date:
+        try:
+            parsed_expiry_date = datetime.fromisoformat(expiry_date)
+        except ValueError:
+            parsed_expiry_date = None
+
+    message = build_invite_share_message(invite_code, parsed_expiry_date)
 
     send_whatsapp_message(phone, message)
 

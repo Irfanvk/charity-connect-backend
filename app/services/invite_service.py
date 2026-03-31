@@ -5,6 +5,12 @@ from app.models import Invite, User
 from app.schemas import InviteCreate, InviteValidate
 from app.schemas.schemas import InviteUpdate
 from app.utils import generate_invite_code
+from app.utils.invite_share import (
+    build_invite_expiry_label,
+    build_invite_registration_url,
+    build_invite_share_message,
+    build_invite_whatsapp_share_url,
+)
 from app.config import settings
 from app.services.whatsapp_service import send_whatsapp_message
 from app.workers.runtime import can_enqueue_celery_tasks
@@ -45,6 +51,11 @@ class InviteService:
             invite.invited_by = invite.created_by.email or invite.created_by.username
         else:
             invite.invited_by = None
+
+        invite.registration_url = build_invite_registration_url(invite.invite_code)
+        invite.expiry_label = build_invite_expiry_label(invite.expiry_date)
+        invite.share_message = build_invite_share_message(invite.invite_code, invite.expiry_date)
+        invite.whatsapp_share_url = build_invite_whatsapp_share_url(invite.invite_code, invite.expiry_date)
         
         # Add status based on is_used
         invite.status = "used" if invite.is_used else "pending"
@@ -101,17 +112,17 @@ class InviteService:
         db.refresh(new_invite)
 
         if new_invite.phone and settings.WHATSAPP_ENABLED:
-            invite_message = (
-                "Assalamu Alaikum\n\n"
-                "You are invited to join CharityHub.\n\n"
-                f"Invite Code: {new_invite.invite_code}"
-            )
+            invite_message = build_invite_share_message(new_invite.invite_code, new_invite.expiry_date)
 
             try:
                 if can_enqueue_celery_tasks():
                     from app.workers.tasks import send_invite_message
 
-                    send_invite_message.delay(new_invite.phone, new_invite.invite_code)
+                    send_invite_message.delay(
+                        new_invite.phone,
+                        new_invite.invite_code,
+                        new_invite.expiry_date.isoformat(),
+                    )
                 else:
                     send_whatsapp_message(new_invite.phone, invite_message)
             except (ImportError, OperationalError, OSError, RuntimeError):

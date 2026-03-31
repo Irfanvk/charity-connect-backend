@@ -114,6 +114,9 @@ class Settings(BaseSettings):
     # File Upload
     MAX_UPLOAD_SIZE_MB: int = 3
     UPLOAD_DIR: str = os.path.join(os.path.dirname(__file__), "uploads")
+
+    # Frontend links
+    FRONTEND_BASE_URL: str = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
     
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
