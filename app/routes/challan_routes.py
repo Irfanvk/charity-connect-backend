@@ -3,10 +3,10 @@ from app.models.models import ChallanStatus
 from fastapi import APIRouter, Depends, status as http_status, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
-from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse, ChallanPayableMonthsResponse, ImportJobCreateResponse, ImportJobStatusResponse, CollectionStatsResponse
+from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanRevert, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse, ChallanPayableMonthsResponse, ImportJobCreateResponse, ImportJobStatusResponse, CollectionStatsResponse
 from app.services import ChallanService, MemberService
 from app.services.import_job_service import ImportJobService
-from app.utils import get_current_user, get_current_admin, get_current_superadmin
+from app.utils import get_current_user, get_current_admin, get_current_superadmin, log_audit
 from typing import List, Optional
 
 router = APIRouter(prefix="/challans", tags=["Challans"])
@@ -73,11 +73,20 @@ def import_challan_history(
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-    return ChallanService.import_challan_history_file(
+    result = ChallanService.import_challan_history_file(
         db=db,
         file_bytes=content,
         filename=file.filename or "challan_history.csv",
     )
+    log_audit(
+        db,
+        user_id=_current_user.get("user_id"),
+        action="challan_history_import",
+        entity_type="Challan",
+        new_values={"filename": file.filename, "challans_created": result.challans_created, "rows_skipped": result.rows_skipped},
+        auto_commit=True,
+    )
+    return result
 
 
 @router.post("/import/history/jobs", response_model=ImportJobCreateResponse, status_code=http_status.HTTP_202_ACCEPTED)
@@ -163,7 +172,18 @@ def create_challan(
     if member.status != "active":
         raise HTTPException(status_code=400, detail="Cannot create challan for inactive member")
 
-    return ChallanService.create_challan(db, member.id, challan_data)
+    challan = ChallanService.create_challan(db, member.id, challan_data)
+    if _is_admin(current_user):
+        log_audit(
+            db,
+            user_id=current_user.get("user_id"),
+            action="challan_create",
+            entity_type="Challan",
+            entity_id=challan.id,
+            new_values={"member_id": member.id, "type": str(challan_data.type), "amount": challan_data.amount},
+            auto_commit=True,
+        )
+    return challan
 
 
 @router.get("/payable-months", response_model=ChallanPayableMonthsResponse)
@@ -361,7 +381,20 @@ def update_challan(
         if challan.member_id != member.id:
             raise HTTPException(status_code=403, detail="Not authorized to update this challan")
 
-    return ChallanService.update_challan(db, challan_id, update_data)
+    old_status = challan.status
+    result = ChallanService.update_challan(db, challan_id, update_data)
+    if _is_admin(current_user):
+        log_audit(
+            db,
+            user_id=current_user.get("user_id"),
+            action="challan_update",
+            entity_type="Challan",
+            entity_id=challan_id,
+            old_values={"status": old_status},
+            new_values=update_data.dict(exclude_unset=True),
+            auto_commit=True,
+        )
+    return result
 
 
 # ------------------------------------------------------------------
@@ -380,7 +413,18 @@ def approve_challan(
         raise HTTPException(status_code=400, detail="Challan already processed")
 
     admin_id = approve_data.approved_by_admin_id or current_user.get("user_id")
-    return ChallanService.approve_challan(db, challan_id, admin_id)
+    result = ChallanService.approve_challan(db, challan_id, admin_id)
+    log_audit(
+        db,
+        user_id=admin_id,
+        action="challan_approve",
+        entity_type="Challan",
+        entity_id=challan_id,
+        old_values={"status": "pending"},
+        new_values={"status": "approved", "member_id": challan.member_id, "amount": float(challan.amount)},
+        auto_commit=True,
+    )
+    return result
 
 
 # ------------------------------------------------------------------
@@ -395,7 +439,49 @@ def reject_challan(
 ):
     challan = ChallanService.get_challan(db, challan_id)
 
-    if challan.status != ChallanStatus.PENDING.value:
-        raise HTTPException(status_code=400, detail="Challan already processed")
+    if challan.status not in (ChallanStatus.PENDING.value, ChallanStatus.APPROVED.value):
+        raise HTTPException(status_code=400, detail="Only pending or approved challans can be rejected")
 
-    return ChallanService.reject_challan(db, challan_id, reject_data)
+    old_status = challan.status
+    result = ChallanService.reject_challan(db, challan_id, reject_data)
+    log_audit(
+        db,
+        user_id=_current_user.get("user_id"),
+        action="challan_reject",
+        entity_type="Challan",
+        entity_id=challan_id,
+        old_values={"status": old_status},
+        new_values={"status": "rejected", "reason": reject_data.rejection_reason},
+        auto_commit=True,
+    )
+    return result
+
+
+# ------------------------------------------------------------------
+# REVERT CHALLAN TO PENDING (ADMIN ONLY)
+# ------------------------------------------------------------------
+@router.patch("/{challan_id}/revert", response_model=ChallanResponse)
+def revert_challan(
+    challan_id: int,
+    revert_data: ChallanRevert,
+    current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    challan = ChallanService.get_challan(db, challan_id)
+
+    if challan.status not in (ChallanStatus.APPROVED.value, ChallanStatus.REJECTED.value):
+        raise HTTPException(status_code=400, detail="Only approved or rejected challans can be reverted")
+
+    old_status = challan.status
+    result = ChallanService.revert_challan(db, challan_id)
+    log_audit(
+        db,
+        user_id=current_user.get("user_id"),
+        action="challan_revert",
+        entity_type="Challan",
+        entity_id=challan_id,
+        old_values={"status": old_status},
+        new_values={"status": "pending", "reason": revert_data.reason},
+        auto_commit=True,
+    )
+    return result

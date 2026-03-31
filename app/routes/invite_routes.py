@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.schemas import InviteCreate, InviteResponse, InviteUpdate
 from app.services import InviteService
-from app.utils import get_current_admin
+from app.utils import get_current_admin, log_audit
 from typing import List, Optional
 
 router = APIRouter(prefix="/invites", tags=["Invites"])
@@ -19,6 +19,15 @@ def create_invite(
     Create new invite code (Admin only).
     """
     invite = InviteService.create_invite(db, invite_data, current_user["user_id"])
+    log_audit(
+        db,
+        user_id=current_user["user_id"],
+        action="invite_create",
+        entity_type="Invite",
+        entity_id=invite.id,
+        new_values={"invite_code": invite.invite_code, "phone": invite_data.phone, "email": invite_data.email},
+        auto_commit=True,
+    )
     return invite
 
 
@@ -80,7 +89,16 @@ def delete_invite(
     """
     Delete invite code (Admin only).
     """
-    return InviteService.delete_invite(db, invite_id)
+    result = InviteService.delete_invite(db, invite_id)
+    log_audit(
+        db,
+        user_id=_current_user.get("user_id"),
+        action="invite_delete",
+        entity_type="Invite",
+        entity_id=invite_id,
+        auto_commit=True,
+    )
+    return result
 
 
 @router.get("/{invite_id}", response_model=InviteResponse)
@@ -105,4 +123,14 @@ def update_invite(
     """
     Update invite details (Admin only).
     """
-    return InviteService.update_invite(db, invite_id, update_data)
+    result = InviteService.update_invite(db, invite_id, update_data)
+    log_audit(
+        db,
+        user_id=_current_user.get("user_id"),
+        action="invite_update",
+        entity_type="Invite",
+        entity_id=invite_id,
+        new_values=update_data.dict(exclude_unset=True),
+        auto_commit=True,
+    )
+    return result

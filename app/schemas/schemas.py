@@ -400,6 +400,10 @@ class ChallanReject(BaseModel):
     rejection_reason: str
 
 
+class ChallanRevert(BaseModel):
+    reason: Optional[str] = None
+
+
 class ChallanResponse(BaseModel):
     id: int
     member_id: int

@@ -4,7 +4,7 @@ from app.database import get_db, SessionLocal
 from app.schemas import CampaignCreate, CampaignResponse, CampaignUpdate, CampaignPaymentImportSummary, ImportJobCreateResponse, ImportJobStatusResponse
 from app.services import CampaignService
 from app.services.import_job_service import ImportJobService
-from app.utils import get_current_user, get_current_admin, get_current_superadmin
+from app.utils import get_current_user, get_current_admin, get_current_superadmin, log_audit
 from typing import List
 
 router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
@@ -30,12 +30,21 @@ def import_campaign_payments(
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-    return CampaignService.import_campaign_payments_file(
+    result = CampaignService.import_campaign_payments_file(
         db=db,
         file_bytes=content,
         filename=file.filename or "campaign_payments.csv",
         imported_by_user_id=current_user.get("user_id"),
     )
+    log_audit(
+        db,
+        user_id=current_user.get("user_id"),
+        action="campaign_payments_import",
+        entity_type="Campaign",
+        new_values={"filename": file.filename, "challans_created": result.challans_created, "campaigns_created": result.campaigns_created},
+        auto_commit=True,
+    )
+    return result
 
 
 @router.post("/import/payments/jobs", response_model=ImportJobCreateResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -97,6 +106,15 @@ def create_campaign(
     """
     try:
         campaign = CampaignService.create_campaign(db, campaign_data, current_admin["user_id"])
+        log_audit(
+            db,
+            user_id=current_admin["user_id"],
+            action="campaign_create",
+            entity_type="Campaign",
+            entity_id=campaign.id,
+            new_values={"title": campaign_data.title, "target_mode": str(campaign_data.target_mode)},
+            auto_commit=True,
+        )
         return campaign
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -156,6 +174,15 @@ def update_campaign(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id} not found")
     try:
         updated = CampaignService.update_campaign(db, campaign_id, update_data)
+        log_audit(
+            db,
+            user_id=_.get("user_id"),
+            action="campaign_update",
+            entity_type="Campaign",
+            entity_id=campaign_id,
+            new_values=update_data.model_dump(exclude_unset=True),
+            auto_commit=True,
+        )
         return updated
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
@@ -177,5 +204,14 @@ def delete_campaign(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id} not found")
     try:
         CampaignService.delete_campaign(db, campaign_id)
+        log_audit(
+            db,
+            user_id=_.get("user_id"),
+            action="campaign_delete",
+            entity_type="Campaign",
+            entity_id=campaign_id,
+            old_values={"title": campaign.title},
+            auto_commit=True,
+        )
     except Exception:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete campaign")

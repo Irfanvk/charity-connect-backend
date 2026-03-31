@@ -9,6 +9,7 @@ from .auth import (
     get_current_admin,
     get_current_superadmin,
 )
+from .audit import log_audit
 
 __all__ = [
     "hash_password",
@@ -20,4 +21,5 @@ __all__ = [
     "get_current_user",
     "get_current_admin",
     "get_current_superadmin",
+    "log_audit",
 ]

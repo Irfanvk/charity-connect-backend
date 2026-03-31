@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
 from app.schemas import UserResponse, UserRole, UserUpdate
-from app.utils import get_current_admin
+from app.utils import get_current_admin, log_audit
 from typing import List, Optional
 
 router = APIRouter(prefix="/users", tags=["Users"])
@@ -85,9 +85,21 @@ def update_user(
                 detail="Cannot demote your own superadmin role"
             )
     
+    old_values = {k: getattr(user, k) for k in updates}
     for key, value in updates.items():
         setattr(user, key, value)
 
     db.commit()
     db.refresh(user)
+
+    log_audit(
+        db,
+        user_id=current_user["user_id"],
+        action="user_update",
+        entity_type="User",
+        entity_id=user_id,
+        old_values=old_values,
+        new_values=updates,
+        auto_commit=True,
+    )
     return user

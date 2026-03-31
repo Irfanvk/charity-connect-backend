@@ -14,7 +14,7 @@ from app.schemas import (
     NotificationSentDeleteResponse,
 )
 from app.services import NotificationService
-from app.utils import get_current_user, get_current_admin
+from app.utils import get_current_user, get_current_admin, log_audit
 from typing import List
 from pydantic import BaseModel, Field
 from app.services.whatsapp_service import send_whatsapp_message
@@ -53,7 +53,16 @@ def create_notification(
     Returns sent_count and a message.
     Supports: single user (user_id), role broadcast (target_role), or all users.
     """
-    return NotificationService.create_notification(db, notification_data, current_user["user_id"])
+    result = NotificationService.create_notification(db, notification_data, current_user["user_id"])
+    log_audit(
+        db,
+        user_id=current_user["user_id"],
+        action="notification_create",
+        entity_type="Notification",
+        new_values={"title": notification_data.title, "target_role": notification_data.target_role, "sent_count": result.get("sent_count")},
+        auto_commit=True,
+    )
+    return result
 
 
 @router.get("/", response_model=List[NotificationResponse])
@@ -123,13 +132,22 @@ def delete_admin_sent_notifications(
     db: Session = Depends(get_db),
 ):
     """Admin panel: delete notifications from a sent batch for members/admins/all scope."""
-    return NotificationService.delete_admin_sent_notifications(
+    result = NotificationService.delete_admin_sent_notifications(
         db,
         batch_created_at=payload.batch_created_at,
         title=payload.title,
         message=payload.message,
         recipient_scope=payload.recipient_scope,
     )
+    log_audit(
+        db,
+        user_id=_current_user.get("user_id"),
+        action="notification_delete_batch",
+        entity_type="Notification",
+        new_values={"title": payload.title, "recipient_scope": payload.recipient_scope, "deleted_count": result.get("deleted_count")},
+        auto_commit=True,
+    )
+    return result
 
 
 @router.get("/{notification_id}", response_model=NotificationResponse)

@@ -4,7 +4,7 @@ from app.database import get_db, SessionLocal
 from app.schemas import MemberResponse, MemberUpdate, MemberCreate, MemberImportSummary, MemberSummaryResponse, ImportJobCreateResponse, ImportJobStatusResponse
 from app.services import MemberService
 from app.services.import_job_service import ImportJobService
-from app.utils import get_current_user, get_current_admin, get_current_superadmin
+from app.utils import get_current_user, get_current_admin, get_current_superadmin, log_audit
 from typing import List
 
 router = APIRouter(prefix="/members", tags=["Members"])
@@ -86,7 +86,17 @@ def create_member(
     db: Session = Depends(get_db),
 ):
     """Create member profile (Superadmin only)."""
-    return MemberService.create_member(db, payload)
+    member = MemberService.create_member(db, payload)
+    log_audit(
+        db,
+        user_id=_current_user.get("user_id"),
+        action="member_create",
+        entity_type="Member",
+        entity_id=member.id,
+        new_values={"member_code": member.member_code, "status": member.status},
+        auto_commit=True,
+    )
+    return member
 
 
 @router.post("/import", response_model=MemberImportSummary, status_code=status.HTTP_201_CREATED)
@@ -112,13 +122,22 @@ def import_members(
     if not content:
         raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-    return MemberService.import_members_file(
+    result = MemberService.import_members_file(
         db=db,
         file_bytes=content,
         filename=file.filename or "import.csv",
         include_donations=include_donations,
         imported_by_user_id=current_user.get("user_id"),
     )
+    log_audit(
+        db,
+        user_id=current_user.get("user_id"),
+        action="members_import",
+        entity_type="Member",
+        new_values={"filename": file.filename, "members_created": result.members_created, "rows_skipped": result.rows_skipped},
+        auto_commit=True,
+    )
+    return result
 
 
 @router.post("/import/jobs", response_model=ImportJobCreateResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -198,6 +217,15 @@ def update_member(
     """Update member information (Admin only)."""
     _ = current_user
     member = MemberService.update_member(db, member_id, update_data)
+    log_audit(
+        db,
+        user_id=current_user.get("user_id"),
+        action="member_update",
+        entity_type="Member",
+        entity_id=member_id,
+        new_values=update_data.dict(exclude_unset=True),
+        auto_commit=True,
+    )
     return member
 
 
@@ -208,4 +236,13 @@ def delete_member(
     db: Session = Depends(get_db),
 ):
     """Delete member profile (Admin only)."""
+    member = MemberService.get_member(db, member_id)
+    log_audit(
+        db,
+        user_id=_current_user.get("user_id"),
+        action="member_delete",
+        entity_type="Member",
+        entity_id=member_id,
+        old_values={"member_code": member.member_code},
+    )
     MemberService.delete_member(db, member_id)

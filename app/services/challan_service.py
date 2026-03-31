@@ -5,7 +5,7 @@ from sqlalchemy import or_
 from sqlalchemy import case
 from app.models import Challan, Member, User
 from app.models.models import ChallanStatus, ChallanType
-from app.schemas import ChallanCreate, ChallanReject, ChallanUpdate
+from app.schemas import ChallanCreate, ChallanReject, ChallanRevert, ChallanUpdate
 from app.utils.file_handler import save_file, validate_file
 from fastapi import HTTPException, status
 from datetime import datetime, date
@@ -435,14 +435,16 @@ class ChallanService:
                 detail="Challan not found",
             )
         
-        if challan.status != ChallanStatus.PENDING:
+        if challan.status not in (ChallanStatus.PENDING, ChallanStatus.APPROVED):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Only pending challans can be rejected",
+                detail="Only pending or approved challans can be rejected",
             )
         
         challan.status = ChallanStatus.REJECTED
         challan.rejection_reason = reject_data.rejection_reason
+        challan.approved_by_admin_id = None
+        challan.approved_at = None
         
         db.commit()
         db.refresh(challan)
@@ -454,6 +456,39 @@ class ChallanService:
         else:
             challan.member_name = None
         
+        return challan
+
+    @staticmethod
+    def revert_challan(db: Session, challan_id: int):
+        """Revert an approved or rejected challan back to pending."""
+
+        challan = db.query(Challan).filter(Challan.id == challan_id).first()
+        if not challan:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Challan not found",
+            )
+
+        if challan.status not in (ChallanStatus.APPROVED, ChallanStatus.REJECTED):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only approved or rejected challans can be reverted",
+            )
+
+        challan.status = ChallanStatus.PENDING
+        challan.approved_by_admin_id = None
+        challan.approved_at = None
+        challan.rejection_reason = None
+
+        db.commit()
+        db.refresh(challan)
+
+        db.refresh(challan, ["member"])
+        if challan.member:
+            challan.member_name = challan.member.full_name
+        else:
+            challan.member_name = None
+
         return challan
 
     @staticmethod

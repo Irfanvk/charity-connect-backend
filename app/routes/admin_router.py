@@ -35,6 +35,7 @@ from app.models.models import (
     AppSetting,
 )
 from app.utils.auth import get_current_user, get_current_admin, get_current_superadmin, verify_password
+from app.utils.audit import log_audit
 
 # ✅ admin router — prefix="/admin"
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -99,8 +100,19 @@ def update_app_settings(
     db: Session = Depends(get_db),
 ):
     """Update application settings (admin only)."""
+    old_member_stats = _get_setting(db, "member_stats_visible")
     if payload.member_stats_visible is not None:
         _set_setting(db, "member_stats_visible", "1" if payload.member_stats_visible else "0")
+
+    log_audit(
+        db,
+        user_id=current_user.get("user_id"),
+        action="app_settings_update",
+        entity_type="AppSetting",
+        old_values={"member_stats_visible": old_member_stats == "1"},
+        new_values={"member_stats_visible": payload.member_stats_visible},
+        auto_commit=True,
+    )
 
     return AppSettingsResponse(
         member_stats_visible=_get_setting(db, "member_stats_visible") == "1",
