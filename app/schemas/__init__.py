@@ -56,6 +56,10 @@ from .schemas import (
     UserRole,
     ChallanStatus,
     ChallanType,
+    FundUtilizationCreate,
+    FundUtilizationUpdate,
+    FundUtilizationResponse,
+    FundUtilizationSummary,
 )
 
 __all__ = [
@@ -113,4 +117,8 @@ __all__ = [
     "UserRole",
     "ChallanStatus",
     "ChallanType",
+    "FundUtilizationCreate",
+    "FundUtilizationUpdate",
+    "FundUtilizationResponse",
+    "FundUtilizationSummary",
 ]

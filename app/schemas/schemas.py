@@ -738,3 +738,47 @@ class BulkChallanDetails(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+# ── Fund Utilization Schemas ──────────────────────────────────────────────────
+
+class FundUtilizationCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    amount: float
+    category: Optional[str] = None
+    recipient: Optional[str] = None
+    date: Optional[datetime] = None
+
+
+class FundUtilizationUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    amount: Optional[float] = None
+    category: Optional[str] = None
+    recipient: Optional[str] = None
+    date: Optional[datetime] = None
+
+
+class FundUtilizationResponse(BaseModel):
+    id: int
+    title: str
+    description: Optional[str] = None
+    amount: float
+    category: Optional[str] = None
+    recipient: Optional[str] = None
+    date: datetime
+    registered_by_admin_id: int
+    registered_by_name: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class FundUtilizationSummary(BaseModel):
+    total_collected: float
+    total_utilized: float
+    available_balance: float
+    utilization_count: int
