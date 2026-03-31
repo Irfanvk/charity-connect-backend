@@ -97,6 +97,7 @@ class UserResponse(BaseModel):
     phone: Optional[str]
     role: UserRole
     is_active: bool
+    avatar_url: Optional[str] = None
     created_at: datetime
 
     class Config:

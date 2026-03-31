@@ -1,9 +1,11 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, UploadFile, File, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.models import User
 from app.schemas import UserLogin, UserRegisterWithInvite, UserResponse, TokenResponse
 from app.services import AuthService
 from app.utils import create_access_token, get_current_user
+from app.utils.file_handler import save_file, validate_file
 from app.config import settings
 from datetime import timedelta
 
@@ -66,3 +68,50 @@ def logout():
     Logout user (token is invalidated on frontend).
     """
     return {"message": "Logged out successfully"}
+
+
+@router.post("/me/avatar", response_model=UserResponse)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Upload or update the current user's profile avatar."""
+    content = await file.read()
+
+    try:
+        validate_file(content, file.filename, max_size_mb=2)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
+    if ext not in ("jpg", "jpeg", "png"):
+        raise HTTPException(status_code=400, detail="Only JPG and PNG images are allowed")
+
+    saved_path = save_file(content, "avatars", file.filename)
+    avatar_url = saved_path if saved_path.startswith("http") else f"/{saved_path}"
+
+    user = db.query(User).filter(User.id == current_user["user_id"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.avatar_url = avatar_url
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+@router.delete("/me/avatar", response_model=UserResponse)
+def remove_avatar(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Remove the current user's profile avatar."""
+    user = db.query(User).filter(User.id == current_user["user_id"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.avatar_url = None
+    db.commit()
+    db.refresh(user)
+    return user
