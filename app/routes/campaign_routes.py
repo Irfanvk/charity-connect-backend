@@ -106,22 +106,23 @@ def create_campaign(
 
 @router.get("/", response_model=List[CampaignResponse])
 def get_all_campaigns(
-    skip: int = Query(default=0, ge=0, description="Number of records to skip"),
-    limit: int = Query(default=100, ge=1, le=500, description="Maximum number of records to return"),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
     active_only: bool = False,
+    sort_by: str = Query(default="created_at"),
+    sort_order: str = Query(default="desc"),
     _: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """
-    Get all campaigns. Supports pagination via skip/limit.
-    """
     try:
         campaigns = CampaignService.get_all_campaigns(db, skip, limit, active_only)
         return campaigns
-    except Exception:
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to fetch campaigns")
-
-
+    except Exception as e:
+        import traceback
+        traceback.print_exc()  # ✅ prints full error to terminal
+        raise HTTPException(status_code=500, detail=str(e))  # ✅ shows error in browser too
+    
+    
 @router.get("/{campaign_id}", response_model=CampaignResponse)
 def get_campaign(
     campaign_id: int,

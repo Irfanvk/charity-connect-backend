@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
 import enum
-
+from datetime import datetime
 
 class UserRole(str, enum.Enum):
     SUPERADMIN = "superadmin"
@@ -156,6 +156,13 @@ class Campaign(Base):
     created_by = relationship("User", foreign_keys=[created_by_admin_id])
     challans = relationship("Challan", back_populates="campaign")
 
+    @property
+    def status(self):
+        if not self.is_active:
+            return "cancelled"
+        if self.end_date and self.end_date < datetime.utcnow():
+            return "completed"
+        return "active"
 
 class Challan(Base):
     __tablename__ = "challans"
