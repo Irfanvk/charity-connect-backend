@@ -4,23 +4,25 @@ from app.database import SessionLocal
 from app.models import Member, User
 from app.services.notification_service import NotificationService
 from app.services.whatsapp_service import send_whatsapp_message
+from app.utils.message_format import with_islamic_greeting
 from app.workers.celery_app import celery
 
 
-@celery.task(name="app.workers.tasks.send_invite_message")
+WELCOME_MESSAGE = with_islamic_greeting(
+    "Your account is ready. Complete your profile and begin your charity journey."
+)
+
+
+@celery.task(name="app.workers.tasks.send_invite_message", ignore_result=True)
 def send_invite_message(phone: str, invite_code: str):
-    message = f"""
-Assalamu Alaikum
-
-You are invited to join CharityHub.
-
-Invite Code: {invite_code}
-""".strip()
+    message = with_islamic_greeting(
+        f"You are invited to join CharityHub.\n\nInvite Code: {invite_code}"
+    )
 
     send_whatsapp_message(phone, message)
 
 
-@celery.task(name="app.workers.tasks.send_user_notification")
+@celery.task(name="app.workers.tasks.send_user_notification", ignore_result=True)
 def send_user_notification(user_id: int, title: str, message: str, target_role: str | None = None):
     db = SessionLocal()
     try:
@@ -35,7 +37,7 @@ def send_user_notification(user_id: int, title: str, message: str, target_role: 
         db.close()
 
 
-@celery.task(name="app.workers.tasks.send_welcome_notification")
+@celery.task(name="app.workers.tasks.send_welcome_notification", ignore_result=True)
 def send_welcome_notification(user_id: int):
     db = SessionLocal()
     try:
@@ -47,7 +49,7 @@ def send_welcome_notification(user_id: int):
             db=db,
             user_id=user.id,
             title="Welcome to CharityHub",
-            message="Your account is ready. Complete your profile and begin your charity journey.",
+            message=WELCOME_MESSAGE,
             target_role=user.role,
         )
 
@@ -56,7 +58,7 @@ def send_welcome_notification(user_id: int):
         db.close()
 
 
-@celery.task(name="app.workers.tasks.send_monthly_membership_reminders")
+@celery.task(name="app.workers.tasks.send_monthly_membership_reminders", ignore_result=True)
 def send_monthly_membership_reminders():
     db = SessionLocal()
     now = datetime.utcnow()
@@ -79,7 +81,7 @@ def send_monthly_membership_reminders():
                 db=db,
                 user_id=member.user_id,
                 title="Monthly Membership Reminder",
-                message=(
+                message=with_islamic_greeting(
                     f"Your monthly membership contribution for {month_label} is due. "
                     f"Amount: {member.monthly_amount}."
                 ),
@@ -90,7 +92,7 @@ def send_monthly_membership_reminders():
             if member.user and member.user.phone:
                 send_whatsapp_message(
                     member.user.phone,
-                    (
+                    with_islamic_greeting(
                         f"CharityHub reminder: your monthly membership amount "
                         f"for {month_label} is {member.monthly_amount}."
                     ),

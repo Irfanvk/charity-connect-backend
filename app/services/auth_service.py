@@ -3,8 +3,14 @@ from sqlalchemy import func
 from app.models import User, Member, Invite
 from app.schemas import UserRegisterWithInvite, UserLogin
 from app.utils import hash_password, verify_password, generate_member_code
+from app.utils.message_format import with_islamic_greeting
 from fastapi import HTTPException, status
 from datetime import datetime, timedelta
+
+
+WELCOME_MESSAGE = with_islamic_greeting(
+    "Your account is ready. Complete your profile and begin your charity journey."
+)
 
 
 class AuthService:
@@ -231,18 +237,20 @@ class AuthService:
         db.commit()
         db.refresh(new_user)
 
-        try:
-            from app.workers.tasks import send_welcome_notification
+        from app.services.notification_service import NotificationService
 
-            send_welcome_notification.delay(new_user.id)
-        except Exception:
-            from app.services.notification_service import NotificationService
-
+        enqueue_result = NotificationService.enqueue_user_notification(
+            user_id=new_user.id,
+            title="Welcome to CharityHub",
+            message=WELCOME_MESSAGE,
+            target_role=new_user.role,
+        )
+        if not enqueue_result.get("queued"):
             NotificationService.create_user_notification(
                 db=db,
                 user_id=new_user.id,
                 title="Welcome to CharityHub",
-                message="Your account is ready. Complete your profile and begin your charity journey.",
+                message=WELCOME_MESSAGE,
                 target_role=new_user.role,
             )
         
@@ -343,18 +351,20 @@ class AuthService:
 
         db.commit()
 
-        try:
-            from app.workers.tasks import send_welcome_notification
+        from app.services.notification_service import NotificationService
 
-            send_welcome_notification.delay(user.id)
-        except Exception:
-            from app.services.notification_service import NotificationService
-
+        enqueue_result = NotificationService.enqueue_user_notification(
+            user_id=user.id,
+            title="Welcome to CharityHub",
+            message=WELCOME_MESSAGE,
+            target_role=user.role,
+        )
+        if not enqueue_result.get("queued"):
             NotificationService.create_user_notification(
                 db=db,
                 user_id=user.id,
                 title="Welcome to CharityHub",
-                message="Your account is ready. Complete your profile and begin your charity journey.",
+                message=WELCOME_MESSAGE,
                 target_role=user.role,
             )
     

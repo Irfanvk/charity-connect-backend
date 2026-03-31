@@ -1,6 +1,8 @@
 from sqlalchemy.orm import Session
+from kombu.exceptions import OperationalError
 from app.models import Notification, User
 from app.schemas import NotificationCreate, NotificationAdminUpdate
+from app.workers.runtime import can_enqueue_celery_tasks
 from fastapi import HTTPException, status
 from datetime import datetime, timedelta
 
@@ -45,12 +47,15 @@ class NotificationService:
         target_role: str | None = None,
     ) -> dict:
         """Queue notification creation via Celery with safe fallback."""
+        if not can_enqueue_celery_tasks():
+            return {"queued": False, "worker": "fallback"}
+
         try:
             from app.workers.tasks import send_user_notification
 
             send_user_notification.delay(user_id, title, message, target_role)
             return {"queued": True, "worker": "celery"}
-        except Exception:
+        except (ImportError, OperationalError, OSError, RuntimeError):
             # Keep API behavior resilient even if worker is unavailable.
             return {"queued": False, "worker": "fallback"}
 

@@ -122,6 +122,7 @@ class Settings(BaseSettings):
     REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL", REDIS_URL)
     CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
+    CELERY_STORE_RESULTS: bool = os.getenv("CELERY_STORE_RESULTS", "false").lower() == "true"
     CELERY_TIMEZONE: str = os.getenv("CELERY_TIMEZONE", "UTC")
     ENABLE_FASTAPI_LIMITER: bool = os.getenv("ENABLE_FASTAPI_LIMITER", "false").lower() == "true"
 

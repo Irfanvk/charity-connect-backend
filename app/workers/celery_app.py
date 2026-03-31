@@ -2,17 +2,23 @@ from celery import Celery
 from celery.schedules import crontab
 
 from app.config import settings
+from app.workers.runtime import celery_result_backend_url
+
+
+result_backend_url = celery_result_backend_url()
 
 celery = Celery(
     "charityhub",
     broker=settings.CELERY_BROKER_URL,
-    backend=settings.CELERY_RESULT_BACKEND,
+    backend=result_backend_url,
 )
 
 celery.conf.update(
     timezone=settings.CELERY_TIMEZONE,
     enable_utc=True,
     task_default_queue="default",
+    task_ignore_result=result_backend_url is None,
+    task_store_errors_even_if_ignored=False,
 )
 
 celery.conf.task_routes = {

@@ -3,6 +3,7 @@ import json
 from urllib import request, error
 
 from app.config import settings
+from app.utils.message_format import with_islamic_greeting
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +37,7 @@ def send_whatsapp_message(phone: str, message: str) -> dict:
     Returns a normalized status payload without raising provider exceptions to callers.
     """
     normalized_phone = _normalize_phone(phone)
-    normalized_message = str(message or '').strip()
+    normalized_message = with_islamic_greeting(message)
 
     if not normalized_phone:
         return {"status": "skipped", "reason": "missing_phone"}
@@ -95,7 +96,7 @@ def send_whatsapp_message(phone: str, message: str) -> dict:
         body = ''
         try:
             body = exc.read().decode('utf-8')
-        except Exception:
+        except (OSError, UnicodeDecodeError):
             body = ''
         logger.warning("WhatsApp provider HTTP error", extra={"status": exc.code, "body": body[:500]})
         return {

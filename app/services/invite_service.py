@@ -1,9 +1,13 @@
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import asc, desc
+from kombu.exceptions import OperationalError
 from app.models import Invite, User
 from app.schemas import InviteCreate, InviteValidate
 from app.schemas.schemas import InviteUpdate
 from app.utils import generate_invite_code
+from app.config import settings
+from app.services.whatsapp_service import send_whatsapp_message
+from app.workers.runtime import can_enqueue_celery_tasks
 from fastapi import HTTPException, status
 from datetime import datetime, timezone
 
@@ -96,22 +100,22 @@ class InviteService:
         db.commit()
         db.refresh(new_invite)
 
-        if new_invite.phone:
+        if new_invite.phone and settings.WHATSAPP_ENABLED:
+            invite_message = (
+                "Assalamu Alaikum\n\n"
+                "You are invited to join CharityHub.\n\n"
+                f"Invite Code: {new_invite.invite_code}"
+            )
+
             try:
-                from app.workers.tasks import send_invite_message
+                if can_enqueue_celery_tasks():
+                    from app.workers.tasks import send_invite_message
 
-                send_invite_message.delay(new_invite.phone, new_invite.invite_code)
-            except Exception:
-                from app.services.whatsapp_service import send_whatsapp_message
-
-                send_whatsapp_message(
-                    new_invite.phone,
-                    (
-                        "Assalamu Alaikum\n\n"
-                        "You are invited to join CharityHub.\n\n"
-                        f"Invite Code: {new_invite.invite_code}"
-                    ),
-                )
+                    send_invite_message.delay(new_invite.phone, new_invite.invite_code)
+                else:
+                    send_whatsapp_message(new_invite.phone, invite_message)
+            except (ImportError, OperationalError, OSError, RuntimeError):
+                send_whatsapp_message(new_invite.phone, invite_message)
         
         # Reload with relationship to get invited_by
         invite_with_relation = db.query(Invite).options(joinedload(Invite.created_by)).filter(Invite.id == new_invite.id).first()
