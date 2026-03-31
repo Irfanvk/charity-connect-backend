@@ -104,7 +104,7 @@ class CampaignService:
             campaign.participants_count = stats["participants_count"] if stats else 0
 
         return campaigns
-    
+
     @staticmethod
     def create_campaign(db: Session, campaign_data: CampaignCreate, admin_id: int):
         """Create new campaign."""
@@ -116,7 +116,7 @@ class CampaignService:
             end_date_mode=campaign_data.end_date_mode.value if hasattr(campaign_data.end_date_mode, "value") else str(campaign_data.end_date_mode),
             end_date=campaign_data.end_date,
         )
-        
+
         new_campaign = Campaign(
             title=campaign_data.title,
             description=campaign_data.description,
@@ -128,12 +128,103 @@ class CampaignService:
             end_date=normalized["end_date"],
             created_by_admin_id=admin_id,
         )
-        
+
         db.add(new_campaign)
         db.commit()
         db.refresh(new_campaign)
-        
+
         return CampaignService._attach_campaign_stats(db, new_campaign)
+
+    @staticmethod
+    def get_all_campaigns(db: Session, skip: int = 0, limit: int = 100, active_only: bool = False):
+        """Get all campaigns with optional filtering."""
+        query = db.query(Campaign)
+
+        if active_only:
+            query = query.filter(Campaign.is_active == True)
+
+        campaigns = query.offset(skip).limit(limit).all()
+        return CampaignService._attach_campaign_stats_bulk(db, campaigns)
+
+    @staticmethod
+    def get_campaign(db: Session, campaign_id: int):
+        """Get campaign by ID."""
+        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+
+        if not campaign:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Campaign not found",
+            )
+
+        return CampaignService._attach_campaign_stats(db, campaign)
+
+    @staticmethod
+    def update_campaign(db: Session, campaign_id: int, update_data: CampaignUpdate):
+        """Update campaign information."""
+        campaign = CampaignService.get_campaign(db, campaign_id)
+
+        update_fields = update_data.model_dump(exclude_unset=True)
+
+        if "status" in update_fields:
+            requested_status = update_fields.pop("status")
+
+            if requested_status == "cancelled":
+                campaign.is_active = False
+
+            elif requested_status == "active":
+                campaign.is_active = True
+                current_end = update_fields.get("end_date", campaign.end_date)
+                if current_end and current_end < datetime.utcnow():
+                    update_fields["end_date"] = None          # ✅ update update_fields
+                    update_fields["end_date_mode"] = "open"   # ✅ update update_fields
+                    campaign.end_date = None
+                    campaign.end_date_mode = "open"
+
+            elif requested_status == "completed":
+                campaign.is_active = True
+                update_fields["end_date"] = datetime.utcnow()  # ✅ update update_fields
+                update_fields["end_date_mode"] = "fixed"        # ✅ update update_fields
+
+        resolved = CampaignService._normalize_campaign_values(
+            target_mode=update_fields.get("target_mode", campaign.target_mode),
+            target_amount=update_fields.get("target_amount", campaign.target_amount),
+            min_amount=update_fields.get("min_amount", campaign.min_amount),
+            start_date=update_fields.get("start_date", campaign.start_date),
+            end_date_mode=update_fields.get("end_date_mode", campaign.end_date_mode),
+            end_date=update_fields.get("end_date", campaign.end_date),
+        )
+
+        for key, value in update_fields.items():
+            if value is not None:
+                setattr(campaign, key, value)
+
+        campaign.target_mode = resolved["target_mode"]
+        campaign.target_amount = resolved["target_amount"]
+        campaign.min_amount = resolved["min_amount"]
+        campaign.start_date = resolved["start_date"]
+        campaign.end_date_mode = resolved["end_date_mode"]
+        campaign.end_date = resolved["end_date"]
+
+        db.commit()
+        db.refresh(campaign)
+
+        return CampaignService._attach_campaign_stats(db, campaign)
+
+    @staticmethod
+    def delete_campaign(db: Session, campaign_id: int):
+        """Delete campaign and unlink any associated challans."""
+        campaign = CampaignService.get_campaign(db, campaign_id)
+
+        db.query(Challan).filter(Challan.campaign_id == campaign_id).update(
+            {"campaign_id": None}, synchronize_session=False
+        )
+        db.flush()
+
+        db.delete(campaign)
+        db.commit()
+
+        return {"message": "Campaign deleted"}
 
     @staticmethod
     def import_campaign_payments_file(
@@ -156,7 +247,6 @@ class CampaignService:
         if progress_callback:
             progress_callback(5, total_rows, "Preparing campaign import")
 
-        # Preload member/user lookup maps to avoid per-row DB roundtrips.
         from app.models import Member, User
 
         users = db.query(User).all()
@@ -167,33 +257,29 @@ class CampaignService:
         user_by_email = {str(u.email).strip().lower(): u for u in users if u.email}
         user_by_phone = {str(u.phone).strip(): u for u in users if u.phone}
 
-        def resolve_member(member_code: str | None, username: str | None, phone: str | None, email: str | None):
+        def resolve_member(member_code, username, phone, email):
             if member_code:
                 found = member_by_code.get(member_code)
                 if found:
                     return found
-
             if username:
                 user = user_by_username.get(username.lower())
                 if user:
                     found = member_by_user_id.get(user.id)
                     if found:
                         return found
-
             if email:
                 user = user_by_email.get(email.lower())
                 if user:
                     found = member_by_user_id.get(user.id)
                     if found:
                         return found
-
             if phone:
                 user = user_by_phone.get(phone)
                 if user:
                     found = member_by_user_id.get(user.id)
                     if found:
                         return found
-
             return None
 
         known_campaign_ids: set[int] = {row[0] for row in db.query(Campaign.id).all()}
@@ -214,17 +300,10 @@ class CampaignService:
                     errors.append(f"Row {idx}: unsupported type '{row_type}'")
                     continue
 
-                username = MemberService.normalize_contact(
-                    MemberService.row_value(row, ["username", "user_name"])
-                )
-                member_code = MemberService.normalize_member_code(
-                    MemberService.row_value(row, ["member_code", "member_id", "code"])
-                )
-                si_code = MemberService.si_to_member_code(
-                    MemberService.row_value(row, ["si_no", "si", "serial_no"])
-                )
+                username = MemberService.normalize_contact(MemberService.row_value(row, ["username", "user_name"]))
+                member_code = MemberService.normalize_member_code(MemberService.row_value(row, ["member_code", "member_id", "code"]))
+                si_code = MemberService.si_to_member_code(MemberService.row_value(row, ["si_no", "si", "serial_no"]))
                 member_code = member_code or si_code
-
                 phone = MemberService.normalize_contact(MemberService.row_value(row, ["phone", "mobile"]))
                 email = MemberService.normalize_contact(MemberService.row_value(row, ["email", "email_address"]))
                 member = resolve_member(member_code, username, phone, email)
@@ -244,18 +323,10 @@ class CampaignService:
 
                 amount = float(amount_raw)
                 campaign_name = MemberService.row_value(row, ["suggested_campaign_name", "campaign_name", "campaign"])
-                campaign_id = MemberService.resolve_campaign_for_import(
-                    db,
-                    campaign_name,
-                    imported_by_user_id,
-                )
+                campaign_id = MemberService.resolve_campaign_for_import(db, campaign_name, imported_by_user_id)
 
                 if not campaign_id:
-                    campaign_id = MemberService.resolve_campaign_for_import(
-                        db,
-                        "General Fund / One-Time Contribution 2024-2025",
-                        imported_by_user_id,
-                    )
+                    campaign_id = MemberService.resolve_campaign_for_import(db, "General Fund / One-Time Contribution 2024-2025", imported_by_user_id)
 
                 if not campaign_id:
                     rows_skipped += 1
@@ -266,12 +337,8 @@ class CampaignService:
                     campaigns_created += 1
                     known_campaign_ids.add(campaign_id)
 
-                payment_method = MemberService.normalize_contact(
-                    MemberService.row_value(row, ["payment_method", "method"])
-                )
-                raw_status = MemberService.normalize_contact(
-                    MemberService.row_value(row, ["status", "donation_status", "challan_status", "payment_status"])
-                )
+                payment_method = MemberService.normalize_contact(MemberService.row_value(row, ["payment_method", "method"]))
+                raw_status = MemberService.normalize_contact(MemberService.row_value(row, ["status", "donation_status", "challan_status", "payment_status"]))
 
                 normalized_status = "generated"
                 current = (raw_status or "generated").lower()
@@ -300,6 +367,7 @@ class CampaignService:
                 db.add(challan)
                 existing_campaign_keys.add(duplicate_key)
                 challans_created += 1
+
             except (ValueError, TypeError) as exc:
                 rows_skipped += 1
                 errors.append(f"Row {idx}: {exc}")
@@ -321,75 +389,3 @@ class CampaignService:
             rows_skipped=rows_skipped,
             errors=errors[:50],
         )
-    
-    @staticmethod
-    def get_campaign(db: Session, campaign_id: int):
-        """Get campaign by ID."""
-        campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
-        
-        if not campaign:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Campaign not found",
-            )
-        
-        return CampaignService._attach_campaign_stats(db, campaign)
-    
-    @staticmethod
-    def get_all_campaigns(db: Session, skip: int = 0, limit: int = 100, active_only: bool = False):
-        """Get all campaigns with optional filtering."""
-        query = db.query(Campaign)
-        
-        if active_only:
-            query = query.filter(Campaign.is_active == True)
-        
-        campaigns = query.offset(skip).limit(limit).all()
-        return CampaignService._attach_campaign_stats_bulk(db, campaigns)
-    
-    @staticmethod
-    def update_campaign(db: Session, campaign_id: int, update_data: CampaignUpdate):
-        """Update campaign information."""
-        campaign = CampaignService.get_campaign(db, campaign_id)
-        
-        update_fields = update_data.model_dump(exclude_unset=True)
-
-        resolved = CampaignService._normalize_campaign_values(
-            target_mode=update_fields.get("target_mode", campaign.target_mode),
-            target_amount=update_fields.get("target_amount", campaign.target_amount),
-            min_amount=update_fields.get("min_amount", campaign.min_amount),
-            start_date=update_fields.get("start_date", campaign.start_date),
-            end_date_mode=update_fields.get("end_date_mode", campaign.end_date_mode),
-            end_date=update_fields.get("end_date", campaign.end_date),
-        )
-
-        for key, value in update_fields.items():
-            if value is not None:
-                setattr(campaign, key, value)
-
-        campaign.target_mode = resolved["target_mode"]
-        campaign.target_amount = resolved["target_amount"]
-        campaign.min_amount = resolved["min_amount"]
-        campaign.start_date = resolved["start_date"]
-        campaign.end_date_mode = resolved["end_date_mode"]
-        campaign.end_date = resolved["end_date"]
-        
-        db.commit()
-        db.refresh(campaign)
-        
-        return CampaignService._attach_campaign_stats(db, campaign)
-    
-    @staticmethod
-    def delete_campaign(db: Session, campaign_id: int):
-        """Delete campaign and unlink any associated challans."""
-        campaign = CampaignService.get_campaign(db, campaign_id)
-
-        # Unlink challans referencing this campaign to avoid FK violation
-        db.query(Challan).filter(Challan.campaign_id == campaign_id).update(
-            {"campaign_id": None}, synchronize_session=False
-        )
-        db.flush()
-        
-        db.delete(campaign)
-        db.commit()
-        
-        return {"message": "Campaign deleted"}

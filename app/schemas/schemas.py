@@ -331,6 +331,7 @@ class CampaignUpdate(BaseModel):
     end_date_mode: Optional[CampaignEndDateMode] = None
     end_date: Optional[datetime] = None
     is_active: Optional[bool] = None
+    status: Optional[str] = None  # ✅ ADD
 
     @model_validator(mode="after")
     def validate_partial_campaign_rules(self):
@@ -364,12 +365,12 @@ class CampaignResponse(BaseModel):
     end_date_mode: CampaignEndDateMode = CampaignEndDateMode.FIXED
     end_date: Optional[datetime]
     is_active: bool
+    status: str = "active"  # ✅ ADD
     created_at: datetime
     updated_at: datetime
 
     class Config:
         from_attributes = True
-
 
 # Challan Schemas
 class ChallanCreate(BaseModel):
