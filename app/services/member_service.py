@@ -307,20 +307,23 @@ class MemberService:
         sort_by: str = "full_name",
         sort_order: str = "asc",
     ):
-        """Get members with search, sorting, and pagination."""
         from sqlalchemy import asc, desc
 
-        # Always join User so we can filter/sort on User.username
         query = db.query(Member).join(User, Member.user_id == User.id)
 
-        # Search against User.username (the real name column) and Member.member_code
+        # 🔍 SEARCH (improved)
         if search:
+            term = f"%{search.strip()}%"
             query = query.filter(
-                User.username.ilike(f"%{search}%") |
-                Member.member_code.ilike(f"%{search}%")
+                User.username.ilike(term) |
+                User.email.ilike(term) |
+                Member.member_code.ilike(term)
             )
 
-        # Sorting — use actual mapped columns, never @property descriptors
+        # ✅ ONLY ACTIVE MEMBERS (important for dropdown)
+        query = query.filter(Member.status == "active")
+
+        # Sorting
         if sort_by in ("name", "full_name"):
             column = User.username
         elif sort_by == "id":
@@ -331,8 +334,23 @@ class MemberService:
         order_fn = desc if sort_order == "desc" else asc
         query = query.order_by(order_fn(column))
 
-        # Pagination
-        return query.offset(skip).limit(limit).all()
+        total = query.count()
+
+        members = query.offset(skip).limit(limit).all()
+
+        # ✅ FORMAT RESPONSE FOR FRONTEND
+        return {
+            "data": [
+                {
+                    "id": m.id,
+                    "full_name": m.full_name,
+                    "member_id": m.member_code,
+                    "monthly_amount": m.monthly_amount,
+                }
+                for m in members
+            ],
+            "total": total,
+        }
 
     @staticmethod
     def get_members_summary(db: Session) -> dict:

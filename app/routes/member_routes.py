@@ -23,7 +23,7 @@ def get_members_summary(
     return MemberService.get_members_summary(db)
 
 
-@router.get("/", response_model=List[MemberResponse])
+@router.get("/")
 def get_members(
     skip: int = Query(default=0, ge=0),
     # ✅ FIX: Raised ceiling from 200 → 500 so the dashboard request of
