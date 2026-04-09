@@ -99,6 +99,7 @@ class UserResponse(BaseModel):
     is_active: bool
     avatar_url: Optional[str] = None
     created_at: datetime
+    member_code: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -106,6 +107,7 @@ class UserResponse(BaseModel):
 
 class UserUpdate(BaseModel):
     username: Optional[str] = None
+    full_name: Optional[str] = None
     email: Optional[str] = None
     phone: Optional[str] = None
     role: Optional[UserRole] = None
@@ -127,6 +129,7 @@ class MemberCreate(BaseModel):
     # Admin onboarding path (offline member creation from admin UI/import).
     member_id: Optional[str] = None
     full_name: Optional[str] = None
+    username: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
 
@@ -142,6 +145,7 @@ class MemberUpdate(BaseModel):
     member_id: Optional[str] = None
     member_code: Optional[str] = None
     full_name: Optional[str] = None
+    username: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
     monthly_amount: Optional[float] = None
@@ -165,6 +169,7 @@ class MemberResponse(BaseModel):
     member_id: Optional[str] = None
     full_name: Optional[str] = None
     member_code: str
+    username: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
     monthly_amount: float

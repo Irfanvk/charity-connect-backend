@@ -210,6 +210,7 @@ class AuthService:
             phone=normalized_registration_phone,
             password_hash=hash_password(registration.password),
             role="member",
+            full_name=registration.full_name or normalized_username,
         )
         
         db.add(new_user)
@@ -226,6 +227,7 @@ class AuthService:
             member_code=next_member_code,
             monthly_amount=registration.monthly_amount or 0.0,
             address=registration.address,
+            full_name=registration.full_name or normalized_username,
         )
         
         db.add(new_member)
@@ -344,6 +346,10 @@ class AuthService:
             user.phone = AuthService._normalize_phone(registration.phone)
         user.password_hash = hash_password(registration.password)
         user.is_active = True
+        if registration.full_name:
+            user.full_name = registration.full_name
+            if user.member:
+                user.member.full_name = registration.full_name
 
         # Keep invite tracking accurate.
         invite.is_used = True

@@ -315,6 +315,7 @@ class MemberService:
         if search:
             term = f"%{search.strip()}%"
             query = query.filter(
+                Member.full_name.ilike(term) |
                 User.username.ilike(term) |
                 User.email.ilike(term) |
                 Member.member_code.ilike(term)
@@ -325,7 +326,7 @@ class MemberService:
 
         # Sorting
         if sort_by in ("name", "full_name"):
-            column = User.username
+            column = Member.full_name
         elif sort_by == "id":
             column = Member.member_code
         else:
@@ -343,9 +344,20 @@ class MemberService:
             "data": [
                 {
                     "id": m.id,
-                    "full_name": m.full_name,
+                    "user_id": m.user_id,
+                    "full_name": m.full_name or (m.user.username if m.user else None),
+                    "username": m.username,
                     "member_id": m.member_code,
+                    "member_code": m.member_code,
                     "monthly_amount": m.monthly_amount,
+                    "phone": m.phone,
+                    "email": m.email,
+                    "address": m.address,
+                    "status": m.status,
+                    "join_date": m.join_date,
+                    "created_at": m.created_at,
+                    "updated_at": m.updated_at,
+                    "avatar_url": m.user.avatar_url if m.user else None,
                 }
                 for m in members
             ],
@@ -404,6 +416,7 @@ class MemberService:
                 address=member_data.address,
                 status=member_data.status or "active",
                 join_date=member_data.join_date,
+                full_name=member_data.full_name,
             )
             db.add(member)
             db.commit()
@@ -412,6 +425,7 @@ class MemberService:
 
         # Admin onboarding path for offline members.
         full_name = MemberService._normalize_contact(member_data.full_name)
+        desired_username = MemberService._normalize_contact(member_data.username)
         phone = MemberService._normalize_contact(member_data.phone)
         email = MemberService._normalize_contact(member_data.email)
 
@@ -461,10 +475,21 @@ class MemberService:
             user.username = MemberService._generate_unique_offline_username(db, full_name, member_code)
             user.is_active = False
 
+        if desired_username:
+            duplicate_username = db.query(User).filter(User.username == desired_username, User.id != user.id).first()
+            if duplicate_username:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Username already in use",
+                )
+            user.username = desired_username
+
         if email and not user.email:
             user.email = email
         if phone and not user.phone:
             user.phone = phone
+        if full_name and not user.full_name:
+            user.full_name = full_name
 
         member = Member(
             user_id=user.id,
@@ -473,6 +498,7 @@ class MemberService:
             address=member_data.address,
             status=member_data.status or "active",
             join_date=member_data.join_date,
+            full_name=full_name,
         )
 
         db.add(member)
@@ -499,7 +525,23 @@ class MemberService:
             member.member_code = new_code
 
         if "full_name" in update_fields and update_fields["full_name"] and user:
-            user.username = update_fields["full_name"].strip()
+            member.full_name = update_fields["full_name"].strip()
+
+        if "username" in update_fields and user:
+            new_username = MemberService._normalize_contact(update_fields.get("username"))
+            if not new_username:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="username cannot be empty",
+                )
+            if new_username != user.username:
+                duplicate_username = db.query(User).filter(User.username == new_username, User.id != user.id).first()
+                if duplicate_username:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Username already in use",
+                    )
+            user.username = new_username
 
         if "email" in update_fields and user:
             new_email = MemberService._normalize_contact(update_fields.get("email"))
@@ -745,6 +787,10 @@ class MemberService:
                 member = resolve_member(member_code, username, phone, email)
 
                 if member:
+                    if full_name and not member.full_name:
+                        member.full_name = full_name
+                    if full_name and member.user and not member.user.full_name:
+                        member.user.full_name = full_name
                     members_linked_existing += 1
                 elif has_member_profile_data:
                     if not member_code:
@@ -759,6 +805,8 @@ class MemberService:
                     if existing_user:
                         user = existing_user
                         created_new_user = False
+                        if full_name and not user.full_name:
+                            user.full_name = full_name
                     else:
                         user, created_new_user = MemberService._get_or_create_user_for_admin_member(
                             db=db,
@@ -790,6 +838,7 @@ class MemberService:
                             address=address,
                             status=status_value,
                             join_date=join_date,
+                            full_name=full_name,
                         )
                         db.add(member)
                         db.flush()

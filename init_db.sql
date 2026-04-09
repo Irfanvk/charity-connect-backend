@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash VARCHAR(255) NOT NULL,
     role user_role DEFAULT 'member' NOT NULL,
     is_active BOOLEAN DEFAULT true,
+    avatar_url VARCHAR(500),
+    full_name VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -49,10 +51,15 @@ CREATE TABLE IF NOT EXISTS members (
     join_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     status VARCHAR(50) DEFAULT 'active',
     notes TEXT,
+    full_name VARCHAR(255),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
 );
+
+ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar_url VARCHAR(500);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS full_name VARCHAR(255);
+ALTER TABLE members ADD COLUMN IF NOT EXISTS full_name VARCHAR(255);
 
 -- Create invites table
 CREATE TABLE IF NOT EXISTS invites (

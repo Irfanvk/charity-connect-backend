@@ -65,6 +65,7 @@ class User(Base):
     avatar_url = Column(String(500), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    full_name = Column(String(255), nullable=True)
     
     # Relationships
     member = relationship("Member", back_populates="user", uselist=False)
@@ -73,8 +74,8 @@ class User(Base):
     requests = relationship("Request", back_populates="created_by_user")
 
     @property
-    def full_name(self):
-        return self.username
+    def member_code(self):
+        return self.member.member_code if self.member else None
 
 
 class Member(Base):
@@ -90,16 +91,15 @@ class Member(Base):
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    full_name = Column(String(255), nullable=True)
     
     # Relationships
     user = relationship("User", back_populates="member")
     challans = relationship("Challan", back_populates="member")
 
     @property
-    def full_name(self):
-        if self.user:
-            return self.user.username
-        return None
+    def username(self):
+        return self.user.username if self.user else None
 
     @property
     def member_id(self):
