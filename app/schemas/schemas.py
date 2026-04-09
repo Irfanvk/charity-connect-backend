@@ -794,3 +794,49 @@ class FundUtilizationSummary(BaseModel):
     total_utilized: float
     available_balance: float
     utilization_count: int
+
+
+# ── Password Reset Schemas ────────────────────────────────────────────────────
+
+class ForgotPasswordRequest(BaseModel):
+    identifier: str  # email, username, or phone number
+
+
+class PasswordResetApprove(BaseModel):
+    admin_notes: Optional[str] = None
+
+
+class PasswordResetReject(BaseModel):
+    rejection_reason: str
+    admin_notes: Optional[str] = None
+
+
+class PasswordResetComplete(BaseModel):
+    token: str
+    new_password: str
+
+
+class PasswordResetRequestResponse(BaseModel):
+    id: int
+    identifier: str
+    user_id: Optional[int] = None
+    status: str
+    admin_id: Optional[int] = None
+    admin_notes: Optional[str] = None
+    rejection_reason: Optional[str] = None
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
+    # Enriched from related user
+    user_full_name: Optional[str] = None
+    user_username: Optional[str] = None
+    user_phone: Optional[str] = None
+    user_email: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class PasswordResetTokenVerifyResponse(BaseModel):
+    valid: bool
+    user_username: Optional[str] = None
+    message: str

@@ -60,6 +60,12 @@ from .schemas import (
     FundUtilizationUpdate,
     FundUtilizationResponse,
     FundUtilizationSummary,
+    ForgotPasswordRequest,
+    PasswordResetApprove,
+    PasswordResetReject,
+    PasswordResetComplete,
+    PasswordResetRequestResponse,
+    PasswordResetTokenVerifyResponse,
 )
 
 __all__ = [
@@ -121,4 +127,10 @@ __all__ = [
     "FundUtilizationUpdate",
     "FundUtilizationResponse",
     "FundUtilizationSummary",
+    "ForgotPasswordRequest",
+    "PasswordResetApprove",
+    "PasswordResetReject",
+    "PasswordResetComplete",
+    "PasswordResetRequestResponse",
+    "PasswordResetTokenVerifyResponse",
 ]

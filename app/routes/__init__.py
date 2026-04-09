@@ -11,6 +11,7 @@ from .file_routes import router as file_router
 from .user_routes import router as user_router
 from .audit_log_routes import router as audit_log_router
 from .fund_utilization_routes import router as fund_utilization_router
+from .password_reset_routes import router as password_reset_router
 
 __all__ = [
     "auth_router",
@@ -26,4 +27,5 @@ __all__ = [
     "user_router",
     "audit_log_router",
     "fund_utilization_router",
+    "password_reset_router",
 ]

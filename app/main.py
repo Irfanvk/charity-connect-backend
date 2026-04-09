@@ -21,6 +21,7 @@ from app.routes import (
     user_router,
     audit_log_router,
     fund_utilization_router,
+    password_reset_router,
 )
 import logging
 import app.models as _models
@@ -97,6 +98,7 @@ app.include_router(file_router)
 app.include_router(user_router)
 app.include_router(audit_log_router)
 app.include_router(fund_utilization_router)
+app.include_router(password_reset_router)
 
 
 @app.on_event("startup")

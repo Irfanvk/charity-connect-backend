@@ -367,3 +367,24 @@ class FundUtilization(Base):
 
     # Relationships
     registered_by = relationship("User", foreign_keys=[registered_by_admin_id])
+
+
+class PasswordResetRequest(Base):
+    """Tracks admin-mediated password reset requests."""
+    __tablename__ = "password_reset_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    identifier = Column(String(255), nullable=False)           # email / username / phone submitted
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # resolved user
+    status = Column(String(20), nullable=False, default="pending")  # pending|approved|rejected|used
+    reset_token = Column(String(128), unique=True, nullable=True, index=True)
+    token_expires_at = Column(DateTime, nullable=True)
+    admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    admin_notes = Column(Text, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    resolved_at = Column(DateTime, nullable=True)
+
+    # Relationships
+    user = relationship("User", foreign_keys=[user_id])
+    admin = relationship("User", foreign_keys=[admin_id])
