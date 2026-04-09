@@ -283,14 +283,15 @@ def wipe_system_data(
         bulk_groups_deleted  = db.query(BulkChallanGroup).count()
         users_deleted        = db.query(User).filter(~User.role.in_(keep_roles)).count()
 
+        # Order matters: delete child tables before parents to satisfy FK constraints
+        db.query(AuditLog).delete(synchronize_session=False)
+        db.query(MemberRequest).delete(synchronize_session=False)
+        db.query(Notification).delete(synchronize_session=False)
         db.query(Challan).delete(synchronize_session=False)
         db.query(BulkChallanGroup).delete(synchronize_session=False)
         db.query(Member).delete(synchronize_session=False)
         db.query(Invite).delete(synchronize_session=False)
-        db.query(Notification).delete(synchronize_session=False)
-        db.query(MemberRequest).delete(synchronize_session=False)
         db.query(Campaign).delete(synchronize_session=False)
-        db.query(AuditLog).delete(synchronize_session=False)
         db.query(User).filter(~User.role.in_(keep_roles)).delete(synchronize_session=False)
         db.commit()
 
