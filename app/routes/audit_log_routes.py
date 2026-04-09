@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, status, Query, HTTPException
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.database import get_db
 from app.models import AuditLog
 from app.schemas import AuditLogResponse, AuditLogCreate
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/audit-logs", tags=["Audit Logs"])
 @router.get("/", response_model=List[AuditLogResponse])
 def get_audit_logs(
     skip: int = Query(default=0, ge=0),
-    limit: int = Query(default=100, ge=1, le=200),
+    limit: int = Query(default=200, ge=1, le=1000),
     user_id: Optional[str] = None,
     entity_type: Optional[str] = None,
     action: Optional[str] = None,
@@ -22,7 +22,7 @@ def get_audit_logs(
     """
     Get audit logs with optional filtering (Admin only).
     """
-    query = db.query(AuditLog)
+    query = db.query(AuditLog).options(joinedload(AuditLog.user))
 
     normalized_user_id = (user_id or "").strip().lower()
     if normalized_user_id and normalized_user_id not in ["all", "null", "undefined"]:
@@ -47,7 +47,7 @@ def create_audit_log(
     Create audit log entry (Admin only).
     """
     log = AuditLog(
-        user_id=payload.user_id,
+        user_id=payload.user_id if payload.user_id is not None else _current_user.get("user_id"),
         action=payload.action,
         entity_type=payload.entity_type,
         entity_id=payload.entity_id,

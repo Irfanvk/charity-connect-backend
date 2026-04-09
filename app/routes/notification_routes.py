@@ -4,6 +4,7 @@ import json
 from fastapi import APIRouter, Depends, status, Query, Request, Response
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.models import Notification
 from app.schemas import (
     NotificationCreate,
     NotificationResponse,
@@ -319,8 +320,28 @@ def update_notification(
     """
     Update notification details (Admin only).
     """
-    _ = current_user
-    return NotificationService.update_notification(db, notification_id, update_data)
+    notification = db.query(Notification).filter(Notification.id == notification_id).first()
+    if not notification:
+        return NotificationService.update_notification(db, notification_id, update_data)
+
+    old_values = {
+        "title": notification.title,
+        "message": notification.message,
+        "is_read": notification.is_read,
+    }
+
+    updated = NotificationService.update_notification(db, notification_id, update_data)
+    log_audit(
+        db,
+        user_id=current_user.get("user_id"),
+        action="notification_update",
+        entity_type="Notification",
+        entity_id=notification_id,
+        old_values=old_values,
+        new_values=update_data.model_dump(exclude_unset=True),
+        auto_commit=True,
+    )
+    return updated
 
 
 @router.delete("/{notification_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -332,5 +353,18 @@ def delete_notification(
     """
     Delete a notification (Admin only).
     """
-    _ = current_user
+    notification = db.query(Notification).filter(Notification.id == notification_id).first()
     NotificationService.delete_notification(db, notification_id)
+    log_audit(
+        db,
+        user_id=current_user.get("user_id"),
+        action="notification_delete",
+        entity_type="Notification",
+        entity_id=notification_id,
+        old_values={
+            "title": notification.title if notification else None,
+            "message": notification.message if notification else None,
+            "is_read": notification.is_read if notification else None,
+        },
+        auto_commit=True,
+    )

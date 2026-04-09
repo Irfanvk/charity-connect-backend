@@ -601,6 +601,9 @@ class AuditLogResponse(BaseModel):
     action: str
     entity_type: str
     entity_id: int
+    performed_by: Optional[str] = None
+    performed_by_name: Optional[str] = None
+    performed_by_role: Optional[str] = None
     old_values: Optional[str]
     new_values: Optional[str]
     ip_address: Optional[str]
@@ -614,7 +617,7 @@ class AuditLogCreate(BaseModel):
     user_id: Optional[int] = None
     action: str
     entity_type: str
-    entity_id: int
+    entity_id: int = 0
     old_values: Optional[str] = None
     new_values: Optional[str] = None
     ip_address: Optional[str] = None

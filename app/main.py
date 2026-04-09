@@ -167,7 +167,8 @@ async def http_exception_handler(_request: Request, exc: HTTPException):
 
 
 @app.exception_handler(Exception)
-async def unhandled_exception_handler(_request: Request, _exc: Exception):
+async def unhandled_exception_handler(_request: Request, exc: Exception):
+    logger.exception("Unhandled exception", exc_info=exc)
     detail = _ensure_detail_list("Internal server error", default_type="server_error")
     return JSONResponse(status_code=500, content={"detail": detail})
 

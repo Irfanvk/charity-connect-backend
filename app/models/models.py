@@ -263,8 +263,23 @@ class MemberRequest(Base):
     id = Column(Integer, primary_key=True, index=True)
     member_id = Column(Integer, ForeignKey("members.id"), nullable=False, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    request_type = Column(Enum(RequestType, name="requesttype_v2"), nullable=False)
-    status = Column(Enum(RequestStatus, name="requeststatus"), nullable=False, default=RequestStatus.PENDING)
+    request_type = Column(
+        Enum(
+            RequestType,
+            name="requesttype_v2",
+            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+        ),
+        nullable=False,
+    )
+    status = Column(
+        Enum(
+            RequestStatus,
+            name="requeststatus",
+            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+        ),
+        nullable=False,
+        default=RequestStatus.PENDING,
+    )
 
     subject = Column(String(255), nullable=True)
     message = Column(Text, nullable=False)
@@ -301,6 +316,28 @@ class AuditLog(Base):
     
     # Relationships
     user = relationship("User", back_populates="audit_logs")
+
+    @property
+    def performed_by(self):
+        if self.user:
+            return self.user.email or self.user.username or f"User #{self.user_id}"
+        if self.user_id is not None:
+            return f"User #{self.user_id}"
+        return "System"
+
+    @property
+    def performed_by_name(self):
+        if self.user:
+            return self.user.full_name or self.user.username or self.user.email or f"User #{self.user_id}"
+        if self.user_id is not None:
+            return f"User #{self.user_id}"
+        return "System"
+
+    @property
+    def performed_by_role(self):
+        if self.user and self.user.role is not None:
+            return self.user.role.value if hasattr(self.user.role, "value") else str(self.user.role)
+        return None
 
 
 class AppSetting(Base):
