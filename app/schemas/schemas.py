@@ -831,6 +831,8 @@ class PasswordResetRequestResponse(BaseModel):
     user_username: Optional[str] = None
     user_phone: Optional[str] = None
     user_email: Optional[str] = None
+    # WhatsApp direct chat link for admin to manually message the user
+    whatsapp_chat_url: Optional[str] = None
 
     class Config:
         from_attributes = True

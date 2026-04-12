@@ -16,8 +16,31 @@ from app.schemas import (
 )
 from app.utils.auth import get_current_admin
 from app.services import password_reset_service
+from app.services.whatsapp_service import generate_whatsapp_chat_url
+from app.config import settings
 
 router = APIRouter(tags=["Password Reset"])
+
+TOKEN_EXPIRY_HOURS = 24
+
+
+def _build_reset_chat_url(user, reset_token=None) -> str:
+    """Build a wa.me link so the admin can manually send the reset link via WhatsApp."""
+    phone = getattr(user, "phone", None) or "" if user else ""
+    if not phone:
+        return ""
+    if reset_token:
+        reset_link = f"{settings.FRONTEND_BASE_URL}/ResetPassword?token={reset_token}"
+        message = (
+            f"Assalamu Alaikum\n\n"
+            f"Your password reset request for CharityHub has been approved by the admin.\n\n"
+            f"Click the link below to set your new password:\n"
+            f"{reset_link}\n\n"
+            f"This link expires in {TOKEN_EXPIRY_HOURS} hours. "
+            f"Do not share this link with anyone."
+        )
+        return generate_whatsapp_chat_url(phone, message)
+    return generate_whatsapp_chat_url(phone)
 
 
 # ── Public endpoints (no auth required) ──────────────────────────────────────
@@ -117,6 +140,7 @@ def list_requests(
                 user_username=user.username if user else None,
                 user_phone=user.phone if user else None,
                 user_email=user.email if user else None,
+                whatsapp_chat_url=_build_reset_chat_url(user, req.reset_token if req.status == "approved" else None),
             )
         )
     return result
@@ -154,6 +178,7 @@ def approve_request(
         user_username=user.username if user else None,
         user_phone=user.phone if user else None,
         user_email=user.email if user else None,
+        whatsapp_chat_url=_build_reset_chat_url(user, req.reset_token),
     )
 
 
@@ -189,4 +214,5 @@ def reject_request(
         user_username=user.username if user else None,
         user_phone=user.phone if user else None,
         user_email=user.email if user else None,
+        whatsapp_chat_url=_build_reset_chat_url(user),
     )

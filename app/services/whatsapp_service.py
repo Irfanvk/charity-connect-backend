@@ -31,6 +31,23 @@ def _build_meta_url() -> str:
     return f'https://graph.facebook.com/{api_version}/{phone_number_id}/messages'
 
 
+def generate_whatsapp_chat_url(phone: str, message: str = "") -> str:
+    """Build a wa.me click-to-chat URL for the admin to message a user directly.
+
+    Returns an empty string when the phone number is missing/invalid.
+    """
+    from urllib.parse import quote
+
+    normalized = _normalize_phone(phone)
+    if not normalized:
+        return ""
+    # wa.me expects digits only (no leading +)
+    digits = normalized.lstrip("+")
+    if message:
+        return f"https://wa.me/{digits}?text={quote(message)}"
+    return f"https://wa.me/{digits}"
+
+
 def send_whatsapp_message(phone: str, message: str) -> dict:
     """Send a WhatsApp text message via configured provider.
 
