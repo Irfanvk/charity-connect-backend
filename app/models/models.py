@@ -142,6 +142,7 @@ class Campaign(Base):
     id = Column(Integer, primary_key=True, index=True)
     title = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
+    image_url = Column(String(1024), nullable=True)
     target_mode = Column(String(20), nullable=False, default="targeted")
     target_amount = Column(Float, nullable=True)
     min_amount = Column(Float, nullable=False, default=100.0)

@@ -3,6 +3,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 from app.database import engine, Base, ensure_runtime_schema
@@ -99,6 +101,12 @@ app.include_router(user_router)
 app.include_router(audit_log_router)
 app.include_router(fund_utilization_router)
 app.include_router(password_reset_router)
+
+# Serve locally uploaded files (avatars, challan proofs, campaign images).
+# Cloud storage (R2) bypasses this path entirely via full URLs.
+_uploads_dir = Path(__file__).parent / "uploads"
+_uploads_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
 
 
 @app.on_event("startup")

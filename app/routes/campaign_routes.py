@@ -5,6 +5,8 @@ from app.schemas import CampaignCreate, CampaignResponse, CampaignUpdate, Campai
 from app.services import CampaignService
 from app.services.import_job_service import ImportJobService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin, log_audit
+from app.utils.file_handler import save_file, validate_file
+from app.models.models import Campaign
 from typing import List
 
 router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
@@ -216,3 +218,35 @@ def delete_campaign(
         )
     except Exception:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Failed to delete campaign")
+
+
+@router.post("/{campaign_id}/upload-image", response_model=CampaignResponse)
+async def upload_campaign_image(
+    campaign_id: int,
+    file: UploadFile = File(...),
+    current_admin: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Upload an image for a campaign (Admin only)."""
+    campaign = CampaignService.get_campaign(db, campaign_id)
+    if not campaign:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id} not found")
+
+    content = await file.read()
+    try:
+        validate_file(content, file.filename, max_size_mb=5)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
+    if ext not in ("jpg", "jpeg", "png", "webp"):
+        raise HTTPException(status_code=400, detail="Only JPG, PNG, or WebP images are allowed")
+
+    saved_path = save_file(content, "campaign-images", file.filename)
+    image_url = saved_path if saved_path.startswith("http") else f"/{saved_path}"
+
+    db_campaign = db.query(Campaign).filter(Campaign.id == campaign_id).first()
+    db_campaign.image_url = image_url
+    db.commit()
+    db.refresh(db_campaign)
+    return db_campaign

@@ -302,6 +302,7 @@ class InviteUpdate(BaseModel):
 class CampaignCreate(BaseModel):
     title: str
     description: Optional[str] = None
+    image_url: Optional[str] = None
     target_mode: CampaignTargetMode = CampaignTargetMode.TARGETED
     target_amount: Optional[float] = None
     min_amount: float = 100.0
@@ -334,6 +335,7 @@ class CampaignCreate(BaseModel):
 class CampaignUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    image_url: Optional[str] = None
     target_mode: Optional[CampaignTargetMode] = None
     target_amount: Optional[float] = None
     min_amount: Optional[float] = None
@@ -366,6 +368,7 @@ class CampaignResponse(BaseModel):
     id: int
     title: str
     description: Optional[str]
+    image_url: Optional[str] = None
     target_mode: CampaignTargetMode = CampaignTargetMode.TARGETED
     target_amount: Optional[float]
     min_amount: float = 100.0
