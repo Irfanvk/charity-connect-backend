@@ -97,6 +97,23 @@ def create_fund_utilization(
     db: Session = Depends(get_db),
 ):
     """Register a new fund utilization entry (Admin only)."""
+
+    # 🔴 ADD THIS BLOCK
+    total_collected = db.query(func.coalesce(func.sum(Challan.amount), 0))\
+        .filter(Challan.status == "approved").scalar() or 0
+
+    total_utilized = db.query(func.coalesce(func.sum(FundUtilization.amount), 0)).scalar() or 0
+
+    available_balance = float(total_collected) - float(total_utilized)
+
+    if payload.amount > available_balance:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Insufficient funds. Available balance is ₹{available_balance}"
+        )
+    # 🔴 END BLOCK
+
+    # Existing code
     record = FundUtilization(
         title=payload.title,
         description=payload.description,
@@ -106,25 +123,10 @@ def create_fund_utilization(
         date=payload.date or datetime.utcnow(),
         registered_by_admin_id=current_user["user_id"],
     )
+
     db.add(record)
     db.commit()
     db.refresh(record)
-
-    log_audit(
-        db,
-        user_id=current_user["user_id"],
-        action="fund_utilization_create",
-        entity_type="FundUtilization",
-        entity_id=record.id,
-        new_values={
-            "title": record.title,
-            "amount": record.amount,
-            "category": record.category,
-            "recipient": record.recipient,
-            "date": record.date.isoformat() if record.date else None,
-        },
-        auto_commit=True,
-    )
 
     return _to_response(record)
 
