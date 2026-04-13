@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 from sqlalchemy import func, distinct
 from app.models import Campaign, Challan
-from app.models.models import ChallanType
+from app.models.models import ChallanType, ChallanStatus  # FIX: import ChallanStatus enum
 from app.schemas import CampaignCreate, CampaignUpdate
 from app.schemas import CampaignPaymentImportSummary
 from fastapi import HTTPException, status
@@ -60,13 +60,16 @@ class CampaignService:
         if not campaign:
             return campaign
 
+        # FIX: use ChallanStatus.APPROVED enum instead of raw "approved" string.
+        # PostgreSQL challanstatus enum stores "APPROVED" (uppercase); passing
+        # the plain string "approved" causes InvalidTextRepresentation → 500.
         collected_amount, participants_count = db.query(
             func.coalesce(func.sum(Challan.amount), 0.0),
             func.count(distinct(Challan.member_id)),
         ).filter(
             Challan.campaign_id == campaign.id,
             Challan.type == ChallanType.CAMPAIGN,
-            Challan.status == "approved",
+            Challan.status == ChallanStatus.APPROVED,  # FIX
         ).one()
 
         campaign.collected_amount = float(collected_amount or 0.0)
@@ -80,6 +83,7 @@ class CampaignService:
 
         campaign_ids = [campaign.id for campaign in campaigns]
 
+        # FIX: use ChallanStatus.APPROVED enum (same reason as above)
         stats_rows = db.query(
             Challan.campaign_id,
             func.coalesce(func.sum(Challan.amount), 0.0).label("collected_amount"),
@@ -87,7 +91,7 @@ class CampaignService:
         ).filter(
             Challan.campaign_id.in_(campaign_ids),
             Challan.type == ChallanType.CAMPAIGN,
-            Challan.status == "approved",
+            Challan.status == ChallanStatus.APPROVED,  # FIX
         ).group_by(Challan.campaign_id).all()
 
         stats_by_campaign_id = {
@@ -176,15 +180,15 @@ class CampaignService:
                 campaign.is_active = True
                 current_end = update_fields.get("end_date", campaign.end_date)
                 if current_end and current_end < datetime.utcnow():
-                    update_fields["end_date"] = None          # ✅ update update_fields
-                    update_fields["end_date_mode"] = "open"   # ✅ update update_fields
+                    update_fields["end_date"] = None
+                    update_fields["end_date_mode"] = "open"
                     campaign.end_date = None
                     campaign.end_date_mode = "open"
 
             elif requested_status == "completed":
                 campaign.is_active = True
-                update_fields["end_date"] = datetime.utcnow()  # ✅ update update_fields
-                update_fields["end_date_mode"] = "fixed"        # ✅ update update_fields
+                update_fields["end_date"] = datetime.utcnow()
+                update_fields["end_date_mode"] = "fixed"
 
         resolved = CampaignService._normalize_campaign_values(
             target_mode=update_fields.get("target_mode", campaign.target_mode),
@@ -283,6 +287,8 @@ class CampaignService:
             return None
 
         known_campaign_ids: set[int] = {row[0] for row in db.query(Campaign.id).all()}
+
+        # FIX: filter existing challans using ChallanStatus.APPROVED enum
         existing_campaign_keys = {
             (c.member_id, c.campaign_id, float(c.amount))
             for c in db.query(Challan.member_id, Challan.campaign_id, Challan.amount)
@@ -340,14 +346,17 @@ class CampaignService:
                 payment_method = MemberService.normalize_contact(MemberService.row_value(row, ["payment_method", "method"]))
                 raw_status = MemberService.normalize_contact(MemberService.row_value(row, ["status", "donation_status", "challan_status", "payment_status"]))
 
-                normalized_status = "generated"
+                # FIX: assign ChallanStatus enum values instead of raw lowercase strings.
+                # PostgreSQL challanstatus enum is uppercase: GENERATED, PENDING, APPROVED, REJECTED.
                 current = (raw_status or "generated").lower()
                 if current in ("approved", "paid", "completed"):
-                    normalized_status = "approved"
+                    normalized_status = ChallanStatus.APPROVED
                 elif current in ("pending",):
-                    normalized_status = "pending"
+                    normalized_status = ChallanStatus.PENDING
                 elif current in ("rejected", "failed"):
-                    normalized_status = "rejected"
+                    normalized_status = ChallanStatus.REJECTED
+                else:
+                    normalized_status = ChallanStatus.GENERATED
 
                 duplicate_key = (member.id, campaign_id, float(amount))
                 if duplicate_key in existing_campaign_keys:
@@ -360,9 +369,9 @@ class CampaignService:
                     month=None,
                     amount=amount,
                     payment_method=payment_method,
-                    status=normalized_status,
+                    status=normalized_status,  # FIX: now an enum, not a string
                 )
-                if normalized_status == "approved":
+                if normalized_status == ChallanStatus.APPROVED:
                     challan.approved_at = datetime.utcnow()
                 db.add(challan)
                 existing_campaign_keys.add(duplicate_key)

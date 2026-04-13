@@ -87,6 +87,36 @@ class RequestService:
         reason = item.rejection_reason or "No reason provided"
         return f"Your {request_type.replace('_', ' ')} request has not been approved. Reason: {reason}"
 
+    # -------------------------------------------------------------------------
+    # Helper: safely coerce a string to a RequestStatus enum
+    # Accepts both "pending" and "PENDING" from query params / frontend calls.
+    # Raises HTTP 400 for unrecognised values instead of letting it crash at DB.
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def _parse_status(value: str) -> RequestStatus:
+        try:
+            return RequestStatus(value.upper())
+        except ValueError:
+            valid = [e.value for e in RequestStatus]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status '{value}'. Valid values: {valid}",
+            )
+
+    # -------------------------------------------------------------------------
+    # Helper: safely coerce a string to a RequestType enum (same logic).
+    # -------------------------------------------------------------------------
+    @staticmethod
+    def _parse_request_type(value: str) -> RequestType:
+        try:
+            return RequestType(value.upper())
+        except ValueError:
+            valid = [e.value for e in RequestType]
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid request_type '{value}'. Valid values: {valid}",
+            )
+
     @staticmethod
     def create_request(
         db: Session,
@@ -138,10 +168,11 @@ class RequestService:
         if role not in ["admin", "superadmin"]:
             query = query.filter(MemberRequest.user_id == int(current_user.get("user_id")))
 
+        # FIX: coerce to enum so PostgreSQL receives the correct typed value ("PENDING" not "pending")
         if status_filter:
-            query = query.filter(MemberRequest.status == status_filter)
+            query = query.filter(MemberRequest.status == RequestService._parse_status(status_filter))
         if request_type:
-            query = query.filter(MemberRequest.request_type == request_type)
+            query = query.filter(MemberRequest.request_type == RequestService._parse_request_type(request_type))
 
         items = query.order_by(MemberRequest.created_at.desc()).offset(skip).limit(limit).all()
         return [RequestService._serialize(db, item) for item in items]
@@ -312,10 +343,11 @@ class RequestService:
     ) -> dict:
         query = db.query(MemberRequest)
 
+        # FIX: coerce to enum so PostgreSQL receives the correct typed value ("PENDING" not "pending")
         if status_filter:
-            query = query.filter(MemberRequest.status == status_filter)
+            query = query.filter(MemberRequest.status == RequestService._parse_status(status_filter))
         if request_type:
-            query = query.filter(MemberRequest.request_type == request_type)
+            query = query.filter(MemberRequest.request_type == RequestService._parse_request_type(request_type))
         if member_id:
             query = query.filter(MemberRequest.member_id == member_id)
 
