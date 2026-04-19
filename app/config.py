@@ -129,6 +129,16 @@ class Settings(BaseSettings):
     CELERY_TIMEZONE: str = os.getenv("CELERY_TIMEZONE", "UTC")
     ENABLE_FASTAPI_LIMITER: bool = os.getenv("ENABLE_FASTAPI_LIMITER", "false").lower() == "true"
 
+    # Cloudinary (file storage — uploads, avatars, payment proofs)
+    CLOUDINARY_CLOUD_NAME: str = os.getenv("CLOUDINARY_CLOUD_NAME", "")
+    CLOUDINARY_API_KEY: str = os.getenv("CLOUDINARY_API_KEY", "")
+    CLOUDINARY_API_SECRET: str = os.getenv("CLOUDINARY_API_SECRET", "")
+    CLOUDINARY_FOLDER: str = os.getenv("CLOUDINARY_FOLDER", "charity-connect")
+
+    @property
+    def cloudinary_configured(self) -> bool:
+        return bool(self.CLOUDINARY_CLOUD_NAME and self.CLOUDINARY_API_KEY and self.CLOUDINARY_API_SECRET)
+
     # WhatsApp Cloud API
     WHATSAPP_ENABLED: bool = os.getenv("WHATSAPP_ENABLED", "false").lower() == "true"
     WHATSAPP_PROVIDER: str = os.getenv("WHATSAPP_PROVIDER", "meta")

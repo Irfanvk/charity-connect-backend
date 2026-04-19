@@ -2,8 +2,12 @@ from pathlib import Path
 import secrets
 import os
 from uuid import uuid4
+import io
 
-import boto3
+import cloudinary
+import cloudinary.uploader
+
+from app.config import settings
 
 
 def _safe_extension(filename: str) -> str:
@@ -13,65 +17,98 @@ def _safe_extension(filename: str) -> str:
     return ext if ext in {".jpg", ".jpeg", ".png", ".pdf"} else ".bin"
 
 
+def _cloudinary_resource_type(ext: str) -> str:
+    """Map file extension to Cloudinary resource_type."""
+    if ext in {".jpg", ".jpeg", ".png"}:
+        return "image"
+    # PDFs and other binaries use 'raw'
+    return "raw"
+
+
+def _configure_cloudinary() -> bool:
+    """
+    Configure Cloudinary from app settings.
+    Returns True if all required vars are present, False otherwise.
+    """
+    if not settings.cloudinary_configured:
+        return False
+    cloudinary.config(
+        cloud_name=settings.CLOUDINARY_CLOUD_NAME,
+        api_key=settings.CLOUDINARY_API_KEY,
+        api_secret=settings.CLOUDINARY_API_SECRET,
+        secure=True,
+    )
+    return True
+
+
 def save_file(file_content: bytes, subfolder: str, filename: str) -> str:
     """
-    Save uploaded file under a random, opaque filename that carries no PII.
+    Save uploaded file and return a public URL.
+
+    Storage priority:
+      1. Cloudinary  (if CLOUDINARY_CLOUD_NAME / API_KEY / API_SECRET are set)
+      2. Local disk  (fallback for development)
 
     The original filename is intentionally discarded — only its extension is
     reused so the file remains openable by standard tools.  Ownership is
-    tracked via the database FK (Challan.member_id → members → users), not
-    via the filename on disk.
+    tracked via the database FK, not via the filename.
 
     Args:
         file_content: File bytes
-        subfolder: Subdirectory inside uploads/
-        filename: Original filename (used only for extension extraction)
+        subfolder:    Logical category, e.g. 'proofs', 'avatars'
+        filename:     Original filename (used only for extension extraction)
 
     Returns:
-        Relative path to saved file (safe to store in DB)
+        Public URL string (Cloudinary secure_url) or relative local path.
     """
     ext = _safe_extension(filename)
-    r2_endpoint = os.getenv("R2_ENDPOINT_URL", "").strip()
-    r2_bucket = os.getenv("R2_BUCKET_NAME", "").strip()
-    r2_public_url = os.getenv("R2_PUBLIC_URL", "").rstrip("/").strip()
-    use_cloud = bool(r2_endpoint and r2_bucket and r2_public_url)
+    folder_root = settings.CLOUDINARY_FOLDER
 
-    if use_cloud:
-        key = f"{subfolder}/{uuid4().hex}{ext}"
-        client = boto3.client(
-            "s3",
-            endpoint_url=r2_endpoint,
-            aws_access_key_id=os.getenv("R2_ACCESS_KEY_ID"),
-            aws_secret_access_key=os.getenv("R2_SECRET_ACCESS_KEY"),
-            region_name="auto",
+    if _configure_cloudinary():
+        resource_type = _cloudinary_resource_type(ext)
+        public_id = f"{folder_root}/{subfolder}/{uuid4().hex}"
+        result = cloudinary.uploader.upload(
+            io.BytesIO(file_content),
+            public_id=public_id,
+            resource_type=resource_type,
+            overwrite=False,
+            unique_filename=False,
         )
-        client.put_object(
-            Bucket=r2_bucket,
-            Key=key,
-            Body=file_content,
-            ContentType=_content_type_from_ext(ext),
-        )
-        return f"{r2_public_url}/{key}"
+        return result["secure_url"]
 
+    # --- Local disk fallback (development only) ---
     upload_dir = Path(__file__).parent.parent / "uploads" / subfolder
     upload_dir.mkdir(parents=True, exist_ok=True)
     opaque_name = secrets.token_urlsafe(16) + ext
     file_path = upload_dir / opaque_name
-
     with open(file_path, "wb") as f:
         f.write(file_content)
-
     return f"uploads/{subfolder}/{opaque_name}"
 
 
-def _content_type_from_ext(ext: str) -> str:
-    if ext in {".jpg", ".jpeg"}:
-        return "image/jpeg"
-    if ext == ".png":
-        return "image/png"
-    if ext == ".pdf":
-        return "application/pdf"
-    return "application/octet-stream"
+def delete_file(public_url: str) -> bool:
+    """
+    Delete a file from Cloudinary by its secure_url.
+    Returns True on success, False if not a Cloudinary URL or deletion fails.
+    """
+    if "cloudinary.com" not in public_url:
+        return False
+    if not _configure_cloudinary():
+        return False
+    try:
+        # Extract public_id from URL: .../upload/v12345/{public_id}.{ext}
+        parts = public_url.split("/upload/")
+        if len(parts) != 2:
+            return False
+        # Strip version segment (v12345/) if present, then remove extension
+        after_upload = parts[1]
+        if after_upload.startswith("v") and "/" in after_upload:
+            after_upload = after_upload.split("/", 1)[1]
+        public_id = after_upload.rsplit(".", 1)[0]
+        cloudinary.uploader.destroy(public_id)
+        return True
+    except Exception:
+        return False
 
 
 def validate_file(file_content: bytes, filename: str, max_size_mb: int = 3) -> bool:
