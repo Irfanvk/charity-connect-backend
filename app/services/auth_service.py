@@ -107,7 +107,7 @@ class AuthService:
         # Try to find user by username first (case-insensitive), then by email
         user = db.query(User).filter(func.lower(User.username) == normalized_identifier).first()
         if not user:
-            user = db.query(User).filter(User.email == normalized_identifier).first()
+            user = db.query(User).filter(func.lower(User.email) == normalized_identifier).first()
         
         if not user or not verify_password(user_login.password, user.password_hash):
             AuthService._register_failed_attempt(rate_limit_keys)

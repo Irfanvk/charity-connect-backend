@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 from app.config import settings
 from app.models.models import PasswordResetRequest, User
@@ -24,11 +25,12 @@ def _utcnow() -> datetime:
 def _find_user_by_identifier(db: Session, identifier: str) -> Optional[User]:
     """Look up a user by email, username, or phone number."""
     clean = identifier.strip()
+    clean_lower = clean.lower()
     user = (
         db.query(User)
         .filter(
-            (User.email == clean)
-            | (User.username == clean)
+            (func.lower(User.email) == clean_lower)
+            | (func.lower(User.username) == clean_lower)
             | (User.phone == clean)
         )
         .first()

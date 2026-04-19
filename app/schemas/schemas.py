@@ -53,6 +53,13 @@ class UserLogin(BaseModel):
     email: Optional[str] = None     # Backward compatibility
     password: str
 
+    @field_validator("username", "email", mode="before")
+    @classmethod
+    def lowercase_identifier(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return str(v).strip().lower() or None
+
 
 class UserRegisterWithInvite(BaseModel):
     invite_code: str
@@ -63,6 +70,13 @@ class UserRegisterWithInvite(BaseModel):
     phone: Optional[str] = None
     address: Optional[str] = None
     monthly_amount: Optional[float] = 0.0
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def lowercase_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return str(v).strip().lower() or None
 
     @field_validator("monthly_amount")
     @classmethod
@@ -112,6 +126,13 @@ class UserUpdate(BaseModel):
     phone: Optional[str] = None
     role: Optional[UserRole] = None
     is_active: Optional[bool] = None
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def lowercase_email(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        return str(v).strip().lower() or None
 
 
 class TokenResponse(BaseModel):
