@@ -18,6 +18,7 @@ from app.utils.auth import get_current_admin
 from app.services import password_reset_service
 from app.services.whatsapp_service import generate_whatsapp_chat_url
 from app.utils.message_format import with_islamic_greeting
+from app.utils.invite_share import _normalize_base_url
 from app.config import settings
 
 router = APIRouter(tags=["Password Reset"])
@@ -27,11 +28,12 @@ TOKEN_EXPIRY_HOURS = 24
 
 def _build_reset_chat_url(user, reset_token=None) -> str:
     """Build a wa.me link so the admin can manually send the reset link via WhatsApp."""
-    phone = getattr(user, "phone", None) or "" if user else ""
+    phone = (getattr(user, "phone", None) or "") if user else ""
     if not phone:
         return ""
     if reset_token:
-        reset_link = f"{settings.FRONTEND_BASE_URL}/ResetPassword?token={reset_token}"
+        base_url = _normalize_base_url()
+        reset_link = f"{base_url}/ResetPassword?token={reset_token}"
         message = with_islamic_greeting(
             f"Your password reset request for CharityHub has been approved by the admin.\n\n"
             f"Click the link below to set your new password:\n"
@@ -125,6 +127,9 @@ def list_requests(
     result = []
     for req in items:
         user = db.query(User).filter(User.id == req.user_id).first() if req.user_id else None
+        # Re-resolve unmatched requests (e.g. created before case-insensitive fix)
+        if not user and req.identifier and req.status == "pending":
+            user = password_reset_service.resolve_user(db, req)
         result.append(
             PasswordResetRequestResponse(
                 id=req.id,

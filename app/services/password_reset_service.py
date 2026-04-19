@@ -37,6 +37,19 @@ def _find_user_by_identifier(db: Session, identifier: str) -> Optional[User]:
     return user
 
 
+def resolve_user(db: Session, req: PasswordResetRequest) -> Optional[User]:
+    """Re-resolve a request's user_id from its identifier (case-insensitive).
+
+    Backfills req.user_id if a match is found so future lookups are instant.
+    """
+    user = _find_user_by_identifier(db, req.identifier)
+    if user and not req.user_id:
+        req.user_id = user.id
+        db.commit()
+        db.refresh(req)
+    return user
+
+
 def create_request(db: Session, identifier: str) -> PasswordResetRequest:
     """Create a pending password reset request (public, no auth required)."""
     user = _find_user_by_identifier(db, identifier)
@@ -85,9 +98,15 @@ def approve_request(
     if req.status != "pending":
         raise ValueError(f"Request is already {req.status}")
     if not req.user_id:
-        raise ValueError("Cannot approve request: original identifier did not match any account")
+        # Re-resolve: identifier may now match after case-insensitive fix
+        user = _find_user_by_identifier(db, req.identifier)
+        if user:
+            req.user_id = user.id
+        else:
+            raise ValueError("Cannot approve request: original identifier did not match any account")
+    else:
+        user = db.query(User).filter(User.id == req.user_id).first()
 
-    user = db.query(User).filter(User.id == req.user_id).first()
     if not user:
         raise ValueError("Associated user account not found")
 
