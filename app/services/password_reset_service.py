@@ -11,7 +11,6 @@ from sqlalchemy import func
 from app.config import settings
 from app.models.models import PasswordResetRequest, User
 from app.utils import hash_password
-from app.services.whatsapp_service import send_whatsapp_message
 
 logger = logging.getLogger(__name__)
 
@@ -79,7 +78,7 @@ def approve_request(
     admin_id: int,
     admin_notes: Optional[str] = None,
 ) -> PasswordResetRequest:
-    """Approve a password reset request: generate token, send WhatsApp message."""
+    """Approve a password reset request: generate token for admin to share."""
     req = db.query(PasswordResetRequest).filter(PasswordResetRequest.id == req_id).first()
     if not req:
         raise ValueError(f"PasswordResetRequest {req_id} not found")
@@ -105,24 +104,8 @@ def approve_request(
     db.commit()
     db.refresh(req)
 
-    # Send WhatsApp notification
-    reset_link = f"{settings.FRONTEND_BASE_URL}/ResetPassword?token={token}"
-    message = (
-        f"Your password reset request for CharityHub has been approved by the admin.\n\n"
-        f"Click the link below to set your new password:\n"
-        f"{reset_link}\n\n"
-        f"This link expires in {TOKEN_EXPIRY_HOURS} hours. "
-        f"Do not share this link with anyone."
-    )
-    phone = user.phone or ""
-    result = send_whatsapp_message(phone, message)
-    logger.info(
-        "Password reset WhatsApp sent to user %s (phone=%s): %s",
-        user.id,
-        phone,
-        result,
-    )
-
+    # WhatsApp link is built in the route layer (_build_reset_chat_url)
+    # and returned to the admin frontend for manual sending.
     return req
 
 

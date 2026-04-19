@@ -17,6 +17,7 @@ from app.schemas import (
 from app.utils.auth import get_current_admin
 from app.services import password_reset_service
 from app.services.whatsapp_service import generate_whatsapp_chat_url
+from app.utils.message_format import with_islamic_greeting
 from app.config import settings
 
 router = APIRouter(tags=["Password Reset"])
@@ -31,8 +32,7 @@ def _build_reset_chat_url(user, reset_token=None) -> str:
         return ""
     if reset_token:
         reset_link = f"{settings.FRONTEND_BASE_URL}/ResetPassword?token={reset_token}"
-        message = (
-            f"Assalamu Alaikum\n\n"
+        message = with_islamic_greeting(
             f"Your password reset request for CharityHub has been approved by the admin.\n\n"
             f"Click the link below to set your new password:\n"
             f"{reset_link}\n\n"
