@@ -3,7 +3,7 @@
 **Project:** CharityConnect  
 **Purpose:** Decisions, meeting minutes, and action items  
 **Owner:** Integration Lead  
-**Last Updated:** 2026-03-18
+**Last Updated:** 2026-04-20
 
 ---
 
@@ -11,6 +11,30 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-04-20 | Storage platform migrated from Cloudflare R2 to Cloudinary; local disk fallback preserved for dev | Backend | ✅ | `app/utils/file_handler.py` and `app/routes/file_routes.py` updated; `cloudinary` Python package added; `CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET/FOLDER` env vars introduced; `cloudinary_configured` property in `Settings` controls routing between Cloudinary and local disk |
+| 2026-04-19 | Landing page added to frontend application | Frontend | ✅ | New `src/pages/Landing.jsx` created with public brand imagery; route wired in `App.jsx` and `pages.config.js`; `appPaths.js` updated |
+| 2026-04-19 | Page transitions added to frontend app router | Frontend | ✅ | `App.jsx` updated with route transition animations for smoother navigation UX |
+| 2026-04-14 | Avatar upload enhanced with crop/pan/zoom controls and lightbox view on click | Frontend | ✅ | Added `AvatarCropUpload.jsx` and `AvatarLightbox.jsx` components; `Profile.jsx` updated to use new controls; avatar editing restricted to owner; lightbox opens on any avatar click |
+| 2026-04-13 | Campaign service and request service logic enhanced | Backend | ✅ | `app/services/campaign_service.py` and `app/services/request_service.py` improved with additional validation, error handling, and response consistency |
+| 2026-04-13 | Fund utilization input validation hardened | Backend | ✅ | `app/routes/fund_utilization_routes.py` updated; request body and query validation aligned with schema constraints; error responses standardized |
+| 2026-04-13 | Campaign page UX enhanced on frontend | Frontend | ✅ | `src/pages/Campaigns.jsx` significantly refactored for improved layout, filtering, image display, and mobile consistency |
+| 2026-04-12 | Campaign image upload endpoint and `image_url` field added | Both | ✅ | Backend: `POST /campaigns/{id}/upload-image` added; `campaigns.image_url` column added via `migrations/20260412_campaign_image_url.sql`; Frontend: `CampaignForm.jsx` updated with image upload field and preview |
+| 2026-04-12 | Static file serving enabled for `/uploads/` directory | Backend | ✅ | `app/main.py` mounts `/uploads` as `StaticFiles`; frontend can directly reference uploaded avatar and proof file URLs |
+| 2026-04-12 | Password reset WhatsApp notification added | Backend | ✅ | Admin-approved password reset requests dispatch a `wa.me` link containing the reset token to the member's phone via `app/services/whatsapp_service.py` |
+| 2026-04-12 | Forgot password and reset password pages added | Frontend | ✅ | `src/pages/ForgotPassword.jsx` and `src/pages/ResetPassword.jsx` added; `charityClient.js` extended with `forgotPassword` and `resetPassword` API calls; `AdminRequests.jsx` updated to surface pending password reset request management |
+| 2026-04-12 | Challans page mobile filter UX fixed | Frontend | ✅ | Filter controls in `src/pages/Challans.jsx` adjusted for correct layout on small-screen viewports |
+| 2026-04-09 | Forgot password feature implemented (admin-mediated reset flow) | Backend | ✅ | New endpoints: `POST /auth/forgot-password`, `GET /admin/password-reset-requests/`, `PATCH /admin/password-reset-requests/{id}/approve`, `PATCH /admin/password-reset-requests/{id}/reject`, `POST /auth/reset-password`; `PasswordResetRequest` model, `password_reset_service`, and migration `20260409_password_reset_requests.sql` added |
+| 2026-04-09 | Admin WIPE route fixed | Backend | ✅ | `app/routes/admin_router.py` corrected to include `member_requests` records in wipe scope and resolve deletion ordering issue |
+| 2026-04-09 | Full name and username display normalized across member and user records | Both | ✅ | Backend: `models.py`, `member_service.py`, `auth_service.py` updated to consistently surface `full_name`; `init_db.sql` and `migrations/20260409_member_and_user_full_name.sql` added; Frontend: `UserProfilePopover.jsx`, `MemberForm.jsx`, `Members.jsx`, `Settings.jsx`, `SuperadminPanel.jsx` updated |
+| 2026-04-09 | Audit log model and notification route issues resolved | Both | ✅ | Backend: `models.py` extended; `audit_log_routes.py` and `notification_routes.py` fixed; Frontend: `AuditLogs.jsx` overhauled with correct field mapping; `App.jsx` and `charityClient.js` updated |
+| 2026-04-09 | Members list shows member details on name click | Frontend | ✅ | `UserProfilePopover.jsx` updated to expand member detail popover on name click in the members list view |
+| 2026-04-09 | Login error messages improved | Frontend | ✅ | `charityClient.js` updated to surface specific server-side error messages on login failure instead of generic fallback text |
+| 2026-04-09 | Campaign create button made responsive on mobile | Frontend | ✅ | `src/pages/Campaigns.jsx` button layout adjusted for small-screen viewports |
+| 2026-04-01 | WhatsApp messaging enhanced with Islamic Greetings | Backend | ✅ | `app/utils/invite_share.py` and `app/utils/message_format.py` added; invite messages now include cultural greeting prefix (Assalamu Alaikum); `app/services/invite_service.py` and `app/workers/tasks.py` updated |
+| 2026-04-01 | Celery worker runtime detection extracted as reusable utility | Backend | ✅ | `app/workers/runtime.py` added; worker detection logic centralized for use across services; `celery_app.py` refined |
+| 2026-04-01 | Fund utilization tracking module added | Backend | ✅ | New `FundUtilization` model, schemas (`FundUtilizationCreate`, `FundUtilizationResponse`, `FundUtilizationSummary`), and `POST/GET /fund-utilizations/` CRUD routes added; `GET /fund-utilizations/summary` returns balance vs utilization aggregate |
+| 2026-04-01 | WhatsApp invite sharing added for admin users | Both | ✅ | Backend: invite creation generates `wa.me` chat link for sharing invite codes; Frontend: WhatsApp share action added to invite management UI |
+| 2026-03-31 | User profile avatar upload implemented | Backend | ✅ | `PATCH /auth/me/avatar` endpoint added in `app/routes/auth_routes.py`; `users.avatar_url` field added to model and schema; uploaded avatars stored under `uploads/avatars/` |
 | 2026-03-18 | `task_default_queue="default"` added to Celery config to fix silent PENDING task accumulation | Backend | ✅ | Root cause: tasks routed to queue `default` but workers listening on Celery's built-in `celery` queue; fix aligns both sides; verified end-to-end with `send_invite_message` → state `SUCCESS` |
 | 2026-03-18 | `extra = "ignore"` added to Pydantic `Settings.Config` to allow legacy `.env` keys | Backend | ✅ | Legacy fields (`r2_endpoint_url`, `r2_bucket_name`, `r2_public_url`, `allowed_origins`, `import_default_password`) are present in `.env` but not in the Settings model; adding `extra = "ignore"` prevents startup crash |
 | 2026-03-18 | `celerybeat-schedule*` runtime files added to `.gitignore` | Backend | ✅ | `celerybeat-schedule`, `celerybeat-schedule-shm`, `celerybeat-schedule-wal` are SQLite-based runtime artifacts written by the Beat scheduler; should not be tracked |
@@ -1162,4 +1186,291 @@ db.close()
 - Test seed script: ✅ Provided above
 - Admin credentials: Use existing admin account
 
+- All 5 bulk endpoints: ✅ Implemented
+- Test seed script: ✅ Provided above
+- Admin credentials: Use existing admin account
+
 **Status:** Backend v1.1 fully implemented and ready for end-to-end testing. 🚀
+
+---
+
+## 2026-03-31 - Backend to Frontend Communication (Avatar Upload)
+
+**Summary:** User profile avatar upload is now live. Frontend can wire up the new endpoint.
+
+### Backend Changes Applied
+
+1. **New avatar upload endpoint**
+   - ✅ `PATCH /auth/me/avatar` — multipart file upload; returns `{ "avatar_url": "..." }`.
+   - ✅ Accepted formats: JPG, PNG (max 3 MB enforced by backend).
+   - ✅ `users.avatar_url` persisted and returned in `GET /auth/me` response.
+
+2. **Storage path**
+   - ✅ Avatars stored under `uploads/avatars/<uuid>.<ext>`.
+   - ✅ Path is served via static file mount at `/uploads/avatars/`.
+
+### Frontend Guidance
+
+- Use `PATCH /auth/me/avatar` with `multipart/form-data` (`file` field) for avatar upload.
+- Render avatar from `user.avatar_url`; fall back to initials/placeholder when null.
+
+---
+
+## 2026-04-01 - Backend to Frontend Communication (Fund Utilization + WhatsApp Sharing)
+
+**Summary:** Two new capability areas are now available: fund utilization tracking and WhatsApp-based invite sharing.
+
+### Backend Changes Applied
+
+1. **Fund utilization tracking**
+   - ✅ `POST /fund-utilizations/` — admin creates a spending record (title, amount, category, recipient, date).
+   - ✅ `GET /fund-utilizations/` — paginated list of spending records (admin only).
+   - ✅ `GET /fund-utilizations/summary` — returns total collected vs total utilized and available balance.
+   - ✅ `PUT /fund-utilizations/{id}` — admin updates a record.
+   - ✅ `DELETE /fund-utilizations/{id}` — admin deletes a record.
+
+2. **WhatsApp invite sharing**
+   - ✅ Invite creation response now includes a `whatsapp_url` field (`wa.me/...` link) containing the invite code and a formatted message.
+   - ✅ Messages include cultural greeting (Assalamu Alaikum) and full invite details.
+
+3. **Celery messaging improvements**
+   - ✅ `app/workers/runtime.py` added for safer Celery availability detection.
+   - ✅ Invite and notification tasks updated with improved message formatting.
+
+### Frontend Guidance
+
+- Wire up fund utilization CRUD to admin finance section; use summary endpoint for balance dashboard widgets.
+- Use `whatsapp_url` from invite response to render "Share via WhatsApp" button.
+- WhatsApp share is admin-only — guard UI behind role check.
+
+---
+
+## 2026-04-09 - Backend to Frontend Communication (Password Reset + Audit + WIPE Fixes)
+
+**Summary:** Four significant backend changes are now available.
+
+### Backend Changes Applied
+
+1. **Admin-mediated forgot password flow**
+   - ✅ `POST /auth/forgot-password` — member submits reset request (requires email).
+   - ✅ `GET /admin/password-reset-requests/` — admin lists pending reset requests.
+   - ✅ `PATCH /admin/password-reset-requests/{id}/approve` — admin approves; backend generates reset token and returns a `wa.me` link for WhatsApp delivery.
+   - ✅ `PATCH /admin/password-reset-requests/{id}/reject` — admin rejects.
+   - ✅ `POST /auth/reset-password` — member submits new password with token.
+   - ✅ Token expires in 24 hours; single-use enforced.
+
+2. **Full name / username normalization**
+   - ✅ `GET /auth/me` and `GET /members/me` now consistently return `full_name`.
+   - ✅ Member list responses surface `full_name` from linked user record where previously null.
+   - ✅ Migration `20260409_member_and_user_full_name.sql` adds the column if absent.
+
+3. **Audit log fixes**
+   - ✅ `GET /audit-logs/` query parameter handling corrected.
+   - ✅ Notification response schema extended for correct frontend deserialization.
+
+4. **Admin WIPE fix**
+   - ✅ `POST /admin/system/wipe` now correctly clears `password_reset_requests` and `member_requests` tables before dependent records.
+
+### Frontend Action Items
+
+- Add "Forgot Password" link on Login page → routes to `ForgotPassword` page.
+- Add `ResetPassword` page (token via URL param) wired to `POST /auth/reset-password`.
+- Add admin password reset request management to `AdminRequests` or dedicated admin view.
+- Refresh `full_name` rendering across all user/member display components.
+
+---
+
+## 2026-04-09 - Frontend to Backend Communication (Audit + Display Fixes)
+
+**Summary:** Frontend resolved audit log rendering failures and applied full-name/username display normalization.
+
+### Frontend Changes Applied
+
+1. **Audit log page overhauled**
+   - ✅ `AuditLogs.jsx` rewritten with correct field mapping to backend response keys.
+   - ✅ `charityClient.js` updated to normalize audit log entries.
+   - ✅ Filter dropdowns updated to pass valid parameter values only.
+
+2. **Full name display normalization**
+   - ✅ `UserProfilePopover.jsx`, `MemberForm.jsx`, `Members.jsx`, `Settings.jsx`, `SuperadminPanel.jsx` updated to prefer `full_name` over raw `username`.
+
+3. **Members list detail on click**
+   - ✅ Clicking a member's name in the list now opens a detail popover with key profile fields.
+
+4. **Login error messaging**
+   - ✅ `charityClient.js` updated to surface specific backend error detail on login failure.
+
+5. **Campaign button mobile fix**
+   - ✅ "Create Campaign" button repositioned for correct display on mobile viewports.
+
+### Backend Confirmations Required
+
+- Confirm `full_name` is consistently returned in member list responses (not just `GET /members/me`).
+- Confirm audit log `GET` endpoint query string parameters match updated frontend parameter names.
+
+### Backend Response (2026-04-09)
+
+- ✅ `full_name` added to member list response items via `20260409_member_and_user_full_name.sql` migration.
+- ✅ Audit log query parameter handling verified post-fix.
+
+---
+
+## 2026-04-12 - Backend to Frontend Communication (Campaign Images + Password Reset + Static Files)
+
+**Summary:** Three new features are ready for frontend integration.
+
+### Backend Changes Applied
+
+1. **Campaign image upload**
+   - ✅ `POST /campaigns/{id}/upload-image` — multipart upload; stores image and updates `campaigns.image_url`.
+   - ✅ `image_url` now returned in all campaign response objects.
+   - ✅ Migration `migrations/20260412_campaign_image_url.sql` applies column addition.
+
+2. **Static file serving**
+   - ✅ `/uploads/*` now served as static files directly from the backend.
+   - ✅ Frontend can render avatar and proof images via `<img src="{backendBase}/uploads/avatars/{filename}" />`.
+
+3. **WhatsApp password reset delivery**
+   - ✅ Approving a password reset request returns a `whatsapp_url` field containing a pre-formatted `wa.me` link.
+   - ✅ Admin clicks the link to open WhatsApp and send the reset token to the member directly.
+
+### Frontend Guidance
+
+- Add image upload field to campaign create/edit form; display `image_url` in campaign cards/details.
+- Update avatar and proof image `<img>` tags to use full backend static URL.
+- In password reset approval flow, render a "Send via WhatsApp" button using the returned `whatsapp_url`.
+
+---
+
+## 2026-04-12 - Frontend to Backend Communication (Forgot Password + Campaign Images)
+
+**Summary:** Frontend has implemented forgot password flow and campaign image upload integration.
+
+### Frontend Changes Applied
+
+1. **Forgot password flow**
+   - ✅ `ForgotPassword.jsx` — public page; submits email to `POST /auth/forgot-password`.
+   - ✅ `ResetPassword.jsx` — reads `token` from URL query param; submits to `POST /auth/reset-password`.
+   - ✅ Login page updated with "Forgot Password?" link.
+
+2. **Campaign image upload**
+   - ✅ `CampaignForm.jsx` updated with image file picker and preview.
+   - ✅ Image uploaded to `POST /campaigns/{id}/upload-image` after campaign create/save.
+   - ✅ Campaign cards display `image_url` when present.
+
+3. **Challans mobile filter fix**
+   - ✅ Filter controls in `Challans.jsx` corrected for mobile-responsive layout.
+   - ✅ `vite.config.js` updated to proxy `/uploads` to backend static file serve.
+
+### Backend Confirmations Required
+
+- Confirm `POST /campaigns/{id}/upload-image` accepts multipart with `file` field.
+- Confirm reset token in `POST /auth/reset-password` payload field name.
+
+### Backend Response (2026-04-12)
+
+- ✅ `POST /campaigns/{id}/upload-image` expects `file` field in multipart form.
+- ✅ `POST /auth/reset-password` expects `{ "token": "...", "new_password": "..." }` payload.
+
+---
+
+## 2026-04-13 - Backend to Frontend Communication (Service Enhancements)
+
+**Summary:** Campaign and request service behavior improved; fund utilization validation hardened.
+
+### Backend Changes Applied
+
+1. **Campaign service improvements**
+   - ✅ Campaign progress calculation updated; edge cases for unlimited-goal campaigns handled.
+   - ✅ Campaign update responses now return complete object (not partial patch result).
+
+2. **Request service improvements**
+   - ✅ Request approval side effects made more resilient (null-safe field application).
+   - ✅ Request list responses include requesting member's display name.
+
+3. **Fund utilization validation**
+   - ✅ Amount must be positive; date must be a valid past or present date.
+   - ✅ Category field validated against allowed enum values.
+
+### Frontend Guidance
+
+- No API contract changes; existing frontend calls remain compatible.
+- Campaign page can now rely on complete object in update response.
+
+---
+
+## 2026-04-14 - Frontend to Backend Communication (Avatar Crop/Zoom)
+
+**Summary:** Frontend enhanced avatar upload with interactive crop/zoom UI and lightbox view.
+
+### Frontend Changes Applied
+
+1. **Avatar crop/pan/zoom on upload**
+   - ✅ `AvatarCropUpload.jsx` component added; uses canvas-based editor for crop and zoom before upload.
+   - ✅ Cropped result uploaded to `PATCH /auth/me/avatar` as before — no API contract changes.
+
+2. **Avatar lightbox on click**
+   - ✅ `AvatarLightbox.jsx` component added; clicking any avatar opens a full-size overlay view.
+
+3. **Edit-only controls**
+   - ✅ Avatar upload/edit controls shown only for the authenticated user's own profile.
+
+### Backend Note
+
+No backend changes required. Existing `PATCH /auth/me/avatar` endpoint remains canonical.
+
+---
+
+## 2026-04-19 - Frontend to Backend Communication (Landing Page + Transitions)
+
+**Summary:** Public-facing landing page added; page-level route transitions implemented.
+
+### Frontend Changes Applied
+
+1. **Landing page**
+   - ✅ `src/pages/Landing.jsx` created as the new public entry point at `/`.
+   - ✅ Includes organization branding, call-to-action, and navigation to login/registration.
+   - ✅ `App.jsx`, `pages.config.js`, and `appPaths.js` updated to include the landing route.
+
+2. **Page transitions**
+   - ✅ Route transitions added in `App.jsx` for smoother navigation between pages.
+
+### Backend Note
+
+No backend changes required for these frontend-only updates.
+
+---
+
+## 2026-04-20 - Backend to Frontend Communication (Cloudinary Storage Migration)
+
+**Summary:** File storage platform migrated from Cloudflare R2 to Cloudinary. Local disk fallback remains for development.
+
+### Backend Changes Applied
+
+1. **Cloudinary integration**
+   - ✅ `app/utils/file_handler.py` updated to use `cloudinary.uploader.upload` as primary storage path.
+   - ✅ `app/routes/file_routes.py` updated for compatibility with new handler interface.
+   - ✅ `app/config.py` extended with `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`, `CLOUDINARY_FOLDER` settings and a `cloudinary_configured` property.
+   - ✅ `requirements.txt` updated: `cloudinary` package added; `boto3`/R2 dependency removed.
+
+2. **Local fallback preserved**
+   - ✅ When Cloudinary env vars are absent, file handler falls back to local disk storage (same behavior as before).
+
+3. **URL format change**
+   - ⚠️ Production file URLs will now be Cloudinary `secure_url` format (`https://res.cloudinary.com/...`).
+   - ⚠️ Development/local URLs remain relative paths (`/uploads/...`).
+
+### Frontend Guidance
+
+- No API changes; `file_url` field in upload responses continues to hold the resolved URL.
+- Ensure frontend renders file URLs as-is (no prefix injection) since Cloudinary returns absolute URLs.
+- Update `.env.production` on frontend if hardcoded backend base URL prefixes are applied to file URLs.
+
+### Environment Variables Required (Production)
+
+```
+CLOUDINARY_CLOUD_NAME=your_cloud_name
+CLOUDINARY_API_KEY=your_api_key
+CLOUDINARY_API_SECRET=your_api_secret
+CLOUDINARY_FOLDER=charity-connect   # optional, defaults to charity-connect
+```
