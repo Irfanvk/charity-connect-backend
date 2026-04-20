@@ -41,9 +41,9 @@ class RequestType(str, enum.Enum):
 
 
 class RequestStatus(str, enum.Enum):
-    PENDING = "pending"
-    APPROVED = "approved"
-    REJECTED = "rejected"
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
 
 
 class NotificationStatus(str, enum.Enum):

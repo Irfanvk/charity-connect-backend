@@ -95,7 +95,7 @@ class RequestService:
     @staticmethod
     def _parse_status(value: str) -> RequestStatus:
         try:
-            return RequestStatus(value.lower())
+            return RequestStatus(value.upper())
         except ValueError:
             valid = [e.value for e in RequestStatus]
             raise HTTPException(
