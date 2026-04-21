@@ -101,11 +101,14 @@ def bulk_create_challans(
             detail="Cannot create bulk challan for inactive member"
         )
 
+    earliest_selected_month = min(months_set) if months_set else None
+
     payable = ChallanService.get_payable_months(
         db,
         member_id=member_id,
         include_upcoming=True,
         upcoming_count=3,
+        from_month=earliest_selected_month,
     )
     allowed_months = set(payable["all_months"])
     invalid_months = sorted([m for m in months_set if m not in allowed_months])
@@ -139,12 +142,10 @@ def bulk_create_challans(
             },
         )
     
-    # Verify proof file exists (basic check - in production, verify with file service)
-    if not request.proof_file_id:
-        raise HTTPException(
-            status_code=422,
-            detail=[{"loc": ["body", "proof_file_id"], "msg": "Proof file ID required", "type": "value_error"}]
-        )
+    proof_file_id = (request.proof_file_id or "").strip()
+    if not proof_file_id:
+        # Keep DB compatibility (column is non-nullable) while allowing proof-optional bulk creation.
+        proof_file_id = f"no-proof:{uuid.uuid4()}"
     
     # Generate bulk group ID — pure UUID, no date prefix so creation time
     # cannot be decoded from the ID itself (timestamp is already in created_at).
@@ -176,7 +177,7 @@ def bulk_create_challans(
             member_id=member_id,
             amount_per_month=request.amount_per_month,
             total_amount=total_amount,
-            proof_file_id=request.proof_file_id,
+            proof_file_id=proof_file_id,
             status="pending_approval",
             months_list=json.dumps(request.months),
             challan_ids_list=json.dumps(challan_ids),
@@ -210,7 +211,7 @@ def bulk_create_challans(
             challan_ids=challan_ids,
             months=request.months,
             total_amount=total_amount,
-            proof_file_id=request.proof_file_id,
+            proof_file_id=proof_file_id,
             status="pending_approval",
             created_at=bulk_group.created_at,
             notes=request.notes,

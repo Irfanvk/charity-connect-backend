@@ -92,7 +92,7 @@ class RequestService:
     @staticmethod
     def _parse_status(value: str) -> RequestStatus:
         try:
-            return RequestStatus(value.upper())
+            return RequestStatus(value.lower())
         except ValueError:
             valid = [e.value for e in RequestStatus]
             raise HTTPException(
@@ -165,7 +165,7 @@ class RequestService:
         if role not in ["admin", "superadmin"]:
             query = query.filter(MemberRequest.user_id == int(current_user.get("user_id")))
 
-        # FIX: coerce to enum so PostgreSQL receives the correct typed value ("PENDING" not "pending")
+        # Coerce to enum so PostgreSQL receives the exact enum value.
         if status_filter:
             query = query.filter(MemberRequest.status == RequestService._parse_status(status_filter))
         if request_type:
@@ -344,7 +344,7 @@ class RequestService:
     ) -> dict:
         query = db.query(MemberRequest)
 
-        # FIX: coerce to enum so PostgreSQL receives the correct typed value ("PENDING" not "pending")
+        # Coerce to enum so PostgreSQL receives the exact enum value.
         if status_filter:
             query = query.filter(MemberRequest.status == RequestService._parse_status(status_filter))
         if request_type:

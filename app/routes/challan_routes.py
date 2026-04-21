@@ -191,6 +191,7 @@ def get_payable_months(
     member_id: Optional[int] = Query(default=None),
     include_upcoming: bool = Query(default=False),
     upcoming_count: int = Query(default=3, ge=0, le=12),
+    from_month: Optional[str] = Query(default=None, description="Start month override yyyy-MM"),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -211,6 +212,7 @@ def get_payable_months(
         member_id=target_member_id,
         include_upcoming=include_upcoming,
         upcoming_count=upcoming_count,
+        from_month=from_month,
     )
 
 

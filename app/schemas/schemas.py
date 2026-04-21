@@ -655,7 +655,7 @@ class AuditLogCreate(BaseModel):
 class BulkChallanCreate(BaseModel):
     months: list[str]  # List of YYYY-MM format months
     amount_per_month: float
-    proof_file_id: str
+    proof_file_id: Optional[str] = None
     member_id: Optional[int] = None  # Optional for members (uses current user), required for admins
     notes: Optional[str] = None
 

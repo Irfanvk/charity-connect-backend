@@ -62,14 +62,34 @@ class ChallanService:
         member_id: int,
         include_upcoming: bool = False,
         upcoming_count: int = 3,
+        from_month: str = None,          # "yyyy-MM" override supplied by the frontend
     ) -> dict:
         member = db.query(Member).filter(Member.id == member_id).first()
         if not member:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
 
         today = datetime.utcnow().date().replace(day=1)
-        join_date = (member.join_date.date() if member.join_date else today).replace(day=1)
-        start_month = join_date if join_date <= today else today
+
+        # --- Determine start month ---
+        # Priority:
+        #   1. Explicit from_month query param (frontend picker, e.g. "2026-01")
+        #   2. member.join_date — only trustworthy when it is strictly in the past
+        #      (if join_date == today the member was just created with the default,
+        #       so we fall back to 12 months ago to avoid an empty list)
+        #   3. Default: 12 months ago
+        if from_month:
+            try:
+                parsed = datetime.strptime(from_month, "%Y-%m").date().replace(day=1)
+                start_month = min(parsed, today)   # never start in the future
+            except ValueError:
+                start_month = today
+        elif member.join_date:
+            jd = member.join_date.date().replace(day=1)
+            # Trust join_date only when it pre-dates today
+            start_month = jd if jd < today else today
+        else:
+            # No join_date at all — fall back to 12 months ago
+            start_month = ChallanService._add_months(today, -12)
 
         existing_monthly = (
             db.query(Challan.month)
@@ -142,6 +162,7 @@ class ChallanService:
                 member_id,
                 include_upcoming=True,
                 upcoming_count=3,
+                from_month=challan_data.month,
             )
             if challan_data.month not in set(payable["all_months"]):
                 raise HTTPException(
