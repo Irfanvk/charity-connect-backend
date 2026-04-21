@@ -1,0 +1,88 @@
+# Render deployment configuration for CharityHub backend
+# Docs: https://render.com/docs/blueprint-spec
+#
+# ONE-TIME SETUP (do this before deploying):
+# 1. Push this repo to GitHub / GitLab.
+# 2. In Render dashboard → New → Blueprint → connect the repo.
+# 3. Render will read this file and create the service + database automatically.
+# 4. After first deploy, go to the service's Environment tab and fill in the
+#    secrets marked  ← SET IN DASHBOARD  below.
+
+services:
+  - type: web
+    name: charity-connect-backend
+    env: python
+    region: oregon             # change to nearest region (oregon / frankfurt / singapore)
+    plan: free                 # upgrade to starter for always-on + more RAM
+
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+
+    healthCheckPath: /health
+
+    envVars:
+      # ── Runtime ──────────────────────────────────────────────────────────────
+      - key: PYTHON_VERSION
+        value: "3.11.0"
+
+      - key: DEBUG
+        value: "false"
+
+      - key: LOG_LEVEL
+        value: "INFO"
+
+      # ── Security ─────────────────────────────────────────────────────────────
+      - key: SECRET_KEY
+        generateValue: true    # Render auto-generates a secure random string
+
+      # ── Database ─────────────────────────────────────────────────────────────
+      - key: DATABASE_URL
+        fromDatabase:
+          name: charity-connect-db
+          property: connectionString
+
+      # ── CORS / Trusted Hosts ──────────────────────────────────────────────────
+      # Replace with your actual Netlify URL (and custom domain if you have one)
+      - key: ALLOWED_ORIGINS
+        value: "https://your-app.netlify.app"     # ← SET IN DASHBOARD after Netlify deploy
+
+      - key: ALLOWED_HOSTS
+        value: "charity-connect-backend.onrender.com"  # ← SET IN DASHBOARD (your Render domain)
+
+      - key: FRONTEND_BASE_URL
+        value: "https://your-app.netlify.app"     # ← SET IN DASHBOARD (used in email links)
+
+      # ── Web Push (VAPID) ──────────────────────────────────────────────────────
+      # Generate VAPID keys:
+      #   pip install py-vapid
+      #   python -m py_vapid --gen
+      # Copy the output to the fields below.
+      #
+      # WEB_PUSH_PRIVATE_KEY: paste the entire PEM content as a single base64 string:
+      #   python -c "import base64, pathlib; print(base64.b64encode(pathlib.Path('private_key.pem').read_bytes()).decode())"
+      - key: WEB_PUSH_PUBLIC_KEY
+        sync: false            # ← SET IN DASHBOARD — the URL-safe base64 public key
+
+      - key: WEB_PUSH_PRIVATE_KEY
+        sync: false            # ← SET IN DASHBOARD — base64-encoded PEM (see instructions above)
+
+      - key: WEB_PUSH_SUBJECT
+        value: "mailto:admin@charityhub.app"  # update to a real email / your domain
+
+      # ── Optional: Cloudinary (file storage) ──────────────────────────────────
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+
+      # ── Optional: WhatsApp Cloud API ─────────────────────────────────────────
+      - key: WHATSAPP_ENABLED
+        value: "false"
+
+databases:
+  - name: charity-connect-db
+    databaseName: charity_connect
+    user: charity_user
+    plan: free                 # Render free Postgres (90-day limit on free tier)
