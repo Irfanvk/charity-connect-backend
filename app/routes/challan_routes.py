@@ -487,3 +487,37 @@ def revert_challan(
         auto_commit=True,
     )
     return result
+
+
+# ------------------------------------------------------------------
+# DELETE CHALLAN (ADMIN OR OWNER, BEFORE APPROVAL)
+# ------------------------------------------------------------------
+@router.delete("/{challan_id}")
+def delete_challan(
+    challan_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Delete challan (admin or owner) before approval."""
+    challan = ChallanService.get_challan(db, challan_id)
+
+    if not _is_admin(current_user):
+        member = MemberService.get_member_for_user(db, current_user["user_id"])
+        if member is None or challan.member_id != member.id:
+            raise HTTPException(status_code=403, detail="Not authorized to delete this challan")
+
+    result = ChallanService.delete_challan(db, challan_id)
+
+    if _is_admin(current_user):
+        log_audit(
+            db,
+            user_id=current_user.get("user_id"),
+            action="challan_delete",
+            entity_type="Challan",
+            entity_id=challan_id,
+            old_values={"status": challan.status, "member_id": challan.member_id},
+            new_values={"deleted": True},
+            auto_commit=True,
+        )
+
+    return result

@@ -3,7 +3,8 @@ from sqlalchemy import String, cast
 from sqlalchemy import func
 from sqlalchemy import or_
 from sqlalchemy import case
-from app.models import Challan, Member, User
+import json
+from app.models import Challan, Member, User, BulkChallanGroup
 from app.models.models import ChallanStatus, ChallanType
 from app.schemas import ChallanCreate, ChallanReject, ChallanRevert, ChallanUpdate
 from app.utils.file_handler import save_file, validate_file
@@ -522,7 +523,42 @@ class ChallanService:
                 detail="Challan not found",
             )
 
+        if challan.status == ChallanStatus.APPROVED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Approved challans cannot be edited",
+            )
+
         changes = update_data.dict(exclude_unset=True)
+
+        if challan.type == ChallanType.MONTHLY and "month" in changes:
+            requested_month = changes.get("month")
+            payable = ChallanService.get_payable_months(
+                db,
+                member_id=challan.member_id,
+                include_upcoming=True,
+                upcoming_count=3,
+                from_month=requested_month,
+            )
+            if requested_month not in set(payable["all_months"]):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Selected month is not currently payable for this member",
+                )
+
+            duplicate = db.query(Challan).filter(
+                Challan.id != challan_id,
+                Challan.member_id == challan.member_id,
+                Challan.type == ChallanType.MONTHLY,
+                Challan.month == requested_month,
+                Challan.status != ChallanStatus.REJECTED,
+            ).first()
+            if duplicate:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Another challan already exists for this month",
+                )
+
         for key, value in changes.items():
             setattr(challan, key, value)
 
@@ -537,6 +573,68 @@ class ChallanService:
             challan.member_name = None
         
         return challan
+
+    @staticmethod
+    def delete_challan(db: Session, challan_id: int):
+        """Delete challan only before approval; keep bulk group metadata in sync."""
+        challan = db.query(Challan).filter(Challan.id == challan_id).first()
+        if not challan:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Challan not found",
+            )
+
+        if challan.status == ChallanStatus.APPROVED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Approved challans cannot be deleted",
+            )
+
+        bulk_group_id = challan.bulk_group_id
+        challan_month = challan.month
+        challan_amount = float(challan.amount or 0)
+
+        if bulk_group_id:
+            bulk_group = db.query(BulkChallanGroup).filter(
+                BulkChallanGroup.bulk_group_id == bulk_group_id
+            ).first()
+            if bulk_group:
+                try:
+                    challan_ids = json.loads(bulk_group.challan_ids_list or "[]")
+                    if not isinstance(challan_ids, list):
+                        challan_ids = []
+                except Exception:
+                    challan_ids = []
+
+                try:
+                    months = json.loads(bulk_group.months_list or "[]")
+                    if not isinstance(months, list):
+                        months = []
+                except Exception:
+                    months = []
+
+                challan_ids = [cid for cid in challan_ids if int(cid) != int(challan_id)]
+                if challan_month:
+                    removed = False
+                    new_months = []
+                    for m in months:
+                        if not removed and m == challan_month:
+                            removed = True
+                            continue
+                        new_months.append(m)
+                    months = new_months
+
+                if not challan_ids:
+                    db.delete(bulk_group)
+                else:
+                    bulk_group.challan_ids_list = json.dumps(challan_ids)
+                    bulk_group.months_list = json.dumps(months)
+                    bulk_group.total_amount = max(0.0, float(bulk_group.total_amount or 0) - challan_amount)
+
+        db.delete(challan)
+        db.commit()
+
+        return {"deleted_id": challan_id, "message": "Challan deleted successfully"}
     
     @staticmethod
     def get_challan(db: Session, challan_id: int):
