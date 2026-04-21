@@ -10,6 +10,7 @@ from sqlalchemy import func
 
 from app.config import settings
 from app.models.models import PasswordResetRequest, User, Notification
+from app.services.notification_service import NotificationService
 from app.utils import hash_password
 
 logger = logging.getLogger(__name__)
@@ -85,15 +86,21 @@ def _notify_admins_new_request(
             .filter(User.role.in_(["admin", "superadmin"]), User.is_active == True)
             .all()
         )
+        created_notifications = []
         for admin in admins:
-            db.add(Notification(
+            notification = Notification(
                 user_id=admin.id,
                 title=title,
                 message=message,
                 target_role="admin",
-            ))
+            )
+            db.add(notification)
+            created_notifications.append(notification)
         if admins:
             db.commit()
+            for notification in created_notifications:
+                db.refresh(notification)
+                NotificationService.dispatch_notification(db, notification)
     except Exception:
         logger.exception("Failed to notify admins about password reset request %s", req.id)
 

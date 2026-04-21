@@ -64,7 +64,10 @@ class Settings(BaseSettings):
         raise ValueError("CORS_ORIGINS must be a list or a string")
 
     # Trusted host validation (hostnames only, no scheme)
-    ALLOWED_HOSTS: list[str] = Field(default_factory=lambda: ["127.0.0.1", "localhost", "testserver"])
+    # In production set ALLOWED_HOSTS=your-app.onrender.com,your-custom-domain.com
+    ALLOWED_HOSTS: list[str] = Field(
+        default_factory=lambda: ["127.0.0.1", "localhost", "testserver", "*.onrender.com", "*.netlify.app"]
+    )
 
     @field_validator("ALLOWED_HOSTS", mode="before")
     @classmethod
@@ -147,6 +150,48 @@ class Settings(BaseSettings):
     WHATSAPP_API_TOKEN: str = os.getenv("WHATSAPP_API_TOKEN", "")
     WHATSAPP_PHONE_NUMBER_ID: str = os.getenv("WHATSAPP_PHONE_NUMBER_ID", "")
     WHATSAPP_VERIFY_TOKEN: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
+
+    # Web Push (for notifications when app is closed)
+    WEB_PUSH_PUBLIC_KEY: str = os.getenv("WEB_PUSH_PUBLIC_KEY", "")
+    WEB_PUSH_PRIVATE_KEY: str = os.getenv("WEB_PUSH_PRIVATE_KEY", "")
+    WEB_PUSH_SUBJECT: str = os.getenv("WEB_PUSH_SUBJECT", "mailto:admin@example.com")
+
+    @property
+    def web_push_private_key_value(self) -> str:
+        """Resolve the VAPID private key to a PEM string.
+
+        Supports three formats so the same codebase works locally and on Render/Heroku:
+        - File path  → reads the .pem file (local dev: private_key.pem)
+        - Base64 PEM → decodes to PEM string (production env var — no multiline needed)
+        - Raw PEM    → returned as-is (starts with '-----BEGIN')
+        """
+        import base64
+        key = self.WEB_PUSH_PRIVATE_KEY.strip()
+        if not key:
+            return ""
+        # File path that exists on disk (local dev)
+        if os.path.isfile(key):
+            try:
+                with open(key, "r") as f:
+                    return f.read().strip()
+            except OSError:
+                pass
+        # Raw PEM block
+        if key.startswith("-----BEGIN"):
+            return key
+        # Base64-encoded PEM (production: store entire PEM as single base64 env var)
+        try:
+            decoded = base64.b64decode(key).decode("utf-8")
+            if decoded.startswith("-----BEGIN"):
+                return decoded.strip()
+        except Exception:
+            pass
+        # Fall back to raw value (pywebpush may accept unencoded keys too)
+        return key
+
+    @property
+    def web_push_configured(self) -> bool:
+        return bool(self.WEB_PUSH_PUBLIC_KEY and self.web_push_private_key_value and self.WEB_PUSH_SUBJECT)
 
     class Config:
         env_file = ".env"

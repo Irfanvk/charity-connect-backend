@@ -86,6 +86,41 @@ def ensure_runtime_schema() -> None:
             connection.execute(text("CREATE INDEX ix_app_settings_key ON app_settings (key)"))
             logger.info("Created app_settings table")
 
+        # ── push_subscriptions table ─────────────────────────────────────
+        if not inspector.has_table("push_subscriptions"):
+            if dialect == "postgresql":
+                connection.execute(text("""
+                    CREATE TABLE push_subscriptions (
+                        id SERIAL PRIMARY KEY,
+                        user_id INTEGER NOT NULL REFERENCES users(id),
+                        endpoint TEXT NOT NULL UNIQUE,
+                        p256dh VARCHAR(255) NOT NULL,
+                        auth VARCHAR(255) NOT NULL,
+                        user_agent VARCHAR(500),
+                        is_active BOOLEAN NOT NULL DEFAULT TRUE,
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        updated_at TIMESTAMP DEFAULT NOW()
+                    )
+                """))
+            else:
+                connection.execute(text("""
+                    CREATE TABLE push_subscriptions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        user_id INTEGER NOT NULL,
+                        endpoint TEXT NOT NULL UNIQUE,
+                        p256dh VARCHAR(255) NOT NULL,
+                        auth VARCHAR(255) NOT NULL,
+                        user_agent VARCHAR(500),
+                        is_active BOOLEAN NOT NULL DEFAULT 1,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        FOREIGN KEY(user_id) REFERENCES users(id)
+                    )
+                """))
+
+            connection.execute(text("CREATE INDEX ix_push_subscriptions_user_id ON push_subscriptions (user_id)"))
+            logger.info("Created push_subscriptions table")
+
 def get_db():
     db = SessionLocal()
     try:

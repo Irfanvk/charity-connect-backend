@@ -2,6 +2,8 @@ from sqlalchemy.orm import Session
 from kombu.exceptions import OperationalError
 from app.models import Notification, User
 from app.schemas import NotificationCreate, NotificationAdminUpdate
+from app.services.realtime_notification_service import notification_realtime_hub
+from app.services.web_push_service import WebPushService
 from app.workers.runtime import can_enqueue_celery_tasks
 from fastapi import HTTPException, status
 from datetime import datetime, timedelta
@@ -9,6 +11,33 @@ from datetime import datetime, timedelta
 
 class NotificationService:
     """Notification service."""
+
+    @staticmethod
+    def _serialize_event(notification: Notification) -> dict:
+        return {
+            "id": notification.id,
+            "user_id": notification.user_id,
+            "title": notification.title,
+            "message": notification.message,
+            "is_read": bool(notification.is_read),
+            "created_at": notification.created_at.isoformat() if notification.created_at else None,
+            "read_at": notification.read_at.isoformat() if notification.read_at else None,
+            "target_role": notification.target_role.value if hasattr(notification.target_role, "value") else notification.target_role,
+        }
+
+    @staticmethod
+    def dispatch_notification(db: Session, notification: Notification) -> None:
+        """Fan out a newly created notification to realtime and web push channels."""
+        try:
+            payload = NotificationService._serialize_event(notification)
+            notification_realtime_hub.publish_event(
+                user_id=notification.user_id,
+                event={"type": "create", "data": payload},
+            )
+            WebPushService.send_new_notification(db=db, notification=notification)
+        except Exception:
+            # Notification persistence must remain successful even if delivery channels fail.
+            pass
 
     @staticmethod
     def create_user_notification(
@@ -37,6 +66,7 @@ class NotificationService:
         db.add(notification)
         db.commit()
         db.refresh(notification)
+        NotificationService.dispatch_notification(db, notification)
         return notification
 
     @staticmethod
@@ -65,17 +95,20 @@ class NotificationService:
 
         batch_created_at = datetime.utcnow()
         recipient_ids = set()
+        created_notifications = []
         admin_copy_included = False
 
         def queue_notification(user_id: int):
             recipient_ids.add(user_id)
-            db.add(Notification(
+            notification = Notification(
                 user_id=user_id,
                 title=notification_data.title,
                 message=notification_data.message,
                 target_role=notification_data.target_role,
                 created_at=batch_created_at,
-            ))
+            )
+            db.add(notification)
+            created_notifications.append(notification)
 
         if notification_data.user_id:
             # Send to specific user — return the single created notification
@@ -115,6 +148,10 @@ class NotificationService:
                 admin_copy_included = True
 
         db.commit()
+        for notification in created_notifications:
+            db.refresh(notification)
+            NotificationService.dispatch_notification(db, notification)
+
         return {
             "sent_count": len(recipient_ids),
             "message": "Notifications sent successfully",
@@ -338,6 +375,10 @@ class NotificationService:
 
         db.commit()
         db.refresh(notification)
+        notification_realtime_hub.publish_event(
+            user_id=user_id,
+            event={"type": "read", "data": {"notification_id": notification.id}},
+        )
         return notification
 
     @staticmethod
@@ -355,6 +396,10 @@ class NotificationService:
         )
 
         db.commit()
+        notification_realtime_hub.publish_event(
+            user_id=user_id,
+            event={"type": "read_all", "data": {"marked_read": updated_count}},
+        )
         return {"marked_read": updated_count, "message": f"Marked {updated_count} notifications as read"}
 
     @staticmethod
@@ -375,4 +420,8 @@ class NotificationService:
             .update({"is_read": True, "read_at": now}, synchronize_session=False)
         )
         db.commit()
+        notification_realtime_hub.publish_event(
+            user_id=user_id,
+            event={"type": "read_selected", "data": {"marked_read": updated_count}},
+        )
         return {"marked_read": updated_count, "message": f"Marked {updated_count} notifications as read"}

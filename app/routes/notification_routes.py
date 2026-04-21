@@ -1,7 +1,8 @@
 import logging
 import json
 
-from fastapi import APIRouter, Depends, status, Query, Request, Response
+from fastapi import APIRouter, Depends, status, Query, Request, Response, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import Notification
@@ -15,7 +16,9 @@ from app.schemas import (
     NotificationSentDeleteResponse,
 )
 from app.services import NotificationService
-from app.utils import get_current_user, get_current_admin, log_audit
+from app.services.realtime_notification_service import notification_realtime_hub
+from app.services.web_push_service import WebPushService
+from app.utils import get_current_user, get_current_admin, log_audit, verify_token
 from typing import List
 from pydantic import BaseModel, Field
 from app.services.whatsapp_service import send_whatsapp_message
@@ -41,6 +44,20 @@ class WhatsAppWebhookAckResponse(BaseModel):
     object: str
     message_events: int
     status_events: int
+
+
+class PushSubscriptionKeysRequest(BaseModel):
+    p256dh: str
+    auth: str
+
+
+class PushSubscriptionRequest(BaseModel):
+    endpoint: str
+    keys: PushSubscriptionKeysRequest
+
+
+class PushSubscriptionUnsubscribeRequest(BaseModel):
+    endpoint: str
 
 
 @router.post("/", status_code=status.HTTP_201_CREATED)
@@ -368,3 +385,81 @@ def delete_notification(
         },
         auto_commit=True,
     )
+
+
+@router.get("/stream")
+async def stream_notifications(
+    request: Request,
+    access_token: str = Query(default=""),
+):
+    """SSE stream for realtime notification events (token passed via query for EventSource compatibility)."""
+    if not access_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing access token")
+
+    payload = verify_token(access_token)
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    async def event_stream():
+        async for chunk in notification_realtime_hub.stream(user_id=user_id, request=request):
+            yield chunk
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/push/public-key")
+def get_push_public_key():
+    return {
+        "enabled": settings.web_push_configured,
+        "public_key": settings.WEB_PUSH_PUBLIC_KEY if settings.web_push_configured else "",
+    }
+
+
+@router.post("/push/subscribe", status_code=status.HTTP_201_CREATED)
+def subscribe_push(
+    payload: PushSubscriptionRequest,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not settings.web_push_configured:
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Web push is not configured")
+
+    user_agent = request.headers.get("user-agent", "")[:500]
+    result = WebPushService.upsert_subscription(
+        db=db,
+        user_id=int(current_user["user_id"]),
+        endpoint=payload.endpoint,
+        p256dh=payload.keys.p256dh,
+        auth=payload.keys.auth,
+        user_agent=user_agent,
+    )
+    return result
+
+
+@router.post("/push/unsubscribe", status_code=status.HTTP_200_OK)
+def unsubscribe_push(
+    payload: PushSubscriptionUnsubscribeRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    deactivated = WebPushService.deactivate_subscription(
+        db=db,
+        user_id=int(current_user["user_id"]),
+        endpoint=payload.endpoint,
+    )
+    return {"deactivated": deactivated}

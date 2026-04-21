@@ -6,6 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.models import AuditLog, Member, MemberRequest, RequestStatus, RequestType, User, Notification
+from app.services.notification_service import NotificationService
 
 
 class RequestService:
@@ -50,13 +51,9 @@ class RequestService:
 
     @staticmethod
     def _notify_member(db: Session, user_id: int, title: str, message: str):
-        db.add(
-            Notification(
-                user_id=user_id,
-                title=title,
-                message=message,
-            )
-        )
+        notification = Notification(user_id=user_id, title=title, message=message)
+        db.add(notification)
+        return notification
 
     @staticmethod
     def _approval_message(item: MemberRequest) -> str:
@@ -260,7 +257,7 @@ class RequestService:
         item.resolved_at = datetime.utcnow()
         db.add(item)
 
-        RequestService._notify_member(
+        created_notification = RequestService._notify_member(
             db,
             user_id=item.user_id,
             title="Request Approved",
@@ -279,6 +276,8 @@ class RequestService:
 
         db.commit()
         db.refresh(item)
+        db.refresh(created_notification)
+        NotificationService.dispatch_notification(db, created_notification)
         return RequestService._serialize(db, item)
 
     @staticmethod
@@ -311,7 +310,7 @@ class RequestService:
         item.resolved_at = datetime.utcnow()
         db.add(item)
 
-        RequestService._notify_member(
+        created_notification = RequestService._notify_member(
             db,
             user_id=item.user_id,
             title="Request Update",
@@ -330,6 +329,8 @@ class RequestService:
 
         db.commit()
         db.refresh(item)
+        db.refresh(created_notification)
+        NotificationService.dispatch_notification(db, created_notification)
         return RequestService._serialize(db, item)
 
     @staticmethod
