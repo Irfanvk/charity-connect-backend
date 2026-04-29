@@ -251,6 +251,16 @@ class RequestService:
                 if previous_avatar_url and previous_avatar_url != next_avatar_url:
                     delete_file(previous_avatar_url)
 
+            if user and "username" in changes:
+                new_username = str(changes.get("username") or "").strip()
+                if new_username:
+                    # Only apply if the username is still available
+                    taken = db.query(User).filter(
+                        User.username == new_username, User.id != user.id
+                    ).first()
+                    if not taken:
+                        user.username = new_username
+
             db.add(member)
             if user:
                 db.add(user)

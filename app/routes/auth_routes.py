@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, Request, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, Request, UploadFile, File, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
@@ -51,6 +52,19 @@ def register(registration: UserRegisterWithInvite, db: Session = Depends(get_db)
         "token_type": "bearer",
         "user": user,
     }
+
+
+@router.get("/check-username")
+def check_username_availability(
+    username: str = Query(..., min_length=3, max_length=30),
+    db: Session = Depends(get_db),
+):
+    """
+    Check if a username is available (public endpoint — no auth required).
+    Returns {"available": true} if the username is not yet taken.
+    """
+    exists = db.query(User).filter(func.lower(User.username) == func.lower(username)).first()
+    return {"available": exists is None, "username": username}
 
 
 @router.get("/me", response_model=UserResponse)
