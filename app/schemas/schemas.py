@@ -416,6 +416,23 @@ class ChallanCreate(BaseModel):
     payment_method: Optional[str] = None
 
 
+class MultiChallanCreate(BaseModel):
+    """Create multiple challans for one or more months with optional bulk proof.
+    
+    proof_type options:
+    - 'individual': Each challan gets its own proof file
+    - 'bulk': All selected months share a single proof (routes to bulk challan flow)
+    """
+    months: list[str]  # List of YYYY-MM format months
+    amount: float  # Amount per month
+    type: ChallanType = ChallanType.MONTHLY
+    campaign_id: Optional[int] = None
+    payment_method: Optional[str] = None
+    proof_type: str = "individual"  # 'individual' or 'bulk'
+    member_id: Optional[int] = None  # Optional for members (uses current user), required for admins
+    notes: Optional[str] = None  # Notes if using bulk proof
+
+
 class ChallanUpdate(BaseModel):
     month: Optional[str] = None
     campaign_id: Optional[int] = None
@@ -450,6 +467,8 @@ class ChallanResponse(BaseModel):
     payment_method: Optional[str]
     proof_path: Optional[str]
     status: ChallanStatus
+    rejection_reason: Optional[str] = None
+    bulk_group_id: Optional[str] = None
     created_at: datetime
     proof_uploaded_at: Optional[datetime]
     approved_at: Optional[datetime]
@@ -737,7 +756,7 @@ class BulkChallanApproveResponse(BaseModel):
 
 class BulkChallanReject(BaseModel):
     reason: str
-    action: str  # "delete"
+    action: str  # "delete" removes challan records; "reject" marks them rejected and keeps them
 
 
 class BulkChallanRejectResponse(BaseModel):

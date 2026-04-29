@@ -520,13 +520,15 @@ def approve_bulk_challans(
 
     try:
         challan_ids = json.loads(bulk_group.challan_ids_list) if bulk_group.challan_ids_list else []
+        approved_ids = []
 
         for challan_id in challan_ids:
             challan = db.query(Challan).filter(Challan.id == challan_id).first()
-            if challan:
+            if challan and challan.status not in (ChallanStatus.APPROVED, ChallanStatus.REJECTED):
                 challan.status              = ChallanStatus.APPROVED
                 challan.approved_by_admin_id = admin_user_id
                 challan.approved_at         = datetime.utcnow()
+                approved_ids.append(challan_id)
 
         bulk_group.status              = "approved"
         bulk_group.approved_by_admin_id = admin_user_id
@@ -545,6 +547,8 @@ def approve_bulk_challans(
                 "months": months,
                 "total_amount": bulk_group.total_amount,
                 "admin_notes": request.admin_notes,
+                "approved_challan_count": len(approved_ids),
+                "skipped_challan_count": len(challan_ids) - len(approved_ids),
             }),
         ))
         db.commit()
@@ -553,7 +557,7 @@ def approve_bulk_challans(
         return BulkChallanApproveResponse(
             bulk_group_id=bulk_group.bulk_group_id,
             status="approved",
-            approved_challans=len(challan_ids),
+            approved_challans=len(approved_ids),
             challan_ids=challan_ids,
             months_approved=months,
             total_amount_approved=bulk_group.total_amount,
@@ -585,10 +589,10 @@ def reject_bulk_challans(
             status_code=422,
             detail=[{"loc": ["body", "reason"], "msg": "Rejection reason required", "type": "value_error"}],
         )
-    if request.action not in ["delete"]:
+    if request.action not in ["delete", "reject"]:
         raise HTTPException(
             status_code=422,
-            detail=[{"loc": ["body", "action"], "msg": "Invalid action. Must be 'delete'", "type": "value_error"}],
+            detail=[{"loc": ["body", "action"], "msg": "Invalid action. Must be 'delete' or 'reject'", "type": "value_error"}],
         )
 
     bulk_group = db.query(BulkChallanGroup).filter(
@@ -602,11 +606,14 @@ def reject_bulk_challans(
     try:
         challan_ids = json.loads(bulk_group.challan_ids_list) if bulk_group.challan_ids_list else []
 
-        if request.action == "delete":
-            for challan_id in challan_ids:
-                challan = db.query(Challan).filter(Challan.id == challan_id).first()
-                if challan:
+        for challan_id in challan_ids:
+            challan = db.query(Challan).filter(Challan.id == challan_id).first()
+            if challan:
+                if request.action == "delete":
                     db.delete(challan)
+                else:  # action == "reject"
+                    challan.status           = ChallanStatus.REJECTED
+                    challan.rejection_reason = request.reason
 
         bulk_group.status           = "rejected"
         bulk_group.rejection_reason = request.reason

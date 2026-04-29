@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models import AuditLog, Member, MemberRequest, RequestStatus, RequestType, User, Notification
 from app.services.notification_service import NotificationService
+from app.utils.file_handler import delete_file
 
 
 class RequestService:
@@ -69,7 +70,18 @@ class RequestService:
 
         if request_type == RequestType.PROFILE_UPDATE.value:
             changes = json.loads(item.requested_changes or "{}")
-            fields = ", ".join(changes.keys()) if isinstance(changes, dict) and changes else "profile fields"
+            if isinstance(changes, dict) and changes:
+                labels = []
+                for key in changes.keys():
+                    if key == "full_name":
+                        labels.append("full name")
+                    elif key == "avatar_url":
+                        labels.append("profile photo")
+                    else:
+                        labels.append(key.replace("_", " "))
+                fields = ", ".join(labels)
+            else:
+                fields = "profile fields"
             return (
                 f"Your profile update request ({fields}) has been approved "
                 f"and your profile has been updated."
@@ -229,7 +241,15 @@ class RequestService:
             if user and "phone" in changes:
                 user.phone = changes.get("phone")
             if user and "full_name" in changes:
-                user.username = changes.get("full_name")
+                user.full_name = changes.get("full_name")
+            if user and "avatar_url" in changes:
+                previous_avatar_url = user.avatar_url
+                next_avatar_url = changes.get("avatar_url")
+                user.avatar_url = next_avatar_url
+
+                # Best effort cleanup for replaced/removed Cloudinary avatars.
+                if previous_avatar_url and previous_avatar_url != next_avatar_url:
+                    delete_file(previous_avatar_url)
 
             db.add(member)
             if user:

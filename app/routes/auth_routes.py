@@ -5,7 +5,7 @@ from app.models import User
 from app.schemas import UserLogin, UserRegisterWithInvite, UserResponse, TokenResponse
 from app.services import AuthService
 from app.utils import create_access_token, get_current_user
-from app.utils.file_handler import save_file, validate_file
+from app.utils.file_handler import save_file, validate_file, delete_file
 from app.config import settings
 from datetime import timedelta
 
@@ -77,6 +77,12 @@ async def upload_avatar(
     db: Session = Depends(get_db),
 ):
     """Upload or update the current user's profile avatar."""
+    if str(current_user.get("role", "")).lower() == "member":
+        raise HTTPException(
+            status_code=403,
+            detail="Members must submit a profile update request for avatar changes",
+        )
+
     content = await file.read()
 
     try:
@@ -107,11 +113,20 @@ def remove_avatar(
     db: Session = Depends(get_db),
 ):
     """Remove the current user's profile avatar."""
+    if str(current_user.get("role", "")).lower() == "member":
+        raise HTTPException(
+            status_code=403,
+            detail="Members must submit a profile update request for avatar changes",
+        )
+
     user = db.query(User).filter(User.id == current_user["user_id"]).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    previous_avatar_url = user.avatar_url
     user.avatar_url = None
     db.commit()
     db.refresh(user)
+    if previous_avatar_url:
+        delete_file(previous_avatar_url)
     return user

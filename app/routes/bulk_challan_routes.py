@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 import uuid
 import json
 from datetime import datetime
+from typing import cast
 
 from app.database import get_db
 from app.schemas.schemas import (
@@ -31,7 +32,7 @@ router = APIRouter(prefix="/challans", tags=["bulk-challans"])
 def bulk_create_challans(
     request: BulkChallanCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ):
     """
     Create multiple challans for different months linked to single proof.
@@ -39,6 +40,11 @@ def bulk_create_challans(
     - Members: Create only for self
     - Admins: Can create for any active member
     """
+
+    def _user_field(user: object, key: str):
+        if isinstance(user, dict):
+            return user.get(key)
+        return getattr(user, key, None)
     
     # Validate months list
     if not request.months or len(request.months) == 0:
@@ -70,18 +76,28 @@ def bulk_create_challans(
         months_set.add(month)
     
     # Determine member_id
-    if current_user.role == UserRole.MEMBER:
+    current_role = str(_user_field(current_user, "role") or "").lower()
+    raw_user_id = _user_field(current_user, "user_id")
+    if raw_user_id is None:
+        raw_user_id = _user_field(current_user, "id")
+    if raw_user_id is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    current_user_id = int(raw_user_id)
+
+    if current_role == UserRole.MEMBER.value:
         # Member can only create for self
-        member = db.query(Member).filter(Member.user_id == current_user.id).first()
+        member = db.query(Member).filter(Member.user_id == current_user_id).first()
         if not member:
             raise HTTPException(status_code=404, detail="Member record not found")
 
-        if request.member_id and request.member_id != member.id:
+        member_record_id = cast(int, member.id)
+
+        if request.member_id and request.member_id != member_record_id:
             raise HTTPException(
                 status_code=403,
                 detail="Members can only create bulk challans for themselves"
             )
-        member_id = member.id
+        member_id = member_record_id
     else:
         # Admin/Superadmin can create for any member
         if not request.member_id:
@@ -92,16 +108,16 @@ def bulk_create_challans(
         member = db.query(Member).filter(Member.id == request.member_id).first()
         if not member:
             raise HTTPException(status_code=404, detail="Member not found")
-        member_id = request.member_id
+        member_id = int(request.member_id)
     
     # Check member is active
-    if member.status != "active":
+    if str(member.status) != "active":
         raise HTTPException(
             status_code=400,
             detail="Cannot create bulk challan for inactive member"
         )
 
-    earliest_selected_month = min(months_set) if months_set else None
+    earliest_selected_month = cast(str | None, min(months_set) if months_set else None)
 
     payable = ChallanService.get_payable_months(
         db,
@@ -151,11 +167,27 @@ def bulk_create_challans(
     # cannot be decoded from the ID itself (timestamp is already in created_at).
     bulk_group_id = f"bulk-{uuid.uuid4()}"
     
-    # Create individual challans
+    # Create parent bulk group first so challans can safely reference it.
     challan_ids = []
     total_amount = request.amount_per_month * len(request.months)
     
     try:
+        bulk_group = BulkChallanGroup(
+            bulk_group_id=bulk_group_id,
+            member_id=member_id,
+            amount_per_month=request.amount_per_month,
+            total_amount=total_amount,
+            proof_file_id=proof_file_id,
+            status="pending_approval",
+            months_list=json.dumps(request.months),
+            challan_ids_list=json.dumps(challan_ids),
+            created_by_user_id=current_user_id,
+            notes=request.notes,
+            created_at=datetime.utcnow(),
+        )
+        db.add(bulk_group)
+        db.flush()
+
         for month in request.months:
             challan = Challan(
                 member_id=member_id,
@@ -170,26 +202,12 @@ def bulk_create_challans(
             db.add(challan)
             db.flush()  # Get the ID
             challan_ids.append(challan.id)
-        
-        # Create bulk group record
-        bulk_group = BulkChallanGroup(
-            bulk_group_id=bulk_group_id,
-            member_id=member_id,
-            amount_per_month=request.amount_per_month,
-            total_amount=total_amount,
-            proof_file_id=proof_file_id,
-            status="pending_approval",
-            months_list=json.dumps(request.months),
-            challan_ids_list=json.dumps(challan_ids),
-            created_by_user_id=current_user.id,
-            notes=request.notes,
-            created_at=datetime.utcnow(),
-        )
-        db.add(bulk_group)
+
+        setattr(bulk_group, "challan_ids_list", json.dumps(challan_ids))
         
         # Create audit log
         audit_log = AuditLog(
-            user_id=current_user.id,
+            user_id=current_user_id,
             action="bulk_create",
             entity_type="BulkChallanGroup",
             entity_id=bulk_group.id,
@@ -203,6 +221,7 @@ def bulk_create_challans(
         db.add(audit_log)
         db.commit()
         db.refresh(bulk_group)
+        created_at = cast(datetime, bulk_group.created_at)
         
         return BulkChallanResponse(
             bulk_group_id=bulk_group_id,
@@ -213,7 +232,7 @@ def bulk_create_challans(
             total_amount=total_amount,
             proof_file_id=proof_file_id,
             status="pending_approval",
-            created_at=bulk_group.created_at,
+            created_at=created_at,
             notes=request.notes,
         )
     except Exception as e:

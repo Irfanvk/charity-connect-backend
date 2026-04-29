@@ -11,6 +11,7 @@ from app.utils.file_handler import save_file, validate_file
 from fastapi import HTTPException, status
 from datetime import datetime, date
 from app.schemas import ChallanHistoryImportSummary
+from typing import Optional
 
 
 class ChallanService:
@@ -63,7 +64,7 @@ class ChallanService:
         member_id: int,
         include_upcoming: bool = False,
         upcoming_count: int = 3,
-        from_month: str = None,          # "yyyy-MM" override supplied by the frontend
+        from_month: Optional[str] = None,          # "yyyy-MM" override supplied by the frontend
     ) -> dict:
         member = db.query(Member).filter(Member.id == member_id).first()
         if not member:
@@ -205,6 +206,123 @@ class ChallanService:
             new_challan.member_name = None
         
         return new_challan
+
+    @staticmethod
+    def create_multi_challans(
+        db: Session,
+        member_id: int,
+        months: list[str],
+        amount: float,
+        proof_type: str = "individual",
+        challan_type: ChallanType = ChallanType.MONTHLY,
+        campaign_id: int | None = None,
+        payment_method: str | None = None,
+        notes: str | None = None,
+    ) -> dict:
+        """
+        Create multiple challans with optional bulk proof routing.
+        
+        If proof_type == 'bulk', returns routing info for bulk challan flow.
+        If proof_type == 'individual', creates individual challans immediately.
+        """
+        
+        if not months or len(months) == 0:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="At least one month must be selected",
+            )
+        
+        # Verify member exists
+        member = db.query(Member).filter(Member.id == member_id).first()
+        if not member:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Member not found",
+            )
+        
+        # Validate proof_type
+        if proof_type not in ["individual", "bulk"]:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="proof_type must be 'individual' or 'bulk'",
+            )
+        
+        # Validate months are available and in correct format
+        payable = ChallanService.get_payable_months(
+            db,
+            member_id,
+            include_upcoming=True,
+            upcoming_count=3,
+        )
+        available_months = set(payable["all_months"])
+        
+        invalid_months = [m for m in months if m not in available_months]
+        if invalid_months:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"The following months are not available for this member: {invalid_months}",
+            )
+        
+        # Check for existing challans
+        existing = db.query(Challan).filter(
+            Challan.member_id == member_id,
+            Challan.type == challan_type,
+            Challan.month.in_(months),
+            Challan.status.in_([ChallanStatus.GENERATED, ChallanStatus.PENDING]),
+        ).all()
+        
+        if existing:
+            existing_months = [c.month for c in existing]
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Challans already exist for months: {existing_months}",
+            )
+        
+        # Route based on proof_type
+        if proof_type == "bulk":
+            # Return info for bulk challan flow (frontend will call /bulk-create endpoint)
+            return {
+                "workflow": "bulk",
+                "message": f"Ready to create {len(months)} linked challans with shared proof",
+                "member_id": member_id,
+                "months": months,
+                "amount_per_month": amount,
+                "total_amount": amount * len(months),
+                "notes": notes,
+                "next_step": "POST /challans/bulk-create with months, amount_per_month, and proof file",
+            }
+        else:
+            # Create individual challans
+            challan_ids = []
+            for month in months:
+                new_challan = Challan(
+                    member_id=member_id,
+                    type=challan_type,
+                    month=month,
+                    campaign_id=campaign_id,
+                    amount=amount,
+                    payment_method=payment_method,
+                )
+                db.add(new_challan)
+                db.flush()
+                challan_ids.append(new_challan.id)
+            
+            db.commit()
+            
+            # Fetch created challans
+            created_challans = db.query(Challan).filter(Challan.id.in_(challan_ids)).all()
+            for challan in created_challans:
+                db.refresh(challan, ["member"])
+            
+            return {
+                "workflow": "individual",
+                "message": f"Successfully created {len(challan_ids)} individual challans",
+                "created_count": len(challan_ids),
+                "challan_ids": challan_ids,
+                "member_id": member_id,
+                "total_amount": amount * len(challan_ids),
+                "next_step": "Upload proof files for each challan individually",
+            }
 
     @staticmethod
     def _normalize_import_status(raw_status: str | None) -> str:
@@ -820,10 +938,13 @@ class ChallanService:
         ).with_entities(func.coalesce(func.sum(Challan.amount), 0.0)).scalar() or 0.0
 
         monthly_query = base_query.filter(Challan.status == ChallanStatus.APPROVED)
-        if month:
-            monthly_query = monthly_query.filter(Challan.month == month)
-        else:
-            monthly_query = monthly_query.filter(Challan.month.is_(None))
+        # Default to the current calendar month when no month is specified so that
+        # monthly_collection always reflects monthly (not campaign) payments.
+        target_month = month or datetime.utcnow().strftime("%Y-%m")
+        monthly_query = monthly_query.filter(
+            Challan.type == ChallanType.MONTHLY,
+            Challan.month == target_month,
+        )
 
         monthly_collection = monthly_query.with_entities(
             func.coalesce(func.sum(Challan.amount), 0.0)

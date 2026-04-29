@@ -3,7 +3,7 @@ from app.models.models import ChallanStatus
 from fastapi import APIRouter, Depends, status as http_status, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
-from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanRevert, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse, ChallanPayableMonthsResponse, ImportJobCreateResponse, ImportJobStatusResponse, CollectionStatsResponse
+from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanRevert, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse, ChallanPayableMonthsResponse, ImportJobCreateResponse, ImportJobStatusResponse, CollectionStatsResponse, MultiChallanCreate
 from app.services import ChallanService, MemberService
 from app.services.import_job_service import ImportJobService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin, log_audit
@@ -184,6 +184,106 @@ def create_challan(
             auto_commit=True,
         )
     return challan
+
+
+@router.post("/multi", response_model=dict, status_code=http_status.HTTP_201_CREATED)
+def create_multi_challans(
+    challan_data: MultiChallanCreate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Create multiple challans with option to use individual or bulk proof.
+    
+    Request body:
+    {
+        "months": ["2026-01", "2026-02", "2026-03"],
+        "amount": 500,
+        "type": "monthly",  # optional, default: "monthly"
+        "proof_type": "bulk",  # "individual" or "bulk"
+        "campaign_id": null,  # optional, for campaign challans
+        "payment_method": "upi",  # optional
+        "member_id": null,  # optional for members (auto-filled), required for admins
+        "notes": "Payment proof description"  # optional, for bulk
+    }
+    
+    Response for bulk:
+    {
+        "workflow": "bulk",
+        "message": "Ready to create 6 linked challans with shared proof",
+        "member_id": 123,
+        "months": [...],
+        "total_amount": 3000,
+        "next_step": "POST /challans/bulk-create with proof file"
+    }
+    
+    Response for individual:
+    {
+        "workflow": "individual",
+        "message": "Successfully created 6 individual challans",
+        "created_count": 6,
+        "challan_ids": [1, 2, 3, 4, 5, 6],
+        "total_amount": 3000,
+        "next_step": "Upload proof files for each challan"
+    }
+    """
+    
+    # Determine target member
+    if _is_admin(current_user):
+        if challan_data.member_id is None:
+            raise HTTPException(status_code=400, detail="member_id is required for admin")
+        
+        member = MemberService.get_member(db, challan_data.member_id)
+        target_member_id = challan_data.member_id
+    else:
+        try:
+            member = MemberService.get_member_for_user(db, current_user["user_id"])
+            target_member_id = member.id
+        except HTTPException as exc:
+            raise HTTPException(
+                status_code=404,
+                detail="No member record found for your account. Please contact admin."
+            ) from exc
+        
+        if challan_data.member_id is not None and challan_data.member_id != member.id:
+            raise HTTPException(status_code=403, detail="Not authorized to create challans for another member")
+    
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    
+    if member.status != "active":
+        raise HTTPException(status_code=400, detail="Cannot create challans for inactive member")
+    
+    # Create multi-challans with routing
+    result = ChallanService.create_multi_challans(
+        db=db,
+        member_id=target_member_id,
+        months=challan_data.months,
+        amount=challan_data.amount,
+        proof_type=challan_data.proof_type,
+        challan_type=challan_data.type,
+        campaign_id=challan_data.campaign_id,
+        payment_method=challan_data.payment_method,
+        notes=challan_data.notes,
+    )
+    
+    # Log audit
+    if _is_admin(current_user):
+        log_audit(
+            db,
+            user_id=current_user.get("user_id"),
+            action="multi_challan_create",
+            entity_type="Challan",
+            entity_id=target_member_id,
+            new_values={
+                "months": challan_data.months,
+                "proof_type": challan_data.proof_type,
+                "total_amount": result.get("total_amount"),
+            },
+            auto_commit=True,
+        )
+    
+    return result
 
 
 @router.get("/payable-months", response_model=ChallanPayableMonthsResponse)
@@ -382,6 +482,18 @@ def update_challan(
         member = MemberService.get_member_for_user(db, current_user["user_id"])
         if challan.member_id != member.id:
             raise HTTPException(status_code=403, detail="Not authorized to update this challan")
+
+    # Members may only update non-sensitive fields (payment_method).
+    # Amount, month, and campaign_id changes are admin-only.
+    if not _is_admin(current_user):
+        admin_only_fields = {"amount", "month", "campaign_id"}
+        requested_fields = set(update_data.dict(exclude_unset=True).keys())
+        forbidden = requested_fields & admin_only_fields
+        if forbidden:
+            raise HTTPException(
+                status_code=403,
+                detail=f"Members cannot update: {', '.join(sorted(forbidden))}",
+            )
 
     old_status = challan.status
     result = ChallanService.update_challan(db, challan_id, update_data)
