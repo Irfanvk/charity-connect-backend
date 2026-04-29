@@ -1,3 +1,4 @@
+import re
 import secrets
 import string
 from datetime import datetime, timedelta
@@ -38,18 +39,19 @@ def generate_invite_code() -> str:
 def generate_member_code(last_member_code: Optional[str] = None) -> str:
     """
     Generate sequential member code.
-    Format: MEM001, MEM002, etc.
+    Format: MEM-0001, MEM-0002, etc.
     """
     if last_member_code is None:
-        return "MEM001"
-    
+        return "MEM-0001"
+
     try:
-        # Extract number from previous code
-        number = int(last_member_code.replace("MEM", ""))
+        # Extract all digits from the code (handles MEM001, MEM-0001, plain numbers, etc.)
+        digits = re.sub(r"[^0-9]", "", str(last_member_code))
+        number = int(digits) if digits else 0
         next_number = number + 1
-        return f"MEM{next_number:03d}"
+        return f"MEM-{next_number:04d}"
     except (ValueError, AttributeError):
-        return "MEM001"
+        return "MEM-0001"
 
 
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:

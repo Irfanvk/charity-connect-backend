@@ -20,7 +20,12 @@ class MemberService:
     def _normalize_member_code(code: Optional[str]) -> Optional[str]:
         if not code:
             return None
-        return str(code).strip().upper()
+        raw = str(code).strip().upper()
+        # Normalize any numeric or MEM-style code to MEM-XXXX format
+        digits = re.sub(r"[^0-9]", "", raw)
+        if digits:
+            return f"MEM-{int(digits):04d}"
+        return raw
 
     @staticmethod
     def normalize_member_code(code: Optional[str]) -> Optional[str]:
