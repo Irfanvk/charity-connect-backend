@@ -359,6 +359,7 @@ class MemberService:
                     "email": m.email,
                     "address": m.address,
                     "status": m.status,
+                    "is_active": m.user.is_active if m.user else False,
                     "join_date": m.join_date,
                     "created_at": m.created_at,
                     "updated_at": m.updated_at,

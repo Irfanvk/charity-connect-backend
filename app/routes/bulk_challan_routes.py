@@ -162,18 +162,17 @@ def bulk_create_challans(
     if not proof_file_id:
         # Keep DB compatibility (column is non-nullable) while allowing proof-optional bulk creation.
         proof_file_id = f"no-proof:{uuid.uuid4()}"
-    
-    # Generate bulk group ID — pure UUID, no date prefix so creation time
-    # cannot be decoded from the ID itself (timestamp is already in created_at).
-    bulk_group_id = f"bulk-{uuid.uuid4()}"
-    
+
     # Create parent bulk group first so challans can safely reference it.
+    # Use a temporary unique placeholder so we can flush and get the auto-increment id,
+    # then replace it with the human-readable BCH-XXXX format.
     challan_ids = []
     total_amount = request.amount_per_month * len(request.months)
-    
+
     try:
+        temp_id = f"tmp-{uuid.uuid4()}"
         bulk_group = BulkChallanGroup(
-            bulk_group_id=bulk_group_id,
+            bulk_group_id=temp_id,
             member_id=member_id,
             amount_per_month=request.amount_per_month,
             total_amount=total_amount,
@@ -186,7 +185,12 @@ def bulk_create_challans(
             created_at=datetime.utcnow(),
         )
         db.add(bulk_group)
-        db.flush()
+        db.flush()  # Populates bulk_group.id (auto-increment)
+
+        # Now assign the human-readable ID: BCH-XXXX (consistent with CH-XXXX for regular challans)
+        bulk_group_id = f"BCH-{bulk_group.id:04d}"
+        bulk_group.bulk_group_id = bulk_group_id
+        db.flush()  # Persist the updated bulk_group_id
 
         for month in request.months:
             challan = Challan(
