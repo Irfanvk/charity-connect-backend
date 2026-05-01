@@ -111,6 +111,17 @@ app.mount("/uploads", StaticFiles(directory=str(_uploads_dir)), name="uploads")
 
 @app.on_event("startup")
 async def startup_event() -> None:
+    # Warn if FRONTEND_BASE_URL still points to localhost — shared links would
+    # contain the wrong domain and break for real members.
+    _local_patterns = ("localhost", "127.0.0.1", "0.0.0.0")
+    if any(p in settings.FRONTEND_BASE_URL for p in _local_patterns):
+        logger.warning(
+            "FRONTEND_BASE_URL is set to '%s' which contains a local address. "
+            "Invite and reset links sent via WhatsApp will not work for external users. "
+            "Set FRONTEND_BASE_URL to your production domain in .env.",
+            settings.FRONTEND_BASE_URL,
+        )
+
     if not settings.ENABLE_FASTAPI_LIMITER:
         return
 

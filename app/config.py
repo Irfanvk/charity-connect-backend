@@ -112,6 +112,17 @@ class Settings(BaseSettings):
         if "*" in self.CORS_ORIGINS and not self.DEBUG:
             raise ValueError("CORS_ORIGINS cannot contain '*' when DEBUG=false")
 
+        # Block localhost as the frontend URL in production — it would produce
+        # broken invite/reset links sent to real members via WhatsApp.
+        if not self.DEBUG:
+            _local_patterns = ("localhost", "127.0.0.1", "0.0.0.0")
+            if any(p in self.FRONTEND_BASE_URL for p in _local_patterns):
+                raise ValueError(
+                    "FRONTEND_BASE_URL must be set to the real production domain when DEBUG=False. "
+                    f"Current value '{self.FRONTEND_BASE_URL}' contains a localhost address. "
+                    "Set FRONTEND_BASE_URL=https://your-domain.netlify.app in your .env file."
+                )
+
         return self
     
     # File Upload
@@ -120,6 +131,12 @@ class Settings(BaseSettings):
 
     # Frontend links
     FRONTEND_BASE_URL: str = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
+
+    @field_validator("FRONTEND_BASE_URL", mode="after")
+    @classmethod
+    def validate_frontend_base_url(cls, value: str) -> str:
+        stripped = value.strip().rstrip("/")
+        return stripped
     
     # Logging
     LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")

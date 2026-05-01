@@ -8,8 +8,16 @@ from app.utils.message_format import with_islamic_greeting
 
 def _normalize_base_url() -> str:
     base_url = str(settings.FRONTEND_BASE_URL or "").strip().rstrip("/")
-    # FRONTEND_BASE_URL must be set in production — this fallback is for local dev only
-    return base_url or "http://localhost:5173"
+    if not base_url:
+        # FRONTEND_BASE_URL is required — a missing value here means the env
+        # var was never set.  Fail loudly so broken localhost links are never
+        # silently sent to real members.
+        raise RuntimeError(
+            "FRONTEND_BASE_URL is not configured. "
+            "Set it to your production frontend domain (e.g. https://your-app.netlify.app) "
+            "before generating invite or reset links."
+        )
+    return base_url
 
 
 def _to_utc_naive(value: datetime | None) -> datetime | None:
