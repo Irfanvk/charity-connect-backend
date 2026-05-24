@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    description="Backend API for Charity Connect - Membership and Donation Management System",
+    description="Backend API for PMB GCC PORTAL - PMB GCC Official Charity App",
     openapi_url="/openapi/v1.json" if settings.DEBUG else None,  # Disable OpenAPI in production
     docs_url="/docs" if settings.DEBUG else None,
     redoc_url="/redoc" if settings.DEBUG else None,
@@ -197,7 +197,7 @@ async def unhandled_exception_handler(_request: Request, exc: Exception):
 @app.get("/")
 def root():
     return {
-        "message": "CharityHub Backend",
+        "message": "PMB GCC PORTAL Backend",
         "version": settings.APP_VERSION,
         "status": "running",
     }

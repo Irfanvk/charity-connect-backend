@@ -54,7 +54,7 @@ def send_welcome_notification(user_id: int):
         NotificationService.create_user_notification(
             db=db,
             user_id=user.id,
-            title="Welcome to CharityHub",
+            title="Welcome to PMB GCC PORTAL",
             message=WELCOME_MESSAGE,
             target_role=user.role,
         )
@@ -99,7 +99,7 @@ def send_monthly_membership_reminders():
                 send_whatsapp_message(
                     member.user.phone,
                     with_islamic_greeting(
-                        f"CharityHub reminder: your monthly membership amount "
+                        f"PMB GCC PORTAL reminder: your monthly membership amount "
                         f"for {month_label} is {member.monthly_amount}."
                     ),
                 )

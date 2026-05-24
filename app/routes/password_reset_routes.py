@@ -35,7 +35,7 @@ def _build_reset_chat_url(user, reset_token=None) -> str:
         base_url = _normalize_base_url()
         reset_link = f"{base_url}/ResetPassword?token={reset_token}"
         message = with_islamic_greeting(
-            f"Your password reset request for CharityHub has been approved by the admin.\n\n"
+            f"Your password reset request for PMB GCC PORTAL has been approved by the admin.\n\n"
             f"Click the link below to set your new password:\n"
             f"{reset_link}\n\n"
             f"This link expires in {TOKEN_EXPIRY_HOURS} hours. "

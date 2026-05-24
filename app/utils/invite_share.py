@@ -58,7 +58,7 @@ def build_invite_share_message(invite_code: str, expiry_date: datetime | None = 
     normalized_code = str(invite_code or "").strip()
     registration_url = build_invite_registration_url(normalized_code)
     parts = [
-        "You've been invited to join CharityHub!",
+        "You've been invited to join PMB GCC PORTAL!",
         "",
         "Use this invite code to register:",
         normalized_code,

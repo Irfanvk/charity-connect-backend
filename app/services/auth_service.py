@@ -243,7 +243,7 @@ class AuthService:
 
         enqueue_result = NotificationService.enqueue_user_notification(
             user_id=new_user.id,
-            title="Welcome to CharityHub",
+            title="Welcome to PMB GCC PORTAL",
             message=WELCOME_MESSAGE,
             target_role=new_user.role,
         )
@@ -251,7 +251,7 @@ class AuthService:
             NotificationService.create_user_notification(
                 db=db,
                 user_id=new_user.id,
-                title="Welcome to CharityHub",
+                title="Welcome to PMB GCC PORTAL",
                 message=WELCOME_MESSAGE,
                 target_role=new_user.role,
             )
@@ -361,7 +361,7 @@ class AuthService:
 
         enqueue_result = NotificationService.enqueue_user_notification(
             user_id=user.id,
-            title="Welcome to CharityHub",
+            title="Welcome to PMB GCC PORTAL",
             message=WELCOME_MESSAGE,
             target_role=user.role,
         )
@@ -369,7 +369,7 @@ class AuthService:
             NotificationService.create_user_notification(
                 db=db,
                 user_id=user.id,
-                title="Welcome to CharityHub",
+                title="Welcome to PMB GCC PORTAL",
                 message=WELCOME_MESSAGE,
                 target_role=user.role,
             )
