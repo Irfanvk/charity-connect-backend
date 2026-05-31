@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, status, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
-from app.schemas import MemberResponse, MemberUpdate, MemberCreate, MemberImportSummary, MemberSummaryResponse, ImportJobCreateResponse, ImportJobStatusResponse
+from app.schemas import MemberResponse, MemberUpdate, MemberCreate, MemberImportSummary, MemberSummaryResponse, MemberCommunityView, ImportJobCreateResponse, ImportJobStatusResponse
+from app.models.models import Member as MemberModel
 from app.services import MemberService
 from app.services.import_job_service import ImportJobService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin, log_audit
@@ -16,11 +17,30 @@ def _is_admin(current_user: dict) -> bool:
 
 @router.get("/summary", response_model=MemberSummaryResponse)
 def get_members_summary(
-    _current_user: dict = Depends(get_current_admin),
+    _current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get aggregate member counts for dashboard cards (Admin only)."""
+    """Get aggregate member counts for dashboard cards (accessible to all authenticated users)."""
     return MemberService.get_members_summary(db)
+
+
+@router.get("/community", response_model=List[MemberCommunityView])
+def get_community_directory(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=300, ge=1, le=500),
+    search: str | None = Query(default=None),
+    _current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Get a limited member directory (name, code, status, join date) for all authenticated users."""
+    query = db.query(MemberModel)
+    if search:
+        like = f"%{search}%"
+        query = query.filter(
+            MemberModel.full_name.ilike(like) | MemberModel.member_code.ilike(like)
+        )
+    records = query.order_by(MemberModel.full_name).offset(skip).limit(limit).all()
+    return records
 
 
 @router.get("/")

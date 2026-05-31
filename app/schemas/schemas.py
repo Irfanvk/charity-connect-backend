@@ -218,6 +218,18 @@ class MemberSummaryResponse(BaseModel):
     active_members: int
 
 
+class MemberCommunityView(BaseModel):
+    """Limited member view exposed to all authenticated users for the community directory."""
+    id: int
+    full_name: Optional[str] = None
+    member_code: str
+    status: str
+    join_date: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class ChallanHistoryImportSummary(BaseModel):
     total_rows: int
     challans_created: int

@@ -12,7 +12,7 @@ from app.schemas import (
     FundUtilizationResponse,
     FundUtilizationSummary,
 )
-from app.utils import get_current_admin
+from app.utils import get_current_admin, get_current_user
 from app.utils.audit import log_audit
 
 router = APIRouter(prefix="/fund-utilizations", tags=["Fund Utilizations"])
@@ -42,10 +42,10 @@ def _to_response(fu: FundUtilization) -> FundUtilizationResponse:
 
 @router.get("/summary", response_model=FundUtilizationSummary)
 def get_fund_utilization_summary(
-    _current_user: dict = Depends(get_current_admin),
+    _current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get summary: total collected vs total utilized and available balance (Admin only)."""
+    """Get summary: total collected vs total utilized and available balance (all authenticated users)."""
     total_collected = db.query(func.coalesce(func.sum(Challan.amount), 0)).filter(
         Challan.status == "approved"
     ).scalar() or 0.0
@@ -66,10 +66,10 @@ def list_fund_utilizations(
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=200),
     category: Optional[str] = None,
-    _current_user: dict = Depends(get_current_admin),
+    _current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List all fund utilization records (Admin only)."""
+    """List all fund utilization records (all authenticated users)."""
     query = db.query(FundUtilization)
     if category:
         query = query.filter(FundUtilization.category == category)

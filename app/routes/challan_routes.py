@@ -53,6 +53,18 @@ def get_collection_stats(
     return ChallanService.get_collection_stats(db, member_id=stats_member_id)
 
 
+@router.get("/community-stats", response_model=CollectionStatsResponse)
+def get_community_collection_stats(
+    _current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Org-wide collection totals by period for the community/transparency page.
+    Accessible to all authenticated users.
+    """
+    return ChallanService.get_collection_stats(db, member_id=None)
+
+
 @router.post("/import/history", response_model=ChallanHistoryImportSummary, status_code=http_status.HTTP_201_CREATED)
 def import_challan_history(
     file: UploadFile = File(...),

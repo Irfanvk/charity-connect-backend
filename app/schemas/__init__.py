@@ -9,6 +9,7 @@ from .schemas import (
     MemberResponse,
     MemberImportSummary,
     MemberSummaryResponse,
+    MemberCommunityView,
     ChallanHistoryImportSummary,
     CampaignPaymentImportSummary,
     ImportJobCreateResponse,
