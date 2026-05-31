@@ -224,7 +224,7 @@ class MemberCommunityView(BaseModel):
     full_name: Optional[str] = None
     member_code: str
     status: str
-    join_date: datetime
+    join_date: Optional[datetime] = None
 
     class Config:
         from_attributes = True
