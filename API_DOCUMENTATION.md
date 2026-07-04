@@ -32,6 +32,7 @@ Authorization: Bearer <access_token>
 | POST | `/auth/register` | Register with invite code |
 | GET | `/auth/me` | Get current user info |
 | POST | `/auth/logout` | Logout |
+| POST | `/auth/change-password` | Change own password (requires current password; admins require superadmin approval via reset flow) |
 
 #### 👥 Users (Admin Only)
 | Method | Endpoint | Description |
@@ -514,6 +515,41 @@ Authorization: Bearer <access_token>
   "created_at": "2026-01-01T00:00:00"
 }
 ```
+
+### Change Password (Authenticated)
+**POST** `/auth/change-password`
+
+Available to logged-in users, with role rules:
+- `superadmin`: can change own password directly.
+- `member`: can change own password directly.
+- `admin`: direct change is blocked; requires superadmin approval via password reset request flow.
+
+**Headers:**
+```
+Authorization: Bearer <access_token>
+```
+
+**Request:**
+```json
+{
+  "current_password": "Current@123",
+  "new_password": "NewStrong@123"
+}
+```
+
+**Response (200):**
+```json
+{
+  "message": "Password updated successfully.",
+  "username": "admin_user"
+}
+```
+
+**Error Responses:**
+- `401 Unauthorized`: Current password is incorrect
+- `400 Bad Request`: New password matches old password
+- `403 Forbidden`: Admin self-change requires superadmin approval via reset flow
+- `422 Unprocessable Entity`: New password fails validation rules
 
 ---
 

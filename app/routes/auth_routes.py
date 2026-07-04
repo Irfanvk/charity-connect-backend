@@ -3,7 +3,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
-from app.schemas import UserLogin, UserRegisterWithInvite, UserResponse, TokenResponse
+from app.schemas import UserLogin, UserRegisterWithInvite, UserResponse, TokenResponse, ChangePasswordRequest
 from app.services import AuthService
 from app.utils import create_access_token, get_current_user
 from app.utils.file_handler import save_file, validate_file, delete_file
@@ -82,6 +82,22 @@ def logout():
     Logout user (token is invalidated on frontend).
     """
     return {"message": "Logged out successfully"}
+
+
+@router.post("/change-password")
+def change_password(
+    body: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Change current user's password."""
+    user = AuthService.change_password(
+        db,
+        user_id=current_user["user_id"],
+        current_password=body.current_password,
+        new_password=body.new_password,
+    )
+    return {"message": "Password updated successfully.", "username": user.username}
 
 
 @router.post("/me/avatar", response_model=UserResponse)

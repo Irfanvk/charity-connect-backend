@@ -3,7 +3,7 @@
 import secrets
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from typing import Optional, cast
 
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -128,6 +128,7 @@ def approve_request(
     req_id: int,
     admin_id: int,
     admin_notes: Optional[str] = None,
+    approver_role: Optional[str] = None,
 ) -> PasswordResetRequest:
     """Approve a password reset request: generate token for admin to share."""
     req = db.query(PasswordResetRequest).filter(PasswordResetRequest.id == req_id).first()
@@ -147,6 +148,15 @@ def approve_request(
 
     if not user:
         raise ValueError("Associated user account not found")
+
+    target_role = str(user.role).lower()
+    normalized_approver_role = str(approver_role or "").lower()
+    if target_role == "admin" and normalized_approver_role != "superadmin":
+        raise ValueError("Superadmin approval is required for admin password reset requests")
+
+    approved_user_id = cast(int, user.id)
+    if approved_user_id == admin_id:
+        raise ValueError("Admins cannot approve password reset requests for their own account")
 
     token = secrets.token_urlsafe(48)
     now = _utcnow()

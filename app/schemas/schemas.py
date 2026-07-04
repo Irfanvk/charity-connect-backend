@@ -141,6 +141,26 @@ class TokenResponse(BaseModel):
     user: UserResponse
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password_strength(cls, value: str) -> str:
+        if len(value or "") < 8:
+            raise ValueError("Password must be at least 8 characters long")
+        if not re.search(r"[A-Z]", value):
+            raise ValueError("Password must include at least one uppercase letter")
+        if not re.search(r"[a-z]", value):
+            raise ValueError("Password must include at least one lowercase letter")
+        if not re.search(r"\d", value):
+            raise ValueError("Password must include at least one number")
+        if not re.search(r"[^A-Za-z0-9]", value):
+            raise ValueError("Password must include at least one special character")
+        return value
+
+
 # Member Schemas
 class MemberCreate(BaseModel):
     # Legacy path: create member for an existing user.

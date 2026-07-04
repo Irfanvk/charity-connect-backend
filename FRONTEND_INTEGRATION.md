@@ -377,6 +377,33 @@ const getCurrentUser = async () => {
 };
 ```
 
+### Change Password (Self-Service)
+
+Use this for logged-in users to change their own password.
+Role behavior:
+- `superadmin`: direct self-change is allowed.
+- `member`: direct self-change is allowed.
+- `admin`: direct self-change is blocked; use forgot-password request and wait for superadmin approval.
+
+```typescript
+interface ChangePasswordRequest {
+  current_password: string;
+  new_password: string;
+}
+
+const changePassword = async (data: ChangePasswordRequest) => {
+  const response = await api.post('/auth/change-password', data);
+  return response.data;
+};
+```
+
+Recommended UX behavior:
+- Require current password before enabling submit.
+- Validate new password strength client-side (to match backend):
+  at least 8 chars, uppercase, lowercase, number, special character.
+- Show backend messages for `401` (wrong current password) and `400` (same as old password).
+- For `admin` role, either hide direct change-password submit, or handle `403` by redirecting to forgot-password request flow.
+
 ---
 
 ## Core Workflows

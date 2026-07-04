@@ -164,7 +164,11 @@ def approve_request(
 ) -> PasswordResetRequestResponse:
     try:
         req = password_reset_service.approve_request(
-            db, req_id, current_user["user_id"], body.admin_notes
+            db,
+            req_id,
+            current_user["user_id"],
+            body.admin_notes,
+            approver_role=str(current_user.get("role", "")).lower(),
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
