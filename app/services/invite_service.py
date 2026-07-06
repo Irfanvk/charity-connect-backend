@@ -42,6 +42,29 @@ class InviteService:
         if dt.tzinfo is None:
             return dt
         return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+    @staticmethod
+    def _find_existing_member_user_for_invite(db: Session, invite: Invite) -> User | None:
+        candidates: list[User] = []
+
+        normalized_email = InviteService._normalize_email(invite.email)
+        normalized_phone = InviteService._normalize_phone(invite.phone)
+
+        if normalized_email:
+            user = db.query(User).filter(User.email == normalized_email).first()
+            if user:
+                candidates.append(user)
+
+        if normalized_phone:
+            user = db.query(User).filter(User.phone == normalized_phone).first()
+            if user and user not in candidates:
+                candidates.append(user)
+
+        for user in candidates:
+            if str(user.role).lower() == "member" and user.member is not None:
+                return user
+
+        return None
     
     @staticmethod
     def _enrich_invite(invite: Invite) -> Invite:
@@ -154,12 +177,27 @@ class InviteService:
         normalized_input = (validate_data.email_or_phone or "").strip()
         normalized_input_email = InviteService._normalize_email(normalized_input)
         normalized_input_phone = InviteService._normalize_phone(normalized_input)
+        existing_member_user = InviteService._find_existing_member_user_for_invite(db, invite)
+        allow_monthly_amount = existing_member_user is None
+        registration_mode = "new_member" if allow_monthly_amount else "existing_member"
 
         if invite.email and InviteService._normalize_email(invite.email) == normalized_input_email:
-            return {"valid": True, "message": "Invite valid for email", "type": "email"}
+            return {
+                "valid": True,
+                "message": "Invite valid for email",
+                "type": "email",
+                "allow_monthly_amount": allow_monthly_amount,
+                "registration_mode": registration_mode,
+            }
         
         if invite.phone and InviteService._normalize_phone(invite.phone) == normalized_input_phone:
-            return {"valid": True, "message": "Invite valid for phone", "type": "phone"}
+            return {
+                "valid": True,
+                "message": "Invite valid for phone",
+                "type": "phone",
+                "allow_monthly_amount": allow_monthly_amount,
+                "registration_mode": registration_mode,
+            }
         
         return {"valid": False, "message": "Email or phone does not match"}
     

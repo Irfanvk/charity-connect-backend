@@ -178,6 +178,17 @@ class AuthService:
                 detail="Phone does not match invite",
             )
 
+        # Existing-member invite registrations should keep monthly amount immutable.
+        existing_member_user = AuthService._find_existing_member_user_by_contacts(db, invite, registration)
+        if existing_member_user and (registration.monthly_amount or 0.0) > 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Membership amount for existing members cannot be changed during registration. "
+                    "Please submit a profile request after login for admin approval."
+                ),
+            )
+
         # If this person already exists as an offline-imported member account,
         # claim and activate that same user to preserve a single member history.
         claimable_user = AuthService._find_claimable_member_user(db, invite, registration)
@@ -292,6 +303,47 @@ class AuthService:
         for user in candidates:
             # Only claim member-linked accounts that are currently offline/inactive.
             if user.role == "member" and user.member is not None and not user.is_active:
+                return user
+
+        return None
+
+    @staticmethod
+    def _find_existing_member_user_by_contacts(
+        db: Session,
+        invite: Invite,
+        registration: UserRegisterWithInvite,
+    ) -> User | None:
+        candidates: list[User] = []
+
+        possible_emails = [
+            value
+            for value in [
+                AuthService._normalize_email(invite.email),
+                AuthService._normalize_email(registration.email),
+            ]
+            if value
+        ]
+        possible_phones = [
+            value
+            for value in [
+                AuthService._normalize_phone(invite.phone),
+                AuthService._normalize_phone(registration.phone),
+            ]
+            if value
+        ]
+
+        for email in possible_emails:
+            user = db.query(User).filter(User.email == email).first()
+            if user and user not in candidates:
+                candidates.append(user)
+
+        for phone in possible_phones:
+            user = db.query(User).filter(User.phone == phone).first()
+            if user and user not in candidates:
+                candidates.append(user)
+
+        for user in candidates:
+            if str(user.role).lower() == "member" and user.member is not None:
                 return user
 
         return None
