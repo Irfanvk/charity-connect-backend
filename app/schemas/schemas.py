@@ -47,6 +47,20 @@ class RequestStatus(str, Enum):
     REJECTED = "rejected"
 
 
+PLATFORM_START_MONTH_STR = "2024-08"
+
+
+def _validate_platform_start_month(month_value: str) -> str:
+    value = (month_value or "").strip()
+    if not value:
+        return value
+    if len(value) != 7 or value[4] != "-":
+        raise ValueError("Month must be in YYYY-MM format")
+    if value < PLATFORM_START_MONTH_STR:
+        raise ValueError(f"Month must be {PLATFORM_START_MONTH_STR} or later")
+    return value
+
+
 # Auth Schemas
 class UserLogin(BaseModel):
     username: Optional[str] = None  # Can be username or email
@@ -447,6 +461,13 @@ class ChallanCreate(BaseModel):
     amount: float
     payment_method: Optional[str] = None
 
+    @field_validator("month")
+    @classmethod
+    def validate_month_floor(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        return _validate_platform_start_month(value)
+
 
 class MultiChallanCreate(BaseModel):
     """Create multiple challans for one or more months with optional bulk proof.
@@ -464,12 +485,24 @@ class MultiChallanCreate(BaseModel):
     member_id: Optional[int] = None  # Optional for members (uses current user), required for admins
     notes: Optional[str] = None  # Notes if using bulk proof
 
+    @field_validator("months")
+    @classmethod
+    def validate_months_floor(cls, values: list[str]) -> list[str]:
+        return [_validate_platform_start_month(month) for month in values]
+
 
 class ChallanUpdate(BaseModel):
     month: Optional[str] = None
     campaign_id: Optional[int] = None
     amount: Optional[float] = None
     payment_method: Optional[str] = None
+
+    @field_validator("month")
+    @classmethod
+    def validate_month_floor(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        return _validate_platform_start_month(value)
 
 
 class ChallanProofUpload(BaseModel):
@@ -709,6 +742,11 @@ class BulkChallanCreate(BaseModel):
     proof_file_id: Optional[str] = None
     member_id: Optional[int] = None  # Optional for members (uses current user), required for admins
     notes: Optional[str] = None
+
+    @field_validator("months")
+    @classmethod
+    def validate_months_floor(cls, values: list[str]) -> list[str]:
+        return [_validate_platform_start_month(month) for month in values]
 
 
 class BulkChallanLinkedChallan(BaseModel):

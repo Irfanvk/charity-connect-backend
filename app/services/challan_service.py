@@ -17,6 +17,9 @@ from typing import Optional
 class ChallanService:
     """Challan management service."""
 
+    PLATFORM_START_MONTH = date(2024, 8, 1)
+    PLATFORM_START_MONTH_STR = "2024-08"
+
     SORTABLE_COLUMNS = {
         "created_at": Challan.created_at,
         "updated_at": Challan.updated_at,
@@ -34,6 +37,23 @@ class ChallanService:
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail="Invalid month format. Use YYYY-MM",
             ) from exc
+
+    @staticmethod
+    def _ensure_month_not_before_platform(month: str) -> None:
+        month_start = ChallanService._parse_month_start(month)
+        if month_start < ChallanService.PLATFORM_START_MONTH:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Month must be {ChallanService.PLATFORM_START_MONTH_STR} or later",
+            )
+
+    @staticmethod
+    def _monthly_visibility_filter():
+        return or_(
+            Challan.type != ChallanType.MONTHLY,
+            Challan.month.is_(None),
+            Challan.month >= ChallanService.PLATFORM_START_MONTH_STR,
+        )
 
     @staticmethod
     def _format_month(value: date) -> str:
@@ -92,6 +112,9 @@ class ChallanService:
         else:
             # No join_date at all — fall back to 12 months ago
             start_month = ChallanService._add_months(today, -12)
+
+        if start_month < ChallanService.PLATFORM_START_MONTH:
+            start_month = ChallanService.PLATFORM_START_MONTH
 
         existing_monthly = (
             db.query(Challan.month)
@@ -159,6 +182,8 @@ class ChallanService:
         
         # Check if monthly challan already exists for this month
         if challan_data.type == ChallanType.MONTHLY:
+            ChallanService._ensure_month_not_before_platform(challan_data.month)
+
             payable = ChallanService.get_payable_months(
                 db,
                 member_id,
@@ -433,6 +458,13 @@ class ChallanService:
                 if not donation_month:
                     rows_skipped += 1
                     errors.append(f"Row {idx}: missing valid month for monthly challan")
+                    continue
+
+                if donation_month < ChallanService.PLATFORM_START_MONTH_STR:
+                    rows_skipped += 1
+                    errors.append(
+                        f"Row {idx}: month {donation_month} is before {ChallanService.PLATFORM_START_MONTH_STR}"
+                    )
                     continue
 
                 donation_amount_raw = MemberService.row_value(row, ["amount", "donation_amount", "paid_amount"])
@@ -778,6 +810,7 @@ class ChallanService:
     ):
         """Get all challans for a member."""
         query = db.query(Challan).filter(Challan.member_id == member_id)
+        query = query.filter(ChallanService._monthly_visibility_filter())
         
         # Eagerly load member relationship
         from sqlalchemy.orm import joinedload
@@ -822,6 +855,7 @@ class ChallanService:
           has_proof   → true = proof_uploaded_at IS NOT NULL
         """
         query = db.query(Challan)
+        query = query.filter(ChallanService._monthly_visibility_filter())
         member_joined = False
         user_joined = False
 
@@ -924,6 +958,7 @@ class ChallanService:
         member_id: int | None = None,
     ) -> dict:
         base_query = db.query(Challan)
+        base_query = base_query.filter(ChallanService._monthly_visibility_filter())
         if member_id is not None:
             base_query = base_query.filter(Challan.member_id == member_id)
 
@@ -974,6 +1009,7 @@ class ChallanService:
         year_start = today_start.replace(month=1, day=1)
 
         base = db.query(Challan).filter(Challan.status == ChallanStatus.APPROVED)
+        base = base.filter(ChallanService._monthly_visibility_filter())
         if member_id is not None:
             base = base.filter(Challan.member_id == member_id)
 
