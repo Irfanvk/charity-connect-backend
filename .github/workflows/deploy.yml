@@ -1,0 +1,37 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Deploy to VPS
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.HOST }}
+          username: ${{ secrets.USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+
+            cd /root/charity-connect-backend
+
+            echo "Pulling latest code..."
+            git pull origin main
+
+            echo "Installing dependencies..."
+            /root/charity-connect-backend/venv/bin/pip install -r requirements.txt
+
+            echo "Running database migrations..."
+            /root/charity-connect-backend/venv/bin/alembic upgrade head
+
+            echo "Restarting backend..."
+            systemctl restart charity.service
+
+            echo "Deployment completed successfully!"
