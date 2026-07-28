@@ -28,9 +28,6 @@ jobs:
             echo "Installing dependencies..."
             /root/charity-connect-backend/venv/bin/pip install -r requirements.txt
 
-            echo "Running database migrations..."
-            /root/charity-connect-backend/venv/bin/alembic upgrade head
-
             echo "Restarting backend..."
             systemctl restart charity.service
 
