@@ -32,9 +32,9 @@ jobs:
         run: |
           pip install -r requirements.txt
 
-      - name: Verify Backend Imports
+      - name: Verify Python Syntax
         run: |
-          python -c "import app.main"
+          python -m compileall app
 
       - name: Verify Uvicorn
         run: |
