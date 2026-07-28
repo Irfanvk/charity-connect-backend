@@ -31,4 +31,7 @@ jobs:
             echo "Restarting backend..."
             systemctl restart charity.service
 
+            echo "Checking service status..."
+            systemctl --no-pager --full status charity.service
+
             echo "Deployment completed successfully!"
