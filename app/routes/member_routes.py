@@ -46,11 +46,9 @@ def get_community_directory(
 @router.get("/")
 def get_members(
     skip: int = Query(default=0, ge=0),
-    # ✅ FIX: Raised ceiling from 200 → 500 so the dashboard request of
-    # limit=200 (and any future reasonable value) is accepted instead of
-    # returning 422 Unprocessable Entity.
     limit: int = Query(default=20, ge=1, le=500),
     search: str | None = Query(default=None),
+    status: str | None = Query(default=None),   # <-- ADD THIS
     sort_by: str = Query(default="full_name"),
     sort_order: str = Query(default="asc"),
     current_user: dict = Depends(get_current_user),
@@ -67,6 +65,7 @@ def get_members(
             skip=skip,
             limit=limit,
             search=search,
+            status=status,
             sort_by=sort_by,
             sort_order=sort_order,
         )

@@ -309,6 +309,7 @@ class MemberService:
         skip: int = 0,
         limit: int = 20,
         search: Optional[str] = None,
+        status: Optional[str] = None,
         sort_by: str = "full_name",
         sort_order: str = "asc",
     ):
@@ -327,7 +328,8 @@ class MemberService:
             )
 
         # ✅ ONLY ACTIVE MEMBERS (important for dropdown)
-        query = query.filter(Member.status == "active")
+        if status:    
+            query = query.filter(Member.status == status)
 
         # Sorting
         if sort_by in ("name", "full_name"):
