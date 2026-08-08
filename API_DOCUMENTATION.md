@@ -69,6 +69,7 @@ Authorization: Bearer <access_token>
 | POST | `/campaigns/` | Admin | Create campaign |
 | GET | `/campaigns/` | User | List campaigns (filter: active_only) |
 | GET | `/campaigns/{id}` | User | Get campaign |
+| POST | `/campaigns/{id}/donate` | Member | Create a campaign donation challan (pending admin approval) |
 | PATCH | `/campaigns/{id}` | Admin | Update campaign |
 | DELETE | `/campaigns/{id}` | Admin | Delete campaign |
 

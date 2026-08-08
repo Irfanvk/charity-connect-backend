@@ -11,6 +11,7 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-08-08 | Campaign donations now submit as pending challans and only count in statements after admin approval | Both | ✅ | Frontend Campaigns page now shows a member-facing Donate Now action; backend `POST /campaigns/{campaign_id}/donate` creates a campaign challan in `pending` state. Profile/history/dashboard views now count only approved challans, so pending donations do not affect statements until an admin approves them. Recurring donation UI remains available separately. |
 | 2026-04-20 | Storage platform migrated from Cloudflare R2 to Cloudinary; local disk fallback preserved for dev | Backend | ✅ | `app/utils/file_handler.py` and `app/routes/file_routes.py` updated; `cloudinary` Python package added; `CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET/FOLDER` env vars introduced; `cloudinary_configured` property in `Settings` controls routing between Cloudinary and local disk |
 | 2026-04-19 | Landing page added to frontend application | Frontend | ✅ | New `src/pages/Landing.jsx` created with public brand imagery; route wired in `App.jsx` and `pages.config.js`; `appPaths.js` updated |
 | 2026-04-19 | Page transitions added to frontend app router | Frontend | ✅ | `App.jsx` updated with route transition animations for smoother navigation UX |
@@ -102,6 +103,11 @@
 | 2026-02-24 | Disable RecurringDonation and Request in Phase 1 | Both | ✅ | Phase 2 feature set |
 
 ---
+
+## Pending Items
+
+- 2026-08-08: Confirm admin review workflow for campaign-donation challans in the challans approval queue after deployment, and verify approved donations appear in member statements only after approval.
+- 2026-08-08: Re-run a production smoke test for the new campaign donate path plus admin approval/rejection flow once deployed.
 
 ## Meeting Minutes
 

@@ -1,12 +1,14 @@
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status, UploadFile, File
 from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
-from app.schemas import CampaignCreate, CampaignResponse, CampaignUpdate, CampaignPaymentImportSummary, ImportJobCreateResponse, ImportJobStatusResponse
-from app.services import CampaignService
+from app.schemas import CampaignCreate, CampaignResponse, CampaignUpdate, CampaignPaymentImportSummary, ImportJobCreateResponse, ImportJobStatusResponse, CampaignDonationCreate, ChallanCreate, ChallanResponse
+from app.services import CampaignService, ChallanService, MemberService
 from app.services.import_job_service import ImportJobService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin, log_audit
 from app.utils.file_handler import save_file, validate_file
-from app.models.models import Campaign
+from app.models.models import Campaign, ChallanType, ChallanStatus
 from typing import List
 
 router = APIRouter(prefix="/campaigns", tags=["Campaigns"])
@@ -156,6 +158,68 @@ def get_campaign(
     if not campaign:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Campaign {campaign_id} not found")
     return campaign
+
+
+@router.post("/{campaign_id}/donate", response_model=ChallanResponse, status_code=status.HTTP_201_CREATED)
+def donate_to_campaign(
+    campaign_id: int,
+    donation_data: CampaignDonationCreate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Create a campaign donation challan that stays pending until admin approval."""
+    campaign = CampaignService.get_campaign(db, campaign_id)
+    if campaign.status != "active":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot donate to an inactive campaign")
+
+    try:
+        member = MemberService.get_member_for_user(db, current_user["user_id"])
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No member record found for your account. Please contact admin.",
+        ) from exc
+
+    if donation_data.amount < float(campaign.min_amount or 0):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Minimum donation for this campaign is ₹{campaign.min_amount}",
+        )
+
+    challan = ChallanService.create_challan(
+        db,
+        member.id,
+        ChallanCreate(
+            member_id=member.id,
+            type=ChallanType.CAMPAIGN,
+            campaign_id=campaign.id,
+            amount=donation_data.amount,
+            payment_method=donation_data.payment_method,
+        ),
+    )
+
+    challan.status = ChallanStatus.PENDING
+    challan.approved_at = None
+    db.add(challan)
+    db.commit()
+    db.refresh(challan)
+
+    log_audit(
+        db,
+        user_id=current_user.get("user_id"),
+        action="campaign_donation_create",
+        entity_type="Challan",
+        entity_id=challan.id,
+        new_values={
+            "campaign_id": campaign.id,
+            "member_id": member.id,
+            "amount": float(donation_data.amount),
+            "status": "pending",
+        },
+        auto_commit=True,
+    )
+
+    return challan
 
 
 @router.patch("/{campaign_id}", response_model=CampaignResponse)
