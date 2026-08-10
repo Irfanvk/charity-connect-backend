@@ -529,18 +529,6 @@ class ChallanResponse(BaseModel):
     month: Optional[str]
     campaign_id: Optional[int]
     amount: float
-
-class CampaignDonationCreate(BaseModel):
-    amount: float
-    payment_method: Optional[str] = None
-
-    @field_validator("amount")
-    @classmethod
-    def validate_amount(cls, value: float) -> float:
-        if value <= 0:
-            raise ValueError("Donation amount must be greater than 0")
-        return value
-
     payment_method: Optional[str]
     proof_path: Optional[str]
     status: ChallanStatus
@@ -553,6 +541,17 @@ class CampaignDonationCreate(BaseModel):
 
     class Config:
         from_attributes = True
+
+class CampaignDonationCreate(BaseModel):
+    amount: float
+    payment_method: Optional[str] = None
+
+    @field_validator("amount")
+    @classmethod
+    def validate_amount(cls, value: float) -> float:
+        if value <= 0:
+            raise ValueError("Donation amount must be greater than 0")
+        return value
 
 
 class ChallanSummaryResponse(BaseModel):
