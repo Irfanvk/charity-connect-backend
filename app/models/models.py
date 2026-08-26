@@ -292,7 +292,7 @@ class MemberRequest(Base):
         Enum(
             RequestStatus,
             name="requeststatus",
-            values_callable=lambda enum_cls: [item.value for item in enum_cls],
+            values_callable=lambda enum_cls: [item.value.lower() for item in enum_cls],
         ),
         nullable=False,
         default=RequestStatus.PENDING,

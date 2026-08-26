@@ -1001,7 +1001,7 @@ class ChallanService:
         member_id: int | None = None,
     ) -> dict:
         query = db.query(Challan).filter(
-            Challan.status.in_([
+            func.lower(cast(Challan.status, String)).in_([
                 ChallanStatus.PENDING.value,
                 ChallanStatus.GENERATED.value,
             ])
