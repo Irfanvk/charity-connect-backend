@@ -585,6 +585,14 @@ class ChallanListResponse(BaseModel):
     limit: int
 
 
+class OutstandingReceivablesResponse(BaseModel):
+    items: List[ChallanResponse]
+    total: int
+    total_amount: float
+    skip: int
+    limit: int
+
+
 class ChallanPayableMonthsResponse(BaseModel):
     member_id: int
     current_month: str

@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import String, cast
 from sqlalchemy import func
 from sqlalchemy import or_
@@ -991,6 +991,37 @@ class ChallanService:
             "pending_count": int(pending_count),
             "total_collected": float(total_collected),
             "monthly_collection": float(monthly_collection),
+        }
+
+    @staticmethod
+    def get_outstanding_receivables(
+        db: Session,
+        skip: int = 0,
+        limit: int = 100,
+        member_id: int | None = None,
+    ) -> dict:
+        query = db.query(Challan).filter(
+            Challan.status.in_([ChallanStatus.PENDING, ChallanStatus.GENERATED])
+        )
+        query = query.filter(ChallanService._monthly_visibility_filter())
+        if member_id is not None:
+            query = query.filter(Challan.member_id == member_id)
+
+        total = query.with_entities(func.count(Challan.id)).scalar() or 0
+        total_amount = query.with_entities(func.coalesce(func.sum(Challan.amount), 0.0)).scalar() or 0.0
+        items = query.options(joinedload(Challan.member)).order_by(
+            Challan.created_at.desc(), Challan.id.desc()
+        ).offset(skip).limit(limit).all()
+
+        for challan in items:
+            challan.member_name = challan.member.full_name if challan.member else None
+
+        return {
+            "items": items,
+            "total": int(total),
+            "total_amount": float(total_amount),
+            "skip": int(skip),
+            "limit": int(limit),
         }
 
     @staticmethod

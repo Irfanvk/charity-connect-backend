@@ -3,7 +3,7 @@ from app.models.models import ChallanStatus
 from fastapi import APIRouter, Depends, status as http_status, UploadFile, File, Query
 from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
-from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanRevert, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse, ChallanPayableMonthsResponse, ImportJobCreateResponse, ImportJobStatusResponse, CollectionStatsResponse, MultiChallanCreate
+from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanRevert, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse, OutstandingReceivablesResponse, ChallanPayableMonthsResponse, ImportJobCreateResponse, ImportJobStatusResponse, CollectionStatsResponse, MultiChallanCreate
 from app.services import ChallanService, MemberService
 from app.services.import_job_service import ImportJobService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin, log_audit
@@ -32,6 +32,26 @@ def get_challan_summary(
         summary_member_id = member.id
 
     return ChallanService.get_challan_summary(db, month=month, member_id=summary_member_id)
+
+
+@router.get("/outstanding", response_model=OutstandingReceivablesResponse)
+def get_outstanding_receivables(
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=200),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return aggregate unpaid challans with a paginated drill-down list."""
+    member_id = None
+    if not _is_admin(current_user):
+        member = MemberService.get_member_for_user(db, current_user["user_id"])
+        if not member:
+            raise HTTPException(status_code=404, detail="Member not found")
+        member_id = member.id
+
+    return ChallanService.get_outstanding_receivables(
+        db, skip=skip, limit=limit, member_id=member_id
+    )
 
 
 @router.get("/collection-stats", response_model=CollectionStatsResponse)
