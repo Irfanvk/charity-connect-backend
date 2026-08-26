@@ -1001,7 +1001,10 @@ class ChallanService:
         member_id: int | None = None,
     ) -> dict:
         query = db.query(Challan).filter(
-            Challan.status.in_([ChallanStatus.PENDING, ChallanStatus.GENERATED])
+            Challan.status.in_([
+                ChallanStatus.PENDING.value,
+                ChallanStatus.GENERATED.value,
+            ])
         )
         query = query.filter(ChallanService._monthly_visibility_filter())
         if member_id is not None:
