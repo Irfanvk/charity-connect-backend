@@ -66,6 +66,11 @@ class User(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     full_name = Column(String(255), nullable=True)
+    last_seen_at = Column(DateTime, nullable=True)
+    notification_permission = Column(String(20), nullable=True)
+    notification_permission_updated_at = Column(DateTime, nullable=True)
+    device_display_mode = Column(String(30), nullable=True)
+    last_activity_user_agent = Column(String(500), nullable=True)
     
     # Relationships
     member = relationship("Member", back_populates="user", uselist=False)

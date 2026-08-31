@@ -1,12 +1,34 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
-from app.schemas import UserResponse, UserRole, UserUpdate
-from app.utils import get_current_admin, log_audit
+from app.schemas import DeviceStatusUpdate, UserResponse, UserRole, UserUpdate
+from app.utils import get_current_admin, get_current_user, log_audit
 from typing import List, Optional
 
 router = APIRouter(prefix="/users", tags=["Users"])
+
+
+@router.post("/me/device-status", status_code=204)
+def report_device_status(
+    payload: DeviceStatusUpdate,
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Record the current device's notification permission for superadmin monitoring."""
+    user = db.query(User).filter(User.id == current_user["user_id"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    user.notification_permission = payload.notification_permission
+    user.notification_permission_updated_at = datetime.utcnow()
+    user.device_display_mode = payload.device_display_mode
+    user.last_activity_user_agent = request.headers.get("user-agent", "")[:500]
+    db.add(user)
+    db.commit()
 
 
 @router.get("/", response_model=List[UserResponse])

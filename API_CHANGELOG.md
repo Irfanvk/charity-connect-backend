@@ -2,6 +2,12 @@
 
 ## 2026-08-31
 
+### Added
+- **Superadmin user activity and notification monitoring**
+  - Added `GET /admin/user-monitoring` (superadmin only) to return each user's last authenticated activity, reported browser notification permission, PWA/browser display mode, and active push-device count.
+  - Added `POST /users/me/device-status` for authenticated clients to report their current browser permission (`default`, `granted`, `denied`, or `unsupported`) and display mode.
+  - Added additive `users` fields for `last_seen_at`, notification-permission status/timestamp, display mode, and last activity user agent. The endpoint excludes Web Push endpoints and encryption keys.
+
 ### Operations
 - **Production PostgreSQL backup and recovery tooling added**
   - Added `Backup & Restore/backup_production.ps1` to create a remote custom-format PostgreSQL dump, package it with a manifest and optional globals dump, download it locally, and verify the SHA-256 checksum.

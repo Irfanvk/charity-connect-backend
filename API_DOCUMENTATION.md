@@ -3,7 +3,7 @@
 **Base URL:** `http://localhost:8000`  
 **Production:** Update BASE_URL in environment configuration  
 **Version:** 1.0  
-**Last Updated:** March 18, 2026
+**Last Updated:** August 31, 2026
 
 ---
 
@@ -40,6 +40,12 @@ Authorization: Bearer <access_token>
 | GET | `/users/` | List all users (filters: role, is_active, search) |
 | GET | `/users/{id}` | Get user by ID |
 | PUT | `/users/{id}` | Update user |
+| POST | `/users/me/device-status` | Record the current authenticated user's notification permission and browser/PWA display mode |
+
+#### 🛡️ Superadmin Monitoring
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/admin/user-monitoring` | List user last activity, reported notification permission, and active push-device status; excludes push endpoints and keys |
 
 #### ✉️ Invites (Admin Only)
 | Method | Endpoint | Description |
@@ -100,6 +106,9 @@ Authorization: Bearer <access_token>
 | GET | `/notifications/` | User | Get my notifications |
 | GET | `/notifications/admin/sent` | Admin | List grouped sent notifications for admin panel |
 | DELETE | `/notifications/admin/sent` | Admin | Delete sent batch by scope (members/admins/all) |
+| GET | `/notifications/push/public-key` | User | Get Web Push enrollment configuration status and public VAPID key |
+| POST | `/notifications/push/subscribe` | User | Store the current device's Web Push subscription |
+| POST | `/notifications/push/unsubscribe` | User | Deactivate the current device's Web Push subscription |
 | GET | `/notifications/unread/count` | User | Get unread count |
 | GET | `/notifications/{id}` | User | Get notification |
 | PUT | `/notifications/{id}/read` | User | Mark as read |

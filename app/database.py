@@ -29,6 +29,19 @@ def ensure_runtime_schema() -> None:
     with engine.begin() as connection:
         inspector = inspect(connection)
 
+        if inspector.has_table("users"):
+            user_columns = {column["name"] for column in inspector.get_columns("users")}
+            if "last_seen_at" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN last_seen_at TIMESTAMP"))
+            if "notification_permission" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN notification_permission VARCHAR(20)"))
+            if "notification_permission_updated_at" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN notification_permission_updated_at TIMESTAMP"))
+            if "device_display_mode" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN device_display_mode VARCHAR(30)"))
+            if "last_activity_user_agent" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN last_activity_user_agent VARCHAR(500)"))
+
         if inspector.has_table("members"):
             member_columns = {column["name"]: column for column in inspector.get_columns("members")}
             if "notes" not in member_columns:

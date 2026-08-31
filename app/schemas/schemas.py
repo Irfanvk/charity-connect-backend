@@ -128,6 +128,10 @@ class UserResponse(BaseModel):
     avatar_url: Optional[str] = None
     created_at: datetime
     member_code: Optional[str] = None
+    last_seen_at: Optional[datetime] = None
+    notification_permission: Optional[str] = None
+    notification_permission_updated_at: Optional[datetime] = None
+    device_display_mode: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -147,6 +151,11 @@ class UserUpdate(BaseModel):
         if v is None:
             return v
         return str(v).strip().lower() or None
+
+
+class DeviceStatusUpdate(BaseModel):
+    notification_permission: str = Field(pattern="^(default|granted|denied|unsupported)$")
+    device_display_mode: Optional[str] = Field(default=None, max_length=30)
 
 
 class TokenResponse(BaseModel):

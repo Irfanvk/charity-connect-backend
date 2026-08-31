@@ -8,6 +8,9 @@ from jose import JWTError, jwt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPBearer
 from app.config import settings
+from app.database import get_db
+from app.models import User
+from sqlalchemy.orm import Session
 
 # Configuration
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -82,7 +85,7 @@ def verify_token(token: str) -> dict:
         ) from exc
 
 
-async def get_current_user(credentials = Depends(http_bearer)):
+async def get_current_user(credentials = Depends(http_bearer), db: Session = Depends(get_db)):
     """Get current user from token."""
     if credentials is None:
         raise HTTPException(
@@ -109,6 +112,17 @@ async def get_current_user(credentials = Depends(http_bearer)):
             detail="Invalid token",
         ) from exc
     
+    try:
+        now = datetime.utcnow()
+        stale_before = now - timedelta(minutes=1)
+        db.query(User).filter(
+            User.id == user_id,
+            (User.last_seen_at.is_(None)) | (User.last_seen_at < stale_before),
+        ).update({"last_seen_at": now}, synchronize_session=False)
+        db.commit()
+    except Exception:
+        db.rollback()
+
     return {"user_id": user_id, "role": payload.get("role")}
 
 

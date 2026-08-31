@@ -33,6 +33,7 @@ from app.models.models import (
     Notification,
     MemberRequest,
     AppSetting,
+    PushSubscription,
 )
 from app.utils.auth import get_current_user, get_current_admin, get_current_superadmin, verify_password
 from app.utils.audit import log_audit
@@ -227,6 +228,61 @@ def get_dashboard_charts(
         "campaign_progress": campaign_progress,
         "monthly_donations": monthly_donations,
         "top_donors": top_donors,
+    }
+
+
+@router.get("/user-monitoring")
+def get_user_monitoring(
+    current_user: dict = Depends(get_current_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Return superadmin-only user activity and notification enrollment status."""
+    _ = current_user
+    users = db.query(User).order_by(User.last_seen_at.desc().nullslast(), User.created_at.desc()).all()
+    subscriptions_by_user: dict[int, list[PushSubscription]] = {}
+    for subscription in db.query(PushSubscription).filter(PushSubscription.is_active == True).all():
+        subscriptions_by_user.setdefault(subscription.user_id, []).append(subscription)
+
+    monitoring_rows = []
+    for user in users:
+        subscriptions = subscriptions_by_user.get(user.id, [])
+        permission = user.notification_permission or "unknown"
+        if subscriptions:
+            notification_status = "enabled"
+        elif permission == "denied":
+            notification_status = "disabled"
+        elif permission == "granted":
+            notification_status = "permission_granted_no_subscription"
+        elif permission == "default":
+            notification_status = "not_requested"
+        else:
+            notification_status = permission
+
+        monitoring_rows.append({
+            "user_id": user.id,
+            "full_name": user.full_name,
+            "username": user.username,
+            "email": user.email,
+            "phone": user.phone,
+            "role": user.role.value if hasattr(user.role, "value") else user.role,
+            "is_active": bool(user.is_active),
+            "last_seen_at": user.last_seen_at.isoformat() if user.last_seen_at else None,
+            "notification_permission": permission,
+            "notification_permission_updated_at": user.notification_permission_updated_at.isoformat() if user.notification_permission_updated_at else None,
+            "device_display_mode": user.device_display_mode,
+            "notification_status": notification_status,
+            "push_devices": [
+                {
+                    "user_agent": subscription.user_agent,
+                    "last_synced_at": subscription.updated_at.isoformat() if subscription.updated_at else None,
+                }
+                for subscription in subscriptions
+            ],
+        })
+
+    return {
+        "web_push_configured": settings.web_push_configured,
+        "users": monitoring_rows,
     }
 
 
