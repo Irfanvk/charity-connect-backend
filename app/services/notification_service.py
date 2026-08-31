@@ -34,9 +34,19 @@ class NotificationService:
                 user_id=notification.user_id,
                 event={"type": "create", "data": payload},
             )
-            WebPushService.send_new_notification(db=db, notification=notification)
         except Exception:
-            # Notification persistence must remain successful even if delivery channels fail.
+            # Realtime delivery must not affect persisted notification records.
+            pass
+
+        try:
+            if can_enqueue_celery_tasks():
+                from app.workers.tasks import send_web_push_notification
+
+                send_web_push_notification.delay(notification.id)
+            else:
+                WebPushService.send_new_notification(db=db, notification=notification)
+        except Exception:
+            # Push delivery must not affect persisted notification records.
             pass
 
     @staticmethod

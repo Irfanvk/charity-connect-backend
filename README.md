@@ -185,7 +185,7 @@ DEBUG=True
 # CORS — comma-separated frontend origins
 ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000
 
-# Redis / Celery (optional — needed for async tasks like WhatsApp)
+# Redis / Celery (required in production for queued Web Push, WhatsApp, and reminders)
 REDIS_URL=redis://localhost:6379/0
 CELERY_BROKER_URL=redis://localhost:6379/0
 CELERY_RESULT_BACKEND=redis://localhost:6379/0
@@ -251,15 +251,17 @@ python seed_admin.py
 ```
 Follow the interactive prompts to create a superadmin account.
 
-### 4. Optional: Start Celery workers
+### 4. Start Celery workers for asynchronous delivery
 
 ```bash
-# Worker (processes WhatsApp sends, import jobs)
-celery -A app.workers.celery_app.celery worker --loglevel=info
+# Worker (processes Web Push, WhatsApp, and notification jobs)
+celery -A app.workers.celery_app.celery worker --loglevel=info --queues=default,notifications
 
 # Beat scheduler (periodic reminders)
 celery -A app.workers.celery_app.celery beat --loglevel=info
 ```
+
+For production, run Redis, one worker, and exactly one Beat scheduler as separate long-lived processes. When Redis or the worker is unavailable, the API preserves notifications and delivers Web Push inline as a fallback; the worker is required for non-blocking delivery and retry protection after deployment.
 
 ---
 

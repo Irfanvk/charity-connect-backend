@@ -2,6 +2,13 @@
 
 ## 2026-08-31
 
+### Changed
+- **Notification delivery moved off API request threads when Celery is available**
+  - Persisted Web Push notifications now enqueue `send_web_push_notification` on the `notifications` queue. The API retains its direct-delivery fallback if the broker is unavailable.
+  - Celery now uses late acknowledgements, rejects work lost with a worker, records ignored-task errors, and applies 45/60-second soft/hard task time limits.
+  - Worker process commands now consume both `default` and `notifications` queues.
+  - New member requests create notifications for active admins and superadmins, so request moderation does not depend on manual page refresh.
+
 ### Added
 - **Superadmin user activity and notification monitoring**
   - Added `GET /admin/user-monitoring` (superadmin only) to return each user's last authenticated activity, reported browser notification permission, PWA/browser display mode, and active push-device count.

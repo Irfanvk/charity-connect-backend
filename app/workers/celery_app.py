@@ -18,11 +18,19 @@ celery.conf.update(
     enable_utc=True,
     task_default_queue="default",
     task_ignore_result=result_backend_url is None,
-    task_store_errors_even_if_ignored=False,
+    task_store_errors_even_if_ignored=True,
+    task_acks_late=True,
+    task_reject_on_worker_lost=True,
+    task_soft_time_limit=45,
+    task_time_limit=60,
 )
 
 celery.conf.task_routes = {
-    "app.workers.tasks.*": {"queue": "default"}
+    "app.workers.tasks.send_web_push_notification": {"queue": "notifications"},
+    "app.workers.tasks.send_invite_message": {"queue": "notifications"},
+    "app.workers.tasks.send_user_notification": {"queue": "notifications"},
+    "app.workers.tasks.send_welcome_notification": {"queue": "notifications"},
+    "app.workers.tasks.send_monthly_membership_reminders": {"queue": "notifications"},
 }
 
 # Monthly reminder for membership payment cycle (1st day of each month, 09:00 UTC).

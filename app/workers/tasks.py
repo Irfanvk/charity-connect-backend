@@ -1,8 +1,9 @@
 from datetime import datetime
 
 from app.database import SessionLocal
-from app.models import Member, User
+from app.models import Member, Notification, User
 from app.services.notification_service import NotificationService
+from app.services.web_push_service import WebPushService
 from app.services.whatsapp_service import send_whatsapp_message
 from app.utils.invite_share import build_invite_share_message
 from app.utils.message_format import with_islamic_greeting
@@ -26,6 +27,27 @@ def send_invite_message(phone: str, invite_code: str, expiry_date: str | None = 
     message = build_invite_share_message(invite_code, parsed_expiry_date)
 
     send_whatsapp_message(phone, message)
+
+
+@celery.task(
+    bind=True,
+    name="app.workers.tasks.send_web_push_notification",
+    autoretry_for=(OSError, TimeoutError, ConnectionError),
+    retry_backoff=True,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 3},
+    ignore_result=True,
+)
+def send_web_push_notification(self, notification_id: int):
+    """Deliver a persisted notification outside the API request lifecycle."""
+    db = SessionLocal()
+    try:
+        notification = db.query(Notification).filter(Notification.id == notification_id).first()
+        if not notification:
+            return {"status": "skipped", "reason": "notification_not_found"}
+        return WebPushService.send_new_notification(db=db, notification=notification)
+    finally:
+        db.close()
 
 
 @celery.task(name="app.workers.tasks.send_user_notification", ignore_result=True)

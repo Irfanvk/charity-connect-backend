@@ -159,6 +159,28 @@ class RequestService:
         db.add(item)
         db.commit()
         db.refresh(item)
+
+        request_label = request_type.value.replace("_", " ")
+        admins = db.query(User).filter(
+            User.is_active == True,
+            User.role.in_(["admin", "superadmin"]),
+        ).all()
+        admin_notifications = []
+        for admin in admins:
+            notification = Notification(
+                user_id=admin.id,
+                title="New Member Request",
+                message=f"A member submitted a {request_label} request: {item.subject or 'No subject'}.",
+                target_role=admin.role,
+            )
+            db.add(notification)
+            admin_notifications.append(notification)
+
+        db.commit()
+        for admin_notification in admin_notifications:
+            db.refresh(admin_notification)
+            NotificationService.dispatch_notification(db, admin_notification)
+
         return RequestService._serialize(db, item)
 
     @staticmethod
