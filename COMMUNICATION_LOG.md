@@ -112,6 +112,7 @@
 
 ## Pending Items
 
+- 2026-08-31: Deploy backend revision `014b9c4` or later to production and verify `GET /challans/outstanding?skip=0&limit=1` as an admin. This revision compares production challan enum values case-insensitively so legacy `PENDING`/`GENERATED` records are included in outstanding totals. Confirm `ALLOWED_ORIGINS` includes every active production frontend origin, including any Netlify alias that remains in use.
 - 2026-08-08: Confirm admin review workflow for campaign-donation challans in the challans approval queue after deployment, and verify approved donations appear in member statements only after approval.
 - 2026-08-08: Re-run a production smoke test for the new campaign donate path plus admin approval/rejection flow once deployed.
 
