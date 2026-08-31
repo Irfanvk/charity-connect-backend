@@ -547,6 +547,7 @@ class ChallanResponse(BaseModel):
     proof_uploaded_at: Optional[datetime]
     approved_at: Optional[datetime]
     updated_at: datetime
+    is_inferred_due: bool = False
 
     class Config:
         from_attributes = True

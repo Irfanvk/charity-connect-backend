@@ -1000,24 +1000,68 @@ class ChallanService:
         limit: int = 100,
         member_id: int | None = None,
     ) -> dict:
-        query = db.query(Challan).filter(
+        explicit_query = db.query(Challan).filter(
             func.lower(cast(Challan.status, String)).in_([
                 ChallanStatus.PENDING.value,
                 ChallanStatus.GENERATED.value,
             ])
         )
-        query = query.filter(ChallanService._monthly_visibility_filter())
+        explicit_query = explicit_query.filter(ChallanService._monthly_visibility_filter())
         if member_id is not None:
-            query = query.filter(Challan.member_id == member_id)
+            explicit_query = explicit_query.filter(Challan.member_id == member_id)
 
-        total = query.with_entities(func.count(Challan.id)).scalar() or 0
-        total_amount = query.with_entities(func.coalesce(func.sum(Challan.amount), 0.0)).scalar() or 0.0
-        items = query.options(joinedload(Challan.member)).order_by(
-            Challan.created_at.desc(), Challan.id.desc()
-        ).offset(skip).limit(limit).all()
-
-        for challan in items:
+        explicit_items = explicit_query.options(joinedload(Challan.member)).all()
+        for challan in explicit_items:
             challan.member_name = challan.member.full_name if challan.member else None
+
+        due_members_query = db.query(Member).join(User, User.id == Member.user_id).filter(
+            Member.status == "active",
+            User.is_active == True,
+            Member.monthly_amount > 0,
+        )
+        if member_id is not None:
+            due_members_query = due_members_query.filter(Member.id == member_id)
+
+        inferred_items = []
+        today = datetime.utcnow().date().replace(day=1)
+        for member in due_members_query.all():
+            payable = ChallanService.get_payable_months(db, member.id)
+            for month in payable["all_months"]:
+                month_start = ChallanService._parse_month_start(month)
+                inferred_items.append({
+                    "id": -((member.id * 100000) + (month_start.year * 12) + month_start.month),
+                    "member_id": member.id,
+                    "member_name": member.full_name or (member.user.full_name if member.user else None) or (member.user.username if member.user else None),
+                    "type": ChallanType.MONTHLY,
+                    "month": month,
+                    "campaign_id": None,
+                    "amount": float(member.monthly_amount),
+                    "payment_method": None,
+                    "proof_path": None,
+                    "status": ChallanStatus.GENERATED,
+                    "rejection_reason": None,
+                    "bulk_group_id": None,
+                    "created_at": datetime.combine(month_start, datetime.min.time()),
+                    "proof_uploaded_at": None,
+                    "approved_at": None,
+                    "updated_at": datetime.utcnow(),
+                    "is_inferred_due": True,
+                })
+
+        combined_items = [*explicit_items, *inferred_items]
+        combined_items.sort(
+            key=lambda item: (
+                item["month"] if isinstance(item, dict) else (item.month or ""),
+                item["id"] if isinstance(item, dict) else item.id,
+            ),
+            reverse=True,
+        )
+        total = len(combined_items)
+        total_amount = sum(
+            float(item["amount"] if isinstance(item, dict) else item.amount)
+            for item in combined_items
+        )
+        items = combined_items[skip:skip + limit]
 
         return {
             "items": items,

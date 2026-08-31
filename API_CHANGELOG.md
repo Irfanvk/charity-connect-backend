@@ -2,6 +2,11 @@
 
 ## 2026-08-31
 
+### Fixed
+- **Outstanding receivables now includes missing monthly dues**
+  - `GET /challans/outstanding` now combines existing `pending`/`generated` challans with monthly dues inferred from active members' payable-month histories when a monthly challan row was never created.
+  - Inferred records use `is_inferred_due=true`, retain the standard challan response shape, and do not alter or create database records. Existing pending/generated campaign and monthly challans remain included.
+
 ### Changed
 - **Notification delivery moved off API request threads when Celery is available**
   - Persisted Web Push notifications now enqueue `send_web_push_notification` on the `notifications` queue. The API retains its direct-delivery fallback if the broker is unavailable.
