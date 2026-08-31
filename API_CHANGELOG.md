@@ -1,5 +1,15 @@
 # API Changelog
 
+## 2026-08-31
+
+### Operations
+- **Production PostgreSQL backup and recovery tooling added**
+  - Added `Backup & Restore/backup_production.ps1` to create a remote custom-format PostgreSQL dump, package it with a manifest and optional globals dump, download it locally, and verify the SHA-256 checksum.
+  - Added `Backup & Restore/verify_backup.ps1` for offline checksum validation, archive inspection, PostgreSQL custom-dump signature checks, manifest display, and optional globals reporting.
+  - Added `Backup & Restore/restore_production_backup.ps1` to upload and restore a selected archive, optionally restore globals, restart `charity.service`, and confirm the local `/health` endpoint.
+  - Added `.cmd` wrappers and `Backup & Restore/README.md` operator guidance for backup, validation, dry-run, restore, retention, and recovery.
+  - No HTTP endpoints, request/response schemas, authorization rules, or database migrations changed.
+
 ## 2026-03-18
 
 ### Git Commits (2026-03-18)

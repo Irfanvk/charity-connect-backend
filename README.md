@@ -33,6 +33,7 @@ Backend API for **CharityConnect** — a membership and donation management syst
 - **Audit logs** — track all entity changes with old/new values
 - **Import/Export** — bulk member & challan history import from CSV/XLSX
 - **Dashboard charts** — monthly collections, campaign progress, top donors
+- **Backup and recovery** — production PostgreSQL backup, integrity verification, and guarded restore scripts
 
 ---
 
@@ -82,11 +83,18 @@ charity-connect-backend/
 │   └── 20260318_member_requests.sql  # Schema migration for member_requests table
 ├── init_db.sql                    # Full PostgreSQL schema DDL (fresh installs)
 ├── seed_admin.py                  # CLI script to create admin users
+├── Backup & Restore/              # Production database backup, verification, and restore workflow
 ├── requirements.txt               # Python dependencies
 ├── Dockerfile                     # Multi-stage Docker build
 ├── Procfile                       # Heroku process definitions
 └── docker-compose.yml             # Full stack (in parent directory)
 ```
+
+---
+
+## Production Backup and Recovery
+
+The [Backup & Restore/README.md](Backup%20%26%20Restore/README.md) documents the operator workflow for creating a PostgreSQL database-only production backup, verifying it locally, and restoring it with service and health checks. The tooling uses OpenSSH (`ssh` and `scp`) and supports `-WhatIf` previews for backup and restore operations.
 
 ---
 

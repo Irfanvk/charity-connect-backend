@@ -3,7 +3,7 @@
 **Project:** CharityConnect  
 **Purpose:** Decisions, meeting minutes, and action items  
 **Owner:** Integration Lead  
-**Last Updated:** 2026-04-20
+**Last Updated:** 2026-08-31
 
 ---
 
@@ -11,6 +11,7 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-08-31 | Production database backup, verification, and restore workflow added | Backend / Operations | ✅ | Added `Backup & Restore/` tooling for PostgreSQL disaster recovery. `backup_production.ps1` creates a timestamped custom-format database dump on the production host, includes a manifest and optional globals dump, downloads the archive, and verifies SHA-256 integrity. `verify_backup.ps1` performs offline checksum, archive, dump-format, manifest, and optional-globals checks. `restore_production_backup.ps1` uploads a selected archive, restores the database with clean/no-owner options, optionally restores globals, restarts `charity.service`, and verifies `/health`; all scripts support parameter overrides and backup/restore scripts provide `-WhatIf`. CMD launchers and the workflow README are included. This is operations tooling only; no application API routes, schemas, or database migrations changed. |
 | 2026-08-26 | Fixed request status filtering for production PostgreSQL enums | Backend | ✅ | Request filters now bind lowercase enum values (`pending`, `approved`, `rejected`) instead of uppercase names, eliminating the `/admin/requests/` 500 error without changing the request schema or stored data. SQLAlchemy request-status persistence now also binds lowercase labels for future request creation. Outstanding receivables accepts status casing consistently. |
 | 2026-08-26 | Outstanding receivables query made compatible with production challan enum labels | Backend | ✅ | The aggregate endpoint now compares `pending` and `generated` using their stored string values rather than ORM enum names, so legacy/imported production challans are included without changing any rows or schema. |
 | 2026-08-26 | Added scalable outstanding receivables reporting endpoint | Backend | ✅ | Added `GET /challans/outstanding` for authenticated users. Admins receive organization-wide pending/generated challans; members remain scoped to their own records. Count and amount are calculated in the database, detail rows are paginated, member names are eager-loaded, and the existing `/challans/` endpoint and data remain unchanged. |
