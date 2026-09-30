@@ -592,6 +592,138 @@ Public-facing landing page and route transitions added to frontend. Backend migr
 
 ---
 
+## Addendum: September 30, 2026 - Admin Workflow UX: Unified Pending Actions + Bulk Request Review (Frontend Only)
+
+### Executive Summary
+
+Two frontend-only admin productivity enhancements delivered to reduce the number of pages/clicks admins need to process day-to-day approvals. No backend routes, schemas, or models were changed — both features compose existing endpoints (`/admin/requests/`, `/admin/password-reset-requests`, `/challans/`, `/admin/bulk-pending-review`, `/admin/bulk/{id}/approve`, `/admin/bulk/{id}/reject`).
+
+1. **Unified Pending Actions inbox** — `AdminRequests.jsx` gained a third "Pending Challans" tab that merges individual pending challans and pending bulk challan groups into a single reviewable list with inline Approve/Reject actions, instead of requiring admins to visit the Challans page separately. The sidebar "Requests" nav badge (`Layout.jsx`) now sums pending member requests + pending password resets + pending individual challans + pending bulk groups into one true workload count.
+2. **Bulk approve/reject for member requests** — The "Member Requests" tab now supports multi-select via checkboxes (with a "Select all pending" control) and a bulk action bar to approve or reject many requests in one action, using `Promise.all` over the existing single-item `/requests/{id}/approve` and `/requests/{id}/reject` endpoints. A shared rejection-reason dialog applies one reason to all selected requests.
+
+### Backend Impact
+
+None. No new endpoints were required; all aggregation and batching happens client-side against existing per-item endpoints.
+
+### Files Updated (Frontend — tracked separately in CharityConnect/CHANGELOG.md)
+- `src/pages/AdminRequests.jsx`
+- `src/Layout.jsx`
+
+### Follow-up Considerations
+- If admin request volume grows significantly, consider adding true server-side bulk approve/reject endpoints (mirroring the existing bulk-challan pattern) to replace the client-side `Promise.all` fan-out and get atomic commit/audit-log behavior.
+
+---
+
+## Addendum: September 30, 2026 - Audit Log Date-Range Filter + CSV Export
+
+### Executive Summary
+
+Admins can now scope the Audit Logs view to a date range and export the currently filtered view to CSV, instead of only browsing the most recent 1000 records.
+
+### Backend Changes Delivered
+
+1. **Date-range filtering on `GET /audit-logs/`**
+   - `app/routes/audit_log_routes.py` now accepts optional `start_date` and `end_date` query params (`YYYY-MM-DD`, inclusive on both ends).
+   - Added `_parse_date_boundary()` helper: parses the date string and returns end-of-day (`23:59:59.999999`) when `end_of_day=True`, so `end_date` includes the entire day.
+   - Invalid date strings return `400` with a clear message instead of a raw parsing exception.
+   - Existing `user_id`/`entity_type`/`action`/`skip`/`limit` filters are unchanged.
+
+### Files Updated
+- `app/routes/audit_log_routes.py`
+
+### Frontend Impact (tracked in CharityConnect/CHANGELOG.md)
+- `src/pages/AuditLogs.jsx` gained two date pickers wired into the query (`start_date`/`end_date`) and an "Export CSV" button that downloads the currently filtered/searched log view client-side (same `Blob` + anchor-download pattern used on the Reports page).
+
+---
+
+## Addendum: September 30, 2026 - Member Timeline Dialog (Frontend Only)
+
+### Executive Summary
+
+Admins can now open a single consolidated view of one member's payments, requests, and account activity instead of cross-referencing the Members, Challans, and Admin Requests pages separately.
+
+### Backend Impact
+
+None. The new `MemberTimelineDialog` composes three existing endpoints client-side: `GET /challans/member/{member_id}`, `GET /admin/requests/?member_id=...`, and `GET /audit-logs/?user_id=...` (using the member's `user_id`, since audit logs are keyed by user, not member).
+
+### Files Updated (Frontend — tracked separately in CharityConnect/CHANGELOG.md)
+- `src/components/members/MemberTimelineDialog.jsx` (new)
+- `src/components/UserProfilePopover.jsx` (added optional "View Full Timeline" action)
+- `src/pages/Members.jsx` (wired dialog state and trigger)
+
+---
+
+## Addendum: September 30, 2026 - Notification Delivery Preview
+
+### Executive Summary
+
+Before sending a broadcast, admins can now see how many recipients have a working Web Push subscription vs. how many will only see the notification in-app next time they open the app (the known iOS/WebKit push-support gap documented in prior notification investigation notes).
+
+### Backend Changes Delivered
+
+1. **New endpoint: `GET /admin/notifications/delivery-preview`**
+   - Added to `app/routes/admin_router.py`, admin-only (`get_current_admin`).
+   - Accepts `target_type` (`all` | `admins`), mirroring the audience resolution already used by `NotificationService.create_notification` so the preview count matches the real send exactly (`admins` matches `User.role == "admin"` only, not superadmin, consistent with existing send behavior).
+   - Returns `total_recipients`, `push_enabled_count`, `in_app_only_count`, and `web_push_configured`.
+   - Counts active `PushSubscription` rows per recipient; no new tables or migrations.
+2. **Fixed a latent missing import in `admin_router.py`**
+   - Added `from app.config import settings`. The existing `/admin/user-monitoring` endpoint already referenced `settings.web_push_configured` without this import present, which would raise a `NameError` the first time that code path executed. The new delivery-preview endpoint needed the same import, surfacing and fixing the gap.
+
+### Files Updated
+- `app/routes/admin_router.py`
+
+### Frontend Impact (tracked in CharityConnect/CHANGELOG.md)
+- `src/pages/Notifications.jsx` "Send Announcement" dialog now shows a live delivery-reach preview (updates as the admin changes title/audience) before sending.
+
+---
+
+## Addendum: September 30, 2026 - Production Smoke Test + Frontend/Backend Contract Audit
+
+### Executive Summary
+
+Ran a full logic/smoke-test pass across the backend and frontend, and cross-checked every frontend form's hardcoded option values against the backend's actual accepted enums/schemas. One real contract bug was found and fixed; everything else checked out as either matching or intentionally unconstrained free-text.
+
+### Bug Found and Fixed: Notification category (`type`) was silently discarded
+
+- The "Send Announcement" form (`Notifications.jsx`) lets an admin pick a category (`info`/`success`/`warning`/`payment`/`campaign`) and sends it as `type` in the request body.
+- `NotificationCreate`/`NotificationResponse` schemas and the `Notification` model had no `type` field at all, so FastAPI/Pydantic silently ignored the incoming value, nothing was persisted, and the API response never returned it either.
+- Frontend then looked up `TYPE_CONFIG[notification.type]`, which was always `undefined`, silently falling back to the "General" icon/color for every notification regardless of what the admin selected — a real production-visible bug, not just a paper cut.
+
+**Fix:**
+- Added `type` column to `Notification` model (`app/models/models.py`), default `"info"`.
+- Added additive runtime migration in `ensure_runtime_schema()` (`app/database.py`) so existing deployments get `ALTER TABLE notifications ADD COLUMN type VARCHAR(20) DEFAULT 'info'` on next startup, backfilling existing rows to `'info'`.
+- Added `type` to `NotificationCreate`, `NotificationAdminUpdate`, and `NotificationResponse` schemas (`app/schemas/schemas.py`).
+- `NotificationService.create_notification` now persists `notification_data.type` on every created `Notification` row (`app/services/notification_service.py`); `update_notification` already supports it via its existing `exclude_unset` dynamic field loop, no change needed there.
+
+### Smoke Test Results
+
+- `py_compile` passed on all touched backend files; `python -c "import app.main"` succeeds.
+- Live server check: `/health` → 200; `/admin/notifications/delivery-preview`, `/audit-logs/?start_date=...&end_date=...`, `/admin/requests/` all return 401 (route exists, auth enforced correctly, no 404/500).
+- Verified `NotificationCreate`/`NotificationResponse` Pydantic field lists now include `type`.
+- Confirmed the additive `notifications` table migration runs cleanly on startup with no errors.
+- Unit-verified `_parse_date_boundary()` (audit log date filter helper) start/end-of-day math and invalid-input 400 handling.
+
+### Frontend/Backend Value-Contract Audit (no other issues found)
+
+| Form / Field | Frontend values | Backend constraint | Result |
+|---|---|---|---|
+| MemberForm status | active / inactive / suspended | `Optional[str]` (unconstrained) | OK — free text, no mismatch possible |
+| CampaignForm target_mode | targeted / unlimited | `CampaignTargetMode` enum: targeted, unlimited | Match |
+| CampaignForm end_date_mode | fixed / open | `CampaignEndDateMode` enum: fixed, open | Match |
+| FundUtilization category | free-text suggestions (Medical, Education, ...) | `Optional[str]` (unconstrained) | OK — suggestions only, no mismatch possible |
+| Profile.jsx / OnboardingWizard request_type | profile_update, monthly_amount_change | `RequestType` enum | Match |
+| SuperadminPanel role change | member / admin / superadmin | `UserRole` enum | Match |
+| ChallanForm type | monthly / donation (mapped to `campaign` client-side before send) | `ChallanType` enum: monthly, campaign | Match (mapping confirmed in `charityClient.challans.create`) |
+| Notifications.jsx send `type` | info / success / warning / payment / campaign | *(was missing entirely)* | **Fixed — see above** |
+
+### Files Updated
+- `app/models/models.py`
+- `app/schemas/schemas.py`
+- `app/services/notification_service.py`
+- `app/database.py`
+
+---
+
 ## Detailed Changes
 
 ### 1. Admin Bulk Operations 500 Error Fix

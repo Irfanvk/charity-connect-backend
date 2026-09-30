@@ -5,8 +5,20 @@ from app.models import AuditLog
 from app.schemas import AuditLogResponse, AuditLogCreate
 from app.utils import get_current_admin
 from typing import List, Optional
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/audit-logs", tags=["Audit Logs"])
+
+
+def _parse_date_boundary(value: Optional[str], *, end_of_day: bool = False) -> Optional[datetime]:
+    """Parse a 'YYYY-MM-DD' query param into a datetime boundary."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.strptime(value.strip(), "%Y-%m-%d")
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Invalid date '{value}'. Expected format YYYY-MM-DD.")
+    return parsed + timedelta(days=1) - timedelta(microseconds=1) if end_of_day else parsed
 
 
 @router.get("/", response_model=List[AuditLogResponse])
@@ -16,6 +28,8 @@ def get_audit_logs(
     user_id: Optional[str] = None,
     entity_type: Optional[str] = None,
     action: Optional[str] = None,
+    start_date: Optional[str] = Query(default=None, description="Inclusive start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(default=None, description="Inclusive end date (YYYY-MM-DD)"),
     _current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
@@ -33,6 +47,14 @@ def get_audit_logs(
         query = query.filter(AuditLog.entity_type == entity_type)
     if action:
         query = query.filter(AuditLog.action == action)
+
+    start_boundary = _parse_date_boundary(start_date)
+    if start_boundary:
+        query = query.filter(AuditLog.created_at >= start_boundary)
+
+    end_boundary = _parse_date_boundary(end_date, end_of_day=True)
+    if end_boundary:
+        query = query.filter(AuditLog.created_at <= end_boundary)
 
     return query.order_by(AuditLog.created_at.desc()).offset(skip).limit(limit).all()
 

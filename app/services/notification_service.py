@@ -115,6 +115,7 @@ class NotificationService:
                 title=notification_data.title,
                 message=notification_data.message,
                 target_role=notification_data.target_role,
+                type=notification_data.type or "info",
                 created_at=batch_created_at,
             )
             db.add(notification)

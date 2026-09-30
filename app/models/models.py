@@ -235,6 +235,7 @@ class Notification(Base):
     title = Column(String(255), nullable=False)
     message = Column(Text, nullable=False)
     target_role = Column(Enum(UserRole), nullable=True)  # Send to specific role if null=all
+    type = Column(String(20), nullable=False, default="info")  # info|success|warning|payment|campaign (display category)
     is_read = Column(Boolean, default=False)
     read_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())

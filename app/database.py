@@ -47,6 +47,12 @@ def ensure_runtime_schema() -> None:
             if "notes" not in member_columns:
                 connection.execute(text("ALTER TABLE members ADD COLUMN notes TEXT"))
 
+        if inspector.has_table("notifications"):
+            notification_columns = {column["name"] for column in inspector.get_columns("notifications")}
+            if "type" not in notification_columns:
+                connection.execute(text("ALTER TABLE notifications ADD COLUMN type VARCHAR(20) DEFAULT 'info'"))
+                connection.execute(text("UPDATE notifications SET type = 'info' WHERE type IS NULL"))
+
         if not inspector.has_table("campaigns"):
             return
 

@@ -37,6 +37,7 @@ from app.models.models import (
 )
 from app.utils.auth import get_current_user, get_current_admin, get_current_superadmin, verify_password
 from app.utils.audit import log_audit
+from app.config import settings
 
 # ✅ admin router — prefix="/admin"
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -283,6 +284,44 @@ def get_user_monitoring(
     return {
         "web_push_configured": settings.web_push_configured,
         "users": monitoring_rows,
+    }
+
+
+@router.get("/notifications/delivery-preview")
+def get_notification_delivery_preview(
+    target_type: str = Query(default="all", pattern="^(all|admins)$"),
+    current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """
+    Preview how many recipients of a would-be broadcast have a working Web Push
+    subscription vs. will only see the notification in-app (e.g. iOS PWA users,
+    who have no background push support). Mirrors the audience resolution used
+    by NotificationService.create_notification so counts match the real send.
+    """
+    _ = current_user
+    query = db.query(User).filter(User.is_active == True)
+    if target_type == "admins":
+        query = query.filter(User.role == "admin")
+    recipients = query.all()
+
+    active_user_ids = {
+        row[0]
+        for row in db.query(PushSubscription.user_id)
+        .filter(PushSubscription.is_active == True)
+        .distinct()
+        .all()
+    }
+
+    push_enabled_count = sum(1 for user in recipients if user.id in active_user_ids)
+    total_recipients = len(recipients)
+
+    return {
+        "target_type": target_type,
+        "total_recipients": total_recipients,
+        "push_enabled_count": push_enabled_count,
+        "in_app_only_count": total_recipients - push_enabled_count,
+        "web_push_configured": settings.web_push_configured,
     }
 
 

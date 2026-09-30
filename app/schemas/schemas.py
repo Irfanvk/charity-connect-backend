@@ -618,6 +618,7 @@ class NotificationCreate(BaseModel):
     title: str
     message: str
     target_role: Optional[UserRole] = None
+    type: Optional[str] = "info"
 
 
 class NotificationUpdate(BaseModel):
@@ -628,6 +629,7 @@ class NotificationAdminUpdate(BaseModel):
     title: Optional[str] = None
     message: Optional[str] = None
     is_read: Optional[bool] = None
+    type: Optional[str] = None
 
 
 class NotificationReadPatchRequest(BaseModel):
@@ -640,6 +642,7 @@ class NotificationResponse(BaseModel):
     user_id: int
     title: str
     message: str
+    type: Optional[str] = "info"
     is_read: bool
     created_at: datetime
     read_at: Optional[datetime]
