@@ -200,6 +200,8 @@ def bulk_create_challans(
                 amount=request.amount_per_month,
                 status=ChallanStatus.PENDING,
                 bulk_group_id=bulk_group_id,
+                entry_source="self",
+                created_by_user_id=current_user_id,
                 proof_path=None,  # Will be set when proof is provided
                 created_at=datetime.utcnow(),
             )

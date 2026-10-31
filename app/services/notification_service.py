@@ -289,6 +289,65 @@ class NotificationService:
             )
 
     @staticmethod
+    def _describe_challans(challans) -> tuple[str, float]:
+        """Month label and total for one admin-recorded entry (monthly months or a campaign donation)."""
+        total = sum(float(c.amount or 0) for c in challans)
+        months = [c.month for c in challans if c.month]
+        if months:
+            return NotificationService._format_month_range(months), total
+        campaign = getattr(challans[0], "campaign", None)
+        return (campaign.title if campaign is not None else "a campaign"), total
+
+    @staticmethod
+    def notify_admin_recorded_payment(db: Session, challans, actor_user_id: int | None, actor_name: str | None) -> None:
+        """Tell every OTHER active admin that a recorded payment needs verification; tell the member too. Never raises."""
+        try:
+            first = challans[0]
+            label, total = NotificationService._describe_challans(challans)
+            method = str(first.payment_method or "payment").replace("_", " ")
+            member = first.member
+            member_name = getattr(member, "full_name", None) or "a member"
+            message = (
+                f"{actor_name or 'An admin'} recorded {method} payment of "
+                f"{NotificationService._format_inr(total)} from {member_name} for {label} — needs verification"
+            )
+            admin_ids = NotificationService._active_admin_ids(db, exclude_user_id=actor_user_id)
+            member_user_id = getattr(member, "user_id", None)
+            member_message = (
+                f"A {method} payment of {NotificationService._format_inr(total)} for {label} "
+                "was recorded for you and is waiting for verification."
+            )
+        except Exception:
+            logger.exception("Failed to build recorded payment notification")
+            return
+        for admin_id in admin_ids:
+            NotificationService._send_status_notification(db, admin_id, "Payment needs verification", message, "payment")
+        if member_user_id and member_user_id != actor_user_id:
+            NotificationService._send_status_notification(db, member_user_id, "Payment recorded", member_message, "info")
+
+    @staticmethod
+    def send_payment_receipt_whatsapp(db: Session, challans) -> None:
+        """WhatsApp receipt after approval when enabled. Plain text via the configured provider; never raises."""
+        try:
+            from app.services.settings_service import get_setting
+            from app.services.whatsapp_service import send_whatsapp_message
+
+            if not get_setting(db, "whatsapp_payment_receipts") or not challans:
+                return
+            first = challans[0]
+            phone = getattr(first.member, "phone", None)
+            if not phone:
+                return
+            label, total = NotificationService._describe_challans(challans)
+            ids = ", ".join(f"#{c.id}" for c in challans)
+            message = (
+                f"Your payment of {NotificationService._format_inr(total)} for {label} "
+                f"has been received and verified. Receipt: {ids}."
+            )
+            send_whatsapp_message(phone, message)
+        except Exception:
+            logger.exception("Failed to send WhatsApp payment receipt")
+    @staticmethod
     def notify_fund_utilization_created(db: Session, utilization) -> None:
         """Ask every OTHER active admin/superadmin to review a new utilization. Never raises."""
         try:

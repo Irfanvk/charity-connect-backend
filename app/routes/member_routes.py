@@ -101,10 +101,10 @@ def get_member_by_code(
 @router.post("/", response_model=MemberResponse, status_code=status.HTTP_201_CREATED)
 def create_member(
     payload: MemberCreate,
-    _current_user: dict = Depends(get_current_superadmin),
+    _current_user: dict = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    """Create member profile (Superadmin only)."""
+    """Create member profile (Admin or Superadmin). Members may be offline (no app login)."""
     member = MemberService.create_member(db, payload)
     log_audit(
         db,
@@ -112,7 +112,13 @@ def create_member(
         action="member_create",
         entity_type="Member",
         entity_id=member.id,
-        new_values={"member_code": member.member_code, "status": member.status},
+        new_values={
+            "member_code": member.member_code,
+            "status": member.status,
+            "created_by_user_id": _current_user.get("user_id"),
+            "created_by_role": _current_user.get("role"),
+            "offline": not payload.user_id and not payload.email,
+        },
         auto_commit=True,
     )
     return member

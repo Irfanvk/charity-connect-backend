@@ -63,6 +63,28 @@ def _ensure_separation_of_duties_columns(connection, inspector) -> None:
         connection.execute(text("UPDATE fund_utilizations SET status = 'approved', approved_at = created_at"))
 
 
+def _ensure_admin_recorded_payment_columns(connection, inspector) -> None:
+    added = _add_missing_columns(
+        connection,
+        inspector,
+        "challans",
+        {
+            "created_by_user_id": "INTEGER REFERENCES users(id)",
+            "entry_source": "VARCHAR(20)",
+            "transaction_ref": "VARCHAR(100)",
+            "received_on": "DATE",
+            "collected_by_user_id": "INTEGER REFERENCES users(id)",
+            "entry_notes": "TEXT",
+        },
+    )
+    if "entry_source" in added:
+        # Imported history is approved without an approver or proof; everything else was member-created.
+        connection.execute(text(
+            "UPDATE challans SET entry_source = 'import' "
+            "WHERE LOWER(CAST(status AS VARCHAR)) = 'approved' AND approved_by_admin_id IS NULL AND proof_path IS NULL"
+        ))
+        connection.execute(text("UPDATE challans SET entry_source = 'self' WHERE entry_source IS NULL"))
+
 def ensure_runtime_schema() -> None:
     """Apply additive schema updates for existing deployments."""
     with engine.begin() as connection:
@@ -93,6 +115,7 @@ def ensure_runtime_schema() -> None:
                 connection.execute(text("UPDATE notifications SET type = 'info' WHERE type IS NULL"))
 
         _ensure_separation_of_duties_columns(connection, inspector)
+        _ensure_admin_recorded_payment_columns(connection, inspector)
 
         if not inspector.has_table("campaigns"):
             return

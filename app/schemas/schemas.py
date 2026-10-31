@@ -1,7 +1,7 @@
 import re
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Any, Dict
-from datetime import datetime
+from datetime import date, datetime
 from enum import Enum
 
 
@@ -569,6 +569,14 @@ class ChallanResponse(BaseModel):
     reversed_by_admin_id: Optional[int] = None
     reversed_by_name: Optional[str] = None
     reversal_reason: Optional[str] = None
+    created_by_user_id: Optional[int] = None
+    created_by_name: Optional[str] = None
+    entry_source: Optional[str] = None
+    transaction_ref: Optional[str] = None
+    received_on: Optional[date] = None
+    collected_by_user_id: Optional[int] = None
+    collected_by_name: Optional[str] = None
+    entry_notes: Optional[str] = None
     updated_at: datetime
     is_inferred_due: bool = False
 

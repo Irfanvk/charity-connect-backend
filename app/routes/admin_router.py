@@ -37,7 +37,7 @@ from app.models.models import (
 )
 from app.utils.auth import get_current_user, get_current_admin, get_current_superadmin, verify_password
 from app.utils.audit import log_audit
-from app.utils.permissions import assert_not_self, assert_different_actor, require_reason
+from app.utils.permissions import assert_not_self, assert_different_actor, assert_can_verify_entry, require_reason
 from app.config import settings
 from app.services.notification_service import NotificationService
 from app.services import settings_service
@@ -45,6 +45,50 @@ from app.services import settings_service
 # ✅ admin router — prefix="/admin"
 router = APIRouter(prefix="/admin", tags=["admin"])
 
+
+@router.get("/reports/cash-collected")
+def cash_collected_report(
+    month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+    current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Cash collected per collecting admin for an IST month (by received_on, falling back to created_at)."""
+    from app.utils.timezone import to_business
+
+    rows = (
+        db.query(Challan)
+        .filter(Challan.payment_method == "cash", Challan.collected_by_user_id.isnot(None))
+        .all()
+    )
+    totals: dict[int, dict] = {}
+    for c in rows:
+        day = c.received_on or to_business(c.created_at).date()
+        if day.strftime("%Y-%m") != month or c.status == ChallanStatus.REJECTED:
+            continue
+        entry = totals.setdefault(
+            c.collected_by_user_id,
+            {"collected_by_user_id": c.collected_by_user_id, "count": 0, "pending_amount": 0.0, "approved_amount": 0.0},
+        )
+        entry["count"] += 1
+        if c.status == ChallanStatus.APPROVED:
+            entry["approved_amount"] += float(c.amount or 0)
+        else:
+            entry["pending_amount"] += float(c.amount or 0)
+    names = {
+        u.id: (u.full_name or u.username)
+        for u in db.query(User).filter(User.id.in_(list(totals.keys()) or [0])).all()
+    }
+    collectors = []
+    for uid, entry in totals.items():
+        entry["collected_by_name"] = names.get(uid)
+        collectors.append(entry)
+    collectors.sort(key=lambda e: -(e["pending_amount"] + e["approved_amount"]))
+    return {
+        "month": month,
+        "collectors": collectors,
+        "total_pending_amount": sum(e["pending_amount"] for e in collectors),
+        "total_approved_amount": sum(e["approved_amount"] for e in collectors),
+    }
 
 def _is_admin_role(current_user: dict) -> bool:
     role = str(current_user.get("role", "")).lower()
@@ -635,9 +679,12 @@ def approve_bulk_challans(
     if bulk_group.status == "rejected":
         raise HTTPException(status_code=400, detail="Cannot approve rejected bulk operation")
     assert_not_self(db, current_user, bulk_group.member_id, "approve")
+    group_challan_ids = json.loads(bulk_group.challan_ids_list) if bulk_group.challan_ids_list else []
+    for group_challan in db.query(Challan).filter(Challan.id.in_(group_challan_ids)).all():
+        assert_can_verify_entry(current_user, group_challan)
 
     try:
-        challan_ids = json.loads(bulk_group.challan_ids_list) if bulk_group.challan_ids_list else []
+        challan_ids = group_challan_ids
         approved_ids = []
 
         for challan_id in challan_ids:
@@ -676,6 +723,9 @@ def approve_bulk_challans(
         db.refresh(bulk_group)
 
         NotificationService.notify_bulk_status_change(db, bulk_group, "approved")
+        NotificationService.send_payment_receipt_whatsapp(
+            db, db.query(Challan).filter(Challan.id.in_(approved_ids)).all()
+        )
 
         return BulkChallanApproveResponse(
             bulk_group_id=bulk_group.bulk_group_id,

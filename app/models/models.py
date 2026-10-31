@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, Boolean, Text, Enum, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Boolean, Text, Enum, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -192,6 +192,12 @@ class Challan(Base):
     reversed_at = Column(DateTime, nullable=True)
     reversed_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     reversal_reason = Column(Text, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    entry_source = Column(String(20), nullable=True)  # self | admin | import
+    transaction_ref = Column(String(100), nullable=True)
+    received_on = Column(Date, nullable=True)
+    collected_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    entry_notes = Column(Text, nullable=True)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
     # Relationships
@@ -199,7 +205,17 @@ class Challan(Base):
     campaign = relationship("Campaign", back_populates="challans")
     approved_by = relationship("User", foreign_keys=[approved_by_admin_id])
     reversed_by = relationship("User", foreign_keys=[reversed_by_admin_id])
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    collected_by = relationship("User", foreign_keys=[collected_by_user_id])
     bulk_group = relationship("BulkChallanGroup", back_populates="challans")
+
+    @property
+    def created_by_name(self):
+        return self.created_by.username if self.created_by else None
+
+    @property
+    def collected_by_name(self):
+        return self.collected_by.username if self.collected_by else None
 
     @property
     def approved_by_name(self):

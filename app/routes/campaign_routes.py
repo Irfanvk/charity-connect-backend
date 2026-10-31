@@ -200,6 +200,8 @@ def donate_to_campaign(
 
     challan.status = ChallanStatus.PENDING
     challan.approved_at = None
+    challan.entry_source = "self"
+    challan.created_by_user_id = current_user.get("user_id")
     db.add(challan)
     db.commit()
     db.refresh(challan)

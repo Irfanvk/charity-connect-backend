@@ -74,3 +74,23 @@ def require_reason(reason: Optional[str], field_label: str = "Reason", db: Optio
             detail=f"{field_label} is required and must be at least {min_length} characters.",
         )
     return cleaned
+
+
+def assert_can_verify_entry(current_user, challan) -> None:
+    """Maker-checker for admin-recorded payments; imports and member-created challans are exempt."""
+    if getattr(challan, "entry_source", None) != "admin":
+        return
+    user_id = _user_id(current_user)
+    if user_id is None:
+        return
+    if challan.created_by_user_id is not None and int(challan.created_by_user_id) == int(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Payments entered by an admin must be verified by a different admin.",
+        )
+    method = str(getattr(challan, "payment_method", "") or "").lower()
+    if method == "cash" and challan.collected_by_user_id is not None and int(challan.collected_by_user_id) == int(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Cash must be verified by an admin who did not collect it.",
+        )

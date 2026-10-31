@@ -8,6 +8,7 @@ from app.models import Challan, Member, User, BulkChallanGroup
 from app.models.models import ChallanStatus, ChallanType
 from app.schemas import ChallanCreate, ChallanReject, ChallanRevert, ChallanUpdate
 from app.utils.file_handler import save_file, validate_file
+from app.utils.payment_methods import normalize_payment_method
 from fastapi import HTTPException, status
 from datetime import datetime, date
 from app.schemas import ChallanHistoryImportSummary
@@ -168,7 +169,13 @@ class ChallanService:
         }
     
     @staticmethod
-    def create_challan(db: Session, member_id: int, challan_data: ChallanCreate):
+    def create_challan(
+        db: Session,
+        member_id: int,
+        challan_data: ChallanCreate,
+        created_by_user_id: int | None = None,
+        entry_source: str | None = None,
+    ):
         """Create new challan."""
         
         # Verify member exists
@@ -227,7 +234,9 @@ class ChallanService:
             month=challan_data.month,
             campaign_id=challan_data.campaign_id,
             amount=challan_data.amount,
-            payment_method=challan_data.payment_method,
+            payment_method=normalize_payment_method(challan_data.payment_method),
+            created_by_user_id=created_by_user_id,
+            entry_source=entry_source,
         )
         
         db.add(new_challan)
@@ -254,6 +263,8 @@ class ChallanService:
         campaign_id: int | None = None,
         payment_method: str | None = None,
         notes: str | None = None,
+        created_by_user_id: int | None = None,
+        entry_source: str | None = None,
     ) -> dict:
         """
         Create multiple challans with optional bulk proof routing.
@@ -336,7 +347,9 @@ class ChallanService:
                     month=month,
                     campaign_id=campaign_id,
                     amount=amount,
-                    payment_method=payment_method,
+                    payment_method=normalize_payment_method(payment_method),
+                    created_by_user_id=created_by_user_id,
+                    entry_source=entry_source,
                 )
                 db.add(new_challan)
                 db.flush()
@@ -503,6 +516,7 @@ class ChallanService:
                     amount=donation_amount,
                     payment_method=payment_method,
                     status=normalized_status,
+                    entry_source="import",
                 )
                 if normalized_status == "approved":
                     challan.approved_at = datetime.utcnow()
@@ -727,6 +741,9 @@ class ChallanService:
                     status_code=status.HTTP_409_CONFLICT,
                     detail="Another challan already exists for this month",
                 )
+
+        if "payment_method" in changes:
+            changes["payment_method"] = normalize_payment_method(changes["payment_method"])
 
         for key, value in changes.items():
             setattr(challan, key, value)

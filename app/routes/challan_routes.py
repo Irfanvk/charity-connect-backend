@@ -1,6 +1,6 @@
 from fastapi import HTTPException
 from app.models.models import ChallanStatus
-from fastapi import APIRouter, Depends, status as http_status, UploadFile, File, Query
+from fastapi import APIRouter, Depends, status as http_status, UploadFile, File, Form, Query
 from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
 from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanRevert, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse, OutstandingReceivablesResponse, ChallanPayableMonthsResponse, ImportJobCreateResponse, ImportJobStatusResponse, CollectionStatsResponse, MultiChallanCreate
@@ -8,11 +8,25 @@ from app.services import ChallanService, MemberService
 from app.services.notification_service import NotificationService
 from app.services.import_job_service import ImportJobService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin, log_audit
-from app.utils.permissions import assert_not_self, assert_different_actor, require_reason
+from app.utils.permissions import assert_not_self, assert_different_actor, assert_can_verify_entry, is_own_member_record, require_reason
 from app.services.settings_service import get_setting
 from typing import List, Optional
+from app.services import admin_payment_service
 
 router = APIRouter(prefix="/challans", tags=["Challans"])
+
+
+def _assert_creator_for_pending_admin_entry(current_user: dict, challan, action: str) -> None:
+    """Only the admin who entered a still-pending admin-recorded payment may edit or delete it."""
+    if getattr(challan, "entry_source", None) != "admin":
+        return
+    if str(getattr(challan.status, "value", challan.status)).lower() not in ("pending", "generated"):
+        return
+    if challan.created_by_user_id != current_user.get("user_id"):
+        raise HTTPException(
+            status_code=403,
+            detail=f"Only the admin who recorded this payment can {action} it while it is pending.",
+        )
 
 
 def _is_admin(current_user: dict) -> bool:
@@ -207,7 +221,14 @@ def create_challan(
     if member.status != "active":
         raise HTTPException(status_code=400, detail="Cannot create challan for inactive member")
 
-    challan = ChallanService.create_challan(db, member.id, challan_data)
+    entry_source = "admin" if _is_admin(current_user) and not is_own_member_record(db, current_user, member.id) else "self"
+    challan = ChallanService.create_challan(
+        db,
+        member.id,
+        challan_data,
+        created_by_user_id=current_user.get("user_id"),
+        entry_source=entry_source,
+    )
     if _is_admin(current_user):
         log_audit(
             db,
@@ -300,6 +321,8 @@ def create_multi_challans(
         campaign_id=challan_data.campaign_id,
         payment_method=challan_data.payment_method,
         notes=challan_data.notes,
+        created_by_user_id=current_user.get("user_id"),
+        entry_source="admin" if _is_admin(current_user) and not is_own_member_record(db, current_user, target_member_id) else "self",
     )
     
     # Log audit
@@ -319,6 +342,70 @@ def create_multi_challans(
         )
     
     return result
+
+
+@router.post("/admin-record", response_model=List[ChallanResponse], status_code=http_status.HTTP_201_CREATED)
+def admin_record_payment(
+    member_id: int = Form(...),
+    type: str = Form("monthly"),
+    months: List[str] = Form(default=[]),
+    campaign_id: Optional[int] = Form(default=None),
+    amount_per_month: Optional[float] = Form(default=None),
+    amount: Optional[float] = Form(default=None),
+    payment_method: Optional[str] = Form(default=None),
+    transaction_ref: Optional[str] = Form(default=None),
+    received_on: Optional[str] = Form(default=None),
+    collected_by_user_id: Optional[int] = Form(default=None),
+    entry_notes: Optional[str] = Form(default=None),
+    proof_file_id: Optional[str] = Form(default=None),
+    proof_file: Optional[UploadFile] = File(default=None),
+    current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin/superadmin records a payment for a member; it stays PENDING until a different admin verifies it."""
+    created = admin_payment_service.record_payment(
+        db,
+        current_user,
+        member_id=member_id,
+        challan_type=type,
+        months=admin_payment_service.parse_months(months),
+        campaign_id=campaign_id,
+        amount_per_month=amount_per_month,
+        amount=amount,
+        payment_method=payment_method,
+        transaction_ref=transaction_ref,
+        received_on=received_on,
+        collected_by_user_id=collected_by_user_id,
+        entry_notes=entry_notes,
+        proof_file=proof_file,
+        proof_file_id=proof_file_id,
+    )
+    first = created[0]
+    log_audit(
+        db,
+        user_id=current_user.get("user_id"),
+        action="challan_admin_record",
+        entity_type="Challan",
+        entity_id=first.id,
+        new_values={
+            "challan_ids": [c.id for c in created],
+            "member_id": member_id,
+            "type": type,
+            "months": [c.month for c in created if c.month],
+            "total_amount": sum(float(c.amount) for c in created),
+            "payment_method": first.payment_method,
+            "transaction_ref": first.transaction_ref,
+            "received_on": str(first.received_on),
+            "collected_by_user_id": first.collected_by_user_id,
+            "status": "pending",
+            "actor_role": current_user.get("role"),
+        },
+        auto_commit=True,
+    )
+    NotificationService.notify_admin_recorded_payment(
+        db, created, current_user.get("user_id"), current_user.get("username")
+    )
+    return created
 
 
 @router.get("/payable-months", response_model=ChallanPayableMonthsResponse)
@@ -538,6 +625,7 @@ def update_challan(
                 detail=f"Members cannot update: {', '.join(sorted(forbidden))}",
             )
 
+    _assert_creator_for_pending_admin_entry(current_user, challan, "edit")
     old_status = challan.status
     changes = update_data.dict(exclude_unset=True)
     if _is_admin(current_user) and {"amount", "month", "campaign_id"} & set(changes):
@@ -569,6 +657,7 @@ def approve_challan(
 ):
     challan = ChallanService.get_challan(db, challan_id)
     assert_not_self(db, current_user, challan.member_id, "approve")
+    assert_can_verify_entry(current_user, challan)
 
     if challan.status != ChallanStatus.PENDING.value:
         raise HTTPException(status_code=400, detail="Challan already processed")
@@ -586,6 +675,7 @@ def approve_challan(
         auto_commit=True,
     )
     NotificationService.notify_challan_status_change(db, challan, "approved")
+    NotificationService.send_payment_receipt_whatsapp(db, [challan])
     return result
 
 
@@ -679,6 +769,7 @@ def delete_challan(
             raise HTTPException(status_code=403, detail="Not authorized to delete this challan")
     else:
         assert_not_self(db, current_user, challan.member_id, "delete")
+        _assert_creator_for_pending_admin_entry(current_user, challan, "delete")
 
     deleted_snapshot = {
         "status": challan.status,
