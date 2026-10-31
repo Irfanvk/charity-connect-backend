@@ -1,6 +1,6 @@
 import re
 from pydantic import BaseModel, Field, field_validator, model_validator
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from datetime import datetime
 from enum import Enum
 
@@ -381,14 +381,14 @@ class CampaignCreate(BaseModel):
     image_url: Optional[str] = None
     target_mode: CampaignTargetMode = CampaignTargetMode.TARGETED
     target_amount: Optional[float] = None
-    min_amount: float = 100.0
+    min_amount: Optional[float] = None  # None → platform setting default_campaign_min_amount
     start_date: datetime
     end_date_mode: CampaignEndDateMode = CampaignEndDateMode.FIXED
     end_date: Optional[datetime] = None
 
     @model_validator(mode="after")
     def validate_campaign_rules(self):
-        if self.min_amount <= 0:
+        if self.min_amount is not None and self.min_amount <= 0:
             raise ValueError("Minimum amount must be greater than 0")
 
         if self.target_mode == CampaignTargetMode.TARGETED:
@@ -605,6 +605,8 @@ class CollectionStatsResponse(BaseModel):
 
 class AppSettingsResponse(BaseModel):
     member_stats_visible: bool = False
+    can_edit: bool = False
+    settings: List[Dict[str, Any]] = []
 
 
 class AppSettingsUpdate(BaseModel):

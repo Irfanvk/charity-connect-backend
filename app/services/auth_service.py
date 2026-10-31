@@ -6,7 +6,7 @@ from app.utils import hash_password, verify_password, generate_member_code
 from app.utils.message_format import with_islamic_greeting
 from fastapi import HTTPException, status
 from datetime import datetime, timedelta
-
+from app.services.settings_service import get_setting
 
 WELCOME_MESSAGE = with_islamic_greeting(
     "Your account is ready. Complete your profile and begin your charity journey."
@@ -65,7 +65,10 @@ class AuthService:
                 )
 
     @staticmethod
-    def _register_failed_attempt(keys: list[str]):
+    def _register_failed_attempt(keys: list[str], max_attempts: int | None = None, lockout_minutes: int | None = None):
+        # Note: this counter is in-memory per process (existing behaviour).
+        max_attempts = max_attempts or AuthService._max_attempts
+        lockout_minutes = lockout_minutes or AuthService._lockout_minutes
         now = datetime.utcnow()
         window_start = now - timedelta(minutes=AuthService._window_minutes)
 
@@ -80,8 +83,8 @@ class AuthService:
                 continue
 
             entry["count"] = int(entry.get("count", 0)) + 1
-            if entry["count"] >= AuthService._max_attempts:
-                entry["blocked_until"] = now + timedelta(minutes=AuthService._lockout_minutes)
+            if entry["count"] >= max_attempts:
+                entry["blocked_until"] = now + timedelta(minutes=lockout_minutes)
 
     @staticmethod
     def _reset_failed_attempts(keys: list[str]):
@@ -110,7 +113,11 @@ class AuthService:
             user = db.query(User).filter(func.lower(User.email) == normalized_identifier).first()
         
         if not user or not verify_password(user_login.password, user.password_hash):
-            AuthService._register_failed_attempt(rate_limit_keys)
+            AuthService._register_failed_attempt(
+                rate_limit_keys,
+                get_setting(db, "login_max_failed_attempts"),
+                get_setting(db, "login_lockout_minutes"),
+            )
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid username/email or password",

@@ -5,8 +5,8 @@ from app.models.models import ChallanType, ChallanStatus  # FIX: import ChallanS
 from app.schemas import CampaignCreate, CampaignUpdate
 from app.schemas import CampaignPaymentImportSummary
 from fastapi import HTTPException, status
+from app.services.settings_service import get_setting
 from datetime import datetime
-
 
 class CampaignService:
     """Campaign management service."""
@@ -115,7 +115,11 @@ class CampaignService:
         normalized = CampaignService._normalize_campaign_values(
             target_mode=campaign_data.target_mode.value if hasattr(campaign_data.target_mode, "value") else str(campaign_data.target_mode),
             target_amount=campaign_data.target_amount,
-            min_amount=campaign_data.min_amount,
+            min_amount=(
+                campaign_data.min_amount
+                if campaign_data.min_amount is not None
+                else float(get_setting(db, "default_campaign_min_amount"))
+            ),
             start_date=campaign_data.start_date,
             end_date_mode=campaign_data.end_date_mode.value if hasattr(campaign_data.end_date_mode, "value") else str(campaign_data.end_date_mode),
             end_date=campaign_data.end_date,

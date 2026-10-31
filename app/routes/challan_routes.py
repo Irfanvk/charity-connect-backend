@@ -8,7 +8,8 @@ from app.services import ChallanService, MemberService
 from app.services.notification_service import NotificationService
 from app.services.import_job_service import ImportJobService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin, log_audit
-from app.utils.permissions import assert_not_self, assert_different_actor
+from app.utils.permissions import assert_not_self, assert_different_actor, require_reason
+from app.services.settings_service import get_setting
 from typing import List, Optional
 
 router = APIRouter(prefix="/challans", tags=["Challans"])
@@ -324,7 +325,7 @@ def create_multi_challans(
 def get_payable_months(
     member_id: Optional[int] = Query(default=None),
     include_upcoming: bool = Query(default=False),
-    upcoming_count: int = Query(default=3, ge=0, le=12),
+    upcoming_count: Optional[int] = Query(default=None, ge=0, le=12),
     from_month: Optional[str] = Query(default=None, description="Start month override yyyy-MM"),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -376,9 +377,10 @@ def upload_proof(
     if file.content_type not in allowed_types:
         raise HTTPException(status_code=400, detail="Invalid file type")
 
+    max_mb = get_setting(db, "proof_max_upload_mb")
     content = file.file.read()
-    if len(content) > 5 * 1024 * 1024:
-        raise HTTPException(status_code=400, detail="File too large (max 5MB)")
+    if len(content) > max_mb * 1024 * 1024:
+        raise HTTPException(status_code=400, detail=f"File too large (max {max_mb}MB)")
 
     result = ChallanService.upload_proof(db, challan_id, content, file.filename)
     NotificationService.notify_admins_proof_uploaded(
@@ -599,7 +601,7 @@ def reject_challan(
 ):
     challan = ChallanService.get_challan(db, challan_id)
     assert_not_self(db, _current_user, challan.member_id, "reject")
-
+    require_reason(reject_data.rejection_reason, "Rejection reason", db)
     if challan.status not in (ChallanStatus.PENDING.value, ChallanStatus.APPROVED.value):
         raise HTTPException(status_code=400, detail="Only pending or approved challans can be rejected")
 
@@ -635,7 +637,7 @@ def revert_challan(
 ):
     challan = ChallanService.get_challan(db, challan_id)
     assert_not_self(db, current_user, challan.member_id, "revert")
-
+    require_reason(revert_data.reason, "Reason", db)
     if challan.status not in (ChallanStatus.APPROVED.value, ChallanStatus.REJECTED.value):
         raise HTTPException(status_code=400, detail="Only approved or rejected challans can be reverted")
 

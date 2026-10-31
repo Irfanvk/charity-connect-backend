@@ -60,11 +60,17 @@ def assert_different_actor(current_user_id: Optional[int], original_actor_id: Op
         )
 
 
-def require_reason(reason: Optional[str], field_label: str = "Reason") -> str:
+def require_reason(reason: Optional[str], field_label: str = "Reason", db: Optional[Session] = None) -> str:
+    """Validate a reason; the minimum length is the platform setting when a db is given."""
+    min_length = MIN_REASON_LENGTH
+    if db is not None:
+        from app.services.settings_service import get_setting
+
+        min_length = max(MIN_REASON_LENGTH, int(get_setting(db, "min_reason_length")))
     cleaned = (reason or "").strip()
-    if len(cleaned) < MIN_REASON_LENGTH:
+    if len(cleaned) < min_length:
         raise HTTPException(
             status_code=400,
-            detail=f"{field_label} is required and must be at least {MIN_REASON_LENGTH} characters.",
+            detail=f"{field_label} is required and must be at least {min_length} characters.",
         )
     return cleaned

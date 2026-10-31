@@ -12,13 +12,13 @@ from fastapi import HTTPException
 from app.config import settings
 from app.models.models import PasswordResetRequest, User, Notification
 from app.services.notification_service import NotificationService
+from app.services.settings_service import get_setting
 from app.utils import hash_password
 from app.utils.audit import log_audit
 from app.utils.permissions import assert_not_own_user
 
 logger = logging.getLogger(__name__)
 
-TOKEN_EXPIRY_MINUTES = 30
 PRIVILEGED_ROLES = {"admin", "superadmin"}
 ADMIN_RESET_DENIED = "Password resets for admin accounts must be handled by the superadmin"
 SUPERADMIN_RESET_DENIED = "Superadmin password resets must be done from the server with seed_admin.py"
@@ -198,7 +198,7 @@ def approve_request(
 
     req.status = "approved"
     req.reset_token = token
-    req.token_expires_at = now + timedelta(minutes=TOKEN_EXPIRY_MINUTES)
+    req.token_expires_at = now + timedelta(minutes=get_setting(db, "password_reset_link_expiry_minutes"))
     req.admin_id = admin_id
     req.admin_notes = admin_notes
     req.resolved_at = now

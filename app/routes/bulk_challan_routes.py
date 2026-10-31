@@ -124,7 +124,6 @@ def bulk_create_challans(
         db,
         member_id=member_id,
         include_upcoming=True,
-        upcoming_count=3,
         from_month=earliest_selected_month,
     )
     allowed_months = set(payable["all_months"])

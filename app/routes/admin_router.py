@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 import json
@@ -19,7 +19,6 @@ from app.schemas.schemas import (
     SystemWipeRequest,
     SystemWipeResponse,
     AppSettingsResponse,
-    AppSettingsUpdate,
 )
 from app.models.models import (
     BulkChallanGroup,
@@ -41,6 +40,7 @@ from app.utils.audit import log_audit
 from app.utils.permissions import assert_not_self, assert_different_actor, require_reason
 from app.config import settings
 from app.services.notification_service import NotificationService
+from app.services import settings_service
 
 # ✅ admin router — prefix="/admin"
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -68,23 +68,24 @@ def _build_proof_url(proof_file_id: str | None) -> str | None:
 
 # ─── App Settings ─────────────────────────────────────────────────────────────
 
-KNOWN_SETTINGS = {
-    "member_stats_visible": "0",  # "0" = hidden, "1" = visible
-}
+def _role_of(current_user: dict) -> str:
+    return str(current_user.get("role", "")).lower()
 
 
-def _get_setting(db: Session, key: str) -> str:
-    row = db.query(AppSetting).filter(AppSetting.key == key).first()
-    return row.value if row else KNOWN_SETTINGS.get(key, "")
-
-
-def _set_setting(db: Session, key: str, value: str) -> None:
-    row = db.query(AppSetting).filter(AppSetting.key == key).first()
-    if row:
-        row.value = value
-    else:
-        db.add(AppSetting(key=key, value=value))
-    db.commit()
+def _settings_response(db: Session, current_user: dict) -> AppSettingsResponse:
+    is_admin = _role_of(current_user) in ("admin", "superadmin")
+    items: list[dict] = []
+    if is_admin:
+        names = {
+            uid: (full_name or username)
+            for uid, full_name, username in db.query(User.id, User.full_name, User.username).all()
+        }
+        items = [settings_service.serialize_setting(db, key, names) for key in settings_service.SETTINGS_REGISTRY]
+    return AppSettingsResponse(
+        member_stats_visible=bool(settings_service.get_setting(db, "member_stats_visible")),
+        can_edit=_role_of(current_user) == "superadmin",
+        settings=items,
+    )
 
 
 @router.get("/settings", response_model=AppSettingsResponse)
@@ -92,36 +93,52 @@ def get_app_settings(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get application settings. All authenticated users can read settings."""
-    return AppSettingsResponse(
-        member_stats_visible=_get_setting(db, "member_stats_visible") == "1",
-    )
+    """Superadmin/admin: full registry (admins read-only). Members: member_stats_visible only."""
+    return _settings_response(db, current_user)
 
 
 @router.put("/settings", response_model=AppSettingsResponse)
 def update_app_settings(
-    payload: AppSettingsUpdate,
-    current_user: dict = Depends(get_current_admin),
+    payload: dict = Body(...),
+    current_user: dict = Depends(get_current_superadmin),
     db: Session = Depends(get_db),
 ):
-    """Update application settings (admin only)."""
-    old_member_stats = _get_setting(db, "member_stats_visible")
-    if payload.member_stats_visible is not None:
-        _set_setting(db, "member_stats_visible", "1" if payload.member_stats_visible else "0")
+    """Update platform settings (superadmin only). Partial map {key: value}, all-or-nothing."""
+    changes = {k: v for k, v in payload.items() if v is not None}
+    diff = settings_service.update_settings(db, changes, current_user.get("user_id"))
+    if diff:
+        log_audit(
+            db,
+            user_id=current_user.get("user_id"),
+            action="app_settings_update",
+            entity_type="AppSetting",
+            old_values={key: old for key, (old, _new) in diff.items()},
+            new_values={key: new for key, (_old, new) in diff.items()},
+            auto_commit=True,
+        )
+    return _settings_response(db, current_user)
 
+
+@router.post("/settings/{key}/reset", response_model=AppSettingsResponse)
+def reset_app_setting(
+    key: str,
+    current_user: dict = Depends(get_current_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Restore a setting to its default (superadmin only)."""
+    if key not in settings_service.SETTINGS_REGISTRY:
+        raise HTTPException(status_code=404, detail="Unknown setting")
+    old, new = settings_service.reset_setting(db, key, current_user.get("user_id"))
     log_audit(
         db,
         user_id=current_user.get("user_id"),
-        action="app_settings_update",
+        action="app_settings_reset",
         entity_type="AppSetting",
-        old_values={"member_stats_visible": old_member_stats == "1"},
-        new_values={"member_stats_visible": payload.member_stats_visible},
+        old_values={key: old},
+        new_values={key: new},
         auto_commit=True,
     )
-
-    return AppSettingsResponse(
-        member_stats_visible=_get_setting(db, "member_stats_visible") == "1",
-    )
+    return _settings_response(db, current_user)
 
 
 # ─── Dashboard Charts ─────────────────────────────────────────────────────────
@@ -690,7 +707,7 @@ def reject_bulk_challans(
     admin_user_id = current_user.get("user_id")
     admin_user    = db.query(User).filter(User.id == admin_user_id).first()
 
-    reason = require_reason(request.reason, "Rejection reason")
+    reason = require_reason(request.reason, "Rejection reason", db)
     request.reason = reason
     if request.action not in ["delete", "reject"]:
         raise HTTPException(
@@ -789,7 +806,7 @@ def revert_bulk_challans(
         raise HTTPException(status_code=403, detail="Admin access required")
 
     admin_user_id = current_user.get("user_id")
-    reason = require_reason(request.reason, "Reason")
+    reason = require_reason(request.reason, "Reason", db)
 
     bulk_group = db.query(BulkChallanGroup).filter(
         BulkChallanGroup.bulk_group_id == bulk_group_id

@@ -26,6 +26,7 @@ from app.routes import (
     password_reset_router,
 )
 import logging
+from app.routes.settings_routes import router as settings_router
 import app.models as _models
 
 try:
@@ -101,6 +102,7 @@ app.include_router(user_router)
 app.include_router(audit_log_router)
 app.include_router(fund_utilization_router)
 app.include_router(password_reset_router)
+app.include_router(settings_router)
 
 # Serve locally uploaded files (avatars, challan proofs, campaign images).
 # Cloud storage (R2) bypasses this path entirely via full URLs.

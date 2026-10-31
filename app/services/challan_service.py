@@ -13,6 +13,7 @@ from datetime import datetime, date
 from app.schemas import ChallanHistoryImportSummary
 from typing import Optional
 from app.config import settings
+from app.services.settings_service import get_setting
 from app.utils.timezone import (
     business_to_naive_utc,
     current_month_business,
@@ -90,7 +91,7 @@ class ChallanService:
         db: Session,
         member_id: int,
         include_upcoming: bool = False,
-        upcoming_count: int = 3,
+        upcoming_count: Optional[int] = None,
         from_month: Optional[str] = None,          # "yyyy-MM" override supplied by the frontend
     ) -> dict:
         member = db.query(Member).filter(Member.id == member_id).first()
@@ -141,7 +142,10 @@ class ChallanService:
         current_month_payable = current_month not in paid_or_existing_months
 
         upcoming_months: list[str] = []
-        safe_upcoming_count = max(0, min(int(upcoming_count or 0), 12))
+        # upcoming_months_payable is the platform-wide ceiling for advance months
+        max_upcoming = int(get_setting(db, "upcoming_months_payable"))
+        requested_upcoming = max_upcoming if upcoming_count is None else int(upcoming_count or 0)
+        safe_upcoming_count = max(0, min(requested_upcoming, max_upcoming, 12))
         if include_upcoming and safe_upcoming_count > 0:
             for i in range(1, safe_upcoming_count + 1):
                 month_value = ChallanService._format_month(ChallanService._add_months(today, i))
@@ -196,7 +200,6 @@ class ChallanService:
                 db,
                 member_id,
                 include_upcoming=True,
-                upcoming_count=3,
                 from_month=challan_data.month,
             )
             if challan_data.month not in set(payable["all_months"]):
@@ -285,7 +288,6 @@ class ChallanService:
             db,
             member_id,
             include_upcoming=True,
-            upcoming_count=3,
         )
         available_months = set(payable["all_months"])
         
@@ -546,7 +548,7 @@ class ChallanService:
             )
         
         # Validate file
-        validate_file(file_content, filename)
+        validate_file(file_content, filename, max_size_mb=get_setting(db, "proof_max_upload_mb"))
         
         # Save file
         proof_path = save_file(file_content, "proofs", filename)
@@ -705,7 +707,6 @@ class ChallanService:
                 db,
                 member_id=challan.member_id,
                 include_upcoming=True,
-                upcoming_count=3,
                 from_month=requested_month,
             )
             if requested_month not in set(payable["all_months"]):

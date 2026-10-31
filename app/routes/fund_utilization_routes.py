@@ -16,7 +16,7 @@ from app.schemas import (
 from app.services.notification_service import NotificationService
 from app.utils import get_current_admin, get_current_user
 from app.utils.audit import log_audit
-from app.utils.permissions import assert_different_actor, assert_not_own_user
+from app.utils.permissions import assert_different_actor, assert_not_own_user, require_reason
 
 router = APIRouter(prefix="/fund-utilizations", tags=["Fund Utilizations"])
 
@@ -306,6 +306,7 @@ def reject_fund_utilization(
     """Reject a pending entry. Anyone except the admin who registered it."""
     record = _get_record(db, fund_utilization_id)
     assert_not_own_user(current_user, record.registered_by_admin_id, "reject")
+    require_reason(payload.reason, "Rejection reason", db)
     if record.status != "pending":
         raise HTTPException(status_code=400, detail="Only pending fund utilizations can be rejected")
 
@@ -339,6 +340,7 @@ def revert_fund_utilization(
     record = _get_record(db, fund_utilization_id)
     if record.status != "approved":
         raise HTTPException(status_code=400, detail="Only approved fund utilizations can be reverted")
+    require_reason(payload.reason, "Reason", db)
     assert_different_actor(current_user["user_id"], record.approved_by_admin_id, "Reversal")
 
     record.status = "pending"

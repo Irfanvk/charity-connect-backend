@@ -15,7 +15,8 @@ from app.config import settings
 from app.services.whatsapp_service import send_whatsapp_message
 from app.workers.runtime import can_enqueue_celery_tasks
 from fastapi import HTTPException, status
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from app.services.settings_service import get_setting
 
 
 class InviteService:
@@ -106,10 +107,7 @@ class InviteService:
 
         expiry_date = invite_data.expiry_date or invite_data.expires_at
         if expiry_date is None:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail="expiry_date or expires_at is required",
-            )
+            expiry_date = datetime.utcnow() + timedelta(days=get_setting(db, "invite_default_expiry_days"))
 
         expiry_date = InviteService._to_utc_naive(expiry_date)
 

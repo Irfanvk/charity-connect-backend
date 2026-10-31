@@ -8,6 +8,7 @@ from app.services import AuthService
 from app.utils import create_access_token, get_current_user
 from app.utils.file_handler import save_file, validate_file, delete_file
 from app.config import settings
+from app.services.settings_service import get_setting
 from datetime import timedelta
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -21,7 +22,7 @@ def login(credentials: UserLogin, request: Request, db: Session = Depends(get_db
     source_ip = request.client.host if request.client else None
     user = AuthService.login(db, credentials, source_ip=source_ip)
     
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=get_setting(db, "session_timeout_minutes"))
     access_token = create_access_token(
         data={"sub": str(user.id), "role": user.role},
         expires_delta=access_token_expires,
@@ -41,7 +42,7 @@ def register(registration: UserRegisterWithInvite, db: Session = Depends(get_db)
     """
     user = AuthService.register_with_invite(db, registration)
 
-    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token_expires = timedelta(minutes=get_setting(db, "session_timeout_minutes"))
     access_token = create_access_token(
         data={"sub": str(user.id), "role": user.role},
         expires_delta=access_token_expires,

@@ -1,4 +1,7 @@
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from sqlalchemy.orm import Session
+from app.database import get_db
+from app.services.settings_service import get_setting
 from app.utils.file_handler import validate_file, save_file, delete_file
 from app.utils.auth import get_current_user
 
@@ -18,18 +21,19 @@ def _build_url(saved_path: str) -> str:
 async def upload_file(
     file: UploadFile = File(...),
     _current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """
     Upload a payment proof or generic file and return a public URL.
 
-    Accepts: jpg, png, pdf  |  Max size: 3 MB
+    Accepts: jpg, png, pdf  |  Max size: platform setting proof_max_upload_mb
 
     Returns:
         {"file_url": str, "filename": str}
     """
     content = await file.read()
     try:
-        validate_file(content, file.filename, max_size_mb=3)
+        validate_file(content, file.filename, max_size_mb=get_setting(db, "proof_max_upload_mb"))
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 

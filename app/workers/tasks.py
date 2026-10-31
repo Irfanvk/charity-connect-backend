@@ -3,6 +3,7 @@ from datetime import datetime
 from app.database import SessionLocal
 from app.models import Member, Notification, User
 from app.services.notification_service import NotificationService
+from app.services.settings_service import get_setting
 from app.services.web_push_service import WebPushService
 from app.services.whatsapp_service import send_whatsapp_message
 from app.utils.invite_share import build_invite_share_message
@@ -95,6 +96,11 @@ def send_monthly_membership_reminders():
 
     sent = 0
     try:
+        if not get_setting(db, "monthly_reminder_enabled"):
+            return {"status": "skipped", "reason": "disabled"}
+        if now.day != get_setting(db, "monthly_reminder_day"):
+            return {"status": "skipped", "reason": "not reminder day"}
+
         members = (
             db.query(Member)
             .join(User, Member.user_id == User.id)

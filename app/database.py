@@ -146,6 +146,10 @@ def ensure_runtime_schema() -> None:
             connection.execute(text("CREATE INDEX ix_app_settings_key ON app_settings (key)"))
             logger.info("Created app_settings table")
 
+        setting_columns = {c["name"] for c in inspect(connection).get_columns("app_settings")}
+        if "updated_by_user_id" not in setting_columns:
+            connection.execute(text("ALTER TABLE app_settings ADD COLUMN updated_by_user_id INTEGER REFERENCES users(id)"))
+
         # ── push_subscriptions table ─────────────────────────────────────
         if not inspector.has_table("push_subscriptions"):
             if dialect == "postgresql":

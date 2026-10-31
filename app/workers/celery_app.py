@@ -34,11 +34,12 @@ celery.conf.task_routes = {
     "app.workers.tasks.send_monthly_membership_reminders": {"queue": "notifications"},
 }
 
-# Monthly reminder for membership payment cycle (1st day of each month, 09:00 business time / IST).
+# Reminder task runs DAILY at 09:00 IST; the task itself exits unless today (IST)
+# equals the monthly_reminder_day setting and reminders are enabled.
 celery.conf.beat_schedule = {
     "monthly-membership-reminder": {
         "task": "app.workers.tasks.send_monthly_membership_reminders",
-        "schedule": crontab(minute=0, hour=9, day_of_month="1"),
+        "schedule": crontab(minute=0, hour=9),
     }
 }
 
