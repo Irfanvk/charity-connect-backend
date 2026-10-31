@@ -52,8 +52,16 @@ class RequestService:
         }
 
     @staticmethod
-    def _notify_member(db: Session, user_id: int, title: str, message: str):
-        notification = Notification(user_id=user_id, title=title, message=message)
+    def _notify_member(db: Session, user_id: int, title: str, message: str, request_id: int | None = None):
+        notification = Notification(
+            user_id=user_id,
+            title=title,
+            message=message,
+            category="requests",
+            link_url=f"/Requests?request={request_id}" if request_id else "/Requests",
+            entity_type="member_request" if request_id else None,
+            entity_id=request_id,
+        )
         db.add(notification)
         return notification
 
@@ -173,6 +181,10 @@ class RequestService:
                 title="New Member Request",
                 message=f"A member submitted a {request_label} request: {item.subject or 'No subject'}.",
                 target_role=admin.role,
+                category="admin_requests",
+                link_url=f"/admin/requests?request={item.id}",
+                entity_type="member_request",
+                entity_id=item.id,
             )
             db.add(notification)
             admin_notifications.append(notification)
@@ -315,6 +327,7 @@ class RequestService:
             user_id=item.user_id,
             title="Request Approved",
             message=RequestService._approval_message(item),
+            request_id=item.id,
         )
 
         db.add(
@@ -369,6 +382,7 @@ class RequestService:
             user_id=item.user_id,
             title="Request Update",
             message=RequestService._rejection_message(item),
+            request_id=item.id,
         )
 
         db.add(

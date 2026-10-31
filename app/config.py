@@ -1,7 +1,7 @@
 import os
 import json
 from typing import Any
-from pydantic import Field, field_validator, model_validator
+from pydantic import AliasChoices, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -169,9 +169,14 @@ class Settings(BaseSettings):
     WHATSAPP_VERIFY_TOKEN: str = os.getenv("WHATSAPP_VERIFY_TOKEN", "")
 
     # Web Push (for notifications when app is closed)
-    WEB_PUSH_PUBLIC_KEY: str = os.getenv("WEB_PUSH_PUBLIC_KEY", "")
-    WEB_PUSH_PRIVATE_KEY: str = os.getenv("WEB_PUSH_PRIVATE_KEY", "")
-    WEB_PUSH_SUBJECT: str = os.getenv("WEB_PUSH_SUBJECT", "mailto:admin@example.com")
+    # VAPID_* are the primary names; legacy WEB_PUSH_* are accepted as a fallback.
+    # Keys are never read from the repository: use env vars or a file path outside the repo.
+    WEB_PUSH_PUBLIC_KEY: str = Field(default="", validation_alias=AliasChoices("VAPID_PUBLIC_KEY", "WEB_PUSH_PUBLIC_KEY"))
+    WEB_PUSH_PRIVATE_KEY: str = Field(default="", validation_alias=AliasChoices("VAPID_PRIVATE_KEY", "WEB_PUSH_PRIVATE_KEY"))
+    WEB_PUSH_SUBJECT: str = Field(
+        default="mailto:admin@example.com",
+        validation_alias=AliasChoices("VAPID_SUBJECT", "WEB_PUSH_SUBJECT"),
+    )
 
     @property
     def web_push_private_key_value(self) -> str:
@@ -205,6 +210,13 @@ class Settings(BaseSettings):
             pass
         # Fall back to raw value (pywebpush may accept unencoded keys too)
         return key
+
+    @property
+    def vapid_key_id(self) -> str:
+        """Short stable id of the public key; subscriptions made with another key are stale."""
+        import hashlib
+        key = (self.WEB_PUSH_PUBLIC_KEY or "").strip()
+        return hashlib.sha256(key.encode("utf-8")).hexdigest()[:16] if key else ""
 
     @property
     def web_push_configured(self) -> bool:

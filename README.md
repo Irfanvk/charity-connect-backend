@@ -211,6 +211,24 @@ LOG_LEVEL=INFO
 
 ---
 
+## Web Push (VAPID) keys and rotation
+
+Push uses a VAPID key pair supplied **only via environment** (never committed; `*.pem` is git-ignored):
+
+| Variable | Meaning |
+|---|---|
+| `VAPID_PUBLIC_KEY` | URL-safe base64 public key |
+| `VAPID_PRIVATE_KEY` | base64-encoded PEM, a raw PEM, or a path to a PEM **outside the repo** |
+| `VAPID_SUBJECT` | `mailto:` contact |
+
+Legacy `WEB_PUSH_PUBLIC_KEY` / `WEB_PUSH_PRIVATE_KEY` / `WEB_PUSH_SUBJECT` still work as a fallback.
+If keys are missing the app starts normally, logs a warning and push is disabled (in-app notifications keep working).
+
+**Rotate keys** (also required if a key was ever committed):
+
+1. `python scripts/generate_vapid_keys.py`
+2. Set the three variables on the web, worker **and** beat services, then redeploy.
+3. Each push subscription stores a `vapid_key_id`. After rotation, old subscriptions are skipped and deactivated on the next send; the app re-subscribes silently the next time a user opens it (permission already granted).
 ## Running Locally
 
 ### 1. Setup Python environment

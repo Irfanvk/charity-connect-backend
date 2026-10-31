@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import User
 from app.schemas import DeviceStatusUpdate, UserResponse, UserRole, UserUpdate
+from app.services.notification_service import NotificationService
 from app.utils import get_current_admin, get_current_user, log_audit
 from typing import List, Optional
 
@@ -124,4 +125,10 @@ def update_user(
         new_values=updates,
         auto_commit=True,
     )
+    new_role = getattr(updates.get("role"), "value", updates.get("role"))
+    old_role = getattr(old_values.get("role"), "value", old_values.get("role"))
+    if new_role is not None and str(new_role) != str(old_role):
+        NotificationService.notify_security_event(db, user.id, "role_changed")
+    if updates.get("is_active") is False and old_values.get("is_active"):
+        NotificationService.notify_security_event(db, user.id, "account_deactivated")
     return user

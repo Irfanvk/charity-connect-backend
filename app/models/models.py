@@ -71,6 +71,9 @@ class User(Base):
     notification_permission_updated_at = Column(DateTime, nullable=True)
     device_display_mode = Column(String(30), nullable=True)
     last_activity_user_agent = Column(String(500), nullable=True)
+    quiet_hours_enabled = Column(Boolean, default=False, nullable=False)
+    quiet_hours_start = Column(String(5), nullable=True)  # 'HH:MM' IST
+    quiet_hours_end = Column(String(5), nullable=True)  # 'HH:MM' IST
     
     # Relationships
     member = relationship("Member", back_populates="user", uselist=False)
@@ -274,7 +277,12 @@ class Notification(Base):
     is_read = Column(Boolean, default=False)
     read_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
-    
+    category = Column(String(30), nullable=True)
+    link_url = Column(String(255), nullable=True)
+    entity_type = Column(String(30), nullable=True)
+    entity_id = Column(Integer, nullable=True)
+    is_urgent = Column(Boolean, default=False, nullable=False)
+
     # Relationships
     user = relationship("User", back_populates="notifications")
 
@@ -291,8 +299,22 @@ class PushSubscription(Base):
     is_active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    vapid_key_id = Column(String(32), nullable=True)
+    last_success_at = Column(DateTime, nullable=True)
+    last_failure_at = Column(DateTime, nullable=True)
+    last_failure_reason = Column(String(255), nullable=True)
+    device_label = Column(String(100), nullable=True)
 
     user = relationship("User")
+
+
+class NotificationPreference(Base):
+    __tablename__ = "notification_preferences"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    category = Column(String(30), nullable=False)
+    push_enabled = Column(Boolean, default=True, nullable=False)
 
 
 class Request(Base):

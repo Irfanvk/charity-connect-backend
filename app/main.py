@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +27,7 @@ from app.routes import (
     password_reset_router,
 )
 import logging
+from app.services.realtime_notification_service import redis_bridge_url, run_redis_subscriber
 from app.routes.settings_routes import router as settings_router
 import app.models as _models
 
@@ -124,6 +126,13 @@ async def startup_event() -> None:
             settings.FRONTEND_BASE_URL,
         )
 
+    if not settings.web_push_configured:
+        logger.warning("VAPID keys are not configured; web push is disabled (in-app notifications still work).")
+
+    if redis_bridge_url():
+        # Forward events published by Celery workers to this process's SSE hub.
+        app.state.realtime_bridge_task = asyncio.create_task(run_redis_subscriber())
+
     if not settings.ENABLE_FASTAPI_LIMITER:
         return
 
@@ -141,6 +150,9 @@ async def startup_event() -> None:
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
+    bridge_task = getattr(app.state, "realtime_bridge_task", None)
+    if bridge_task:
+        bridge_task.cancel()
     if FastAPILimiter and getattr(FastAPILimiter, "redis", None):
         await FastAPILimiter.close()
 

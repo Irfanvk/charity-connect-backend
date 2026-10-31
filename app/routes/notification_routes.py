@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, status, Query, Request, Response, HTTPEx
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Notification
+from app.models import Notification, User
 from app.schemas import (
     NotificationCreate,
     NotificationResponse,
@@ -15,11 +15,11 @@ from app.schemas import (
     NotificationSentDeleteRequest,
     NotificationSentDeleteResponse,
 )
-from app.services import NotificationService
+from app.services import NotificationService, notification_prefs
 from app.services.realtime_notification_service import notification_realtime_hub
 from app.services.web_push_service import WebPushService
 from app.utils import get_current_user, get_current_admin, log_audit, verify_token
-from typing import List
+from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 from app.services.whatsapp_service import send_whatsapp_message
 from app.config import settings
@@ -167,6 +167,140 @@ def delete_admin_sent_notifications(
     )
     return result
 
+
+@router.get("/stream")
+async def stream_notifications(
+    request: Request,
+    access_token: str = Query(default=""),
+):
+    """SSE stream for realtime notification events (token passed via query for EventSource compatibility)."""
+    if not access_token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing access token")
+
+    payload = verify_token(access_token)
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    async def event_stream():
+        async for chunk in notification_realtime_hub.stream(user_id=user_id, request=request):
+            yield chunk
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.get("/push/public-key")
+def get_push_public_key():
+    return {
+        "enabled": settings.web_push_configured,
+        "public_key": settings.WEB_PUSH_PUBLIC_KEY if settings.web_push_configured else "",
+        "key_id": settings.vapid_key_id if settings.web_push_configured else "",
+    }
+
+
+class NotificationPreferencesUpdate(BaseModel):
+    categories: Optional[Dict[str, bool]] = None
+    quiet_hours_enabled: Optional[bool] = None
+    quiet_hours_start: Optional[str] = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    quiet_hours_end: Optional[str] = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+
+
+class TestPushRequest(BaseModel):
+    user_id: Optional[int] = None
+
+
+def _preferences_payload(db: Session, user: User) -> dict:
+    return {
+        "categories": notification_prefs.load_preferences(db, user.id, user.role),
+        "quiet_hours": {
+            "enabled": bool(user.quiet_hours_enabled),
+            "start": user.quiet_hours_start or notification_prefs.DEFAULT_QUIET_START,
+            "end": user.quiet_hours_end or notification_prefs.DEFAULT_QUIET_END,
+            "timezone": settings.BUSINESS_TIMEZONE,
+        },
+        "urgent_always_delivered": True,
+    }
+
+
+@router.get("/preferences")
+def get_notification_preferences(
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == int(current_user["user_id"])).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return _preferences_payload(db, user)
+
+
+@router.put("/preferences")
+def update_notification_preferences(
+    payload: NotificationPreferencesUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.id == int(current_user["user_id"])).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    try:
+        start = notification_prefs.validate_hhmm(payload.quiet_hours_start) if payload.quiet_hours_start else None
+        end = notification_prefs.validate_hhmm(payload.quiet_hours_end) if payload.quiet_hours_end else None
+        if payload.categories:
+            notification_prefs.save_preferences(db, user.id, user.role, payload.categories)
+    except ValueError as exc:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+
+    if payload.quiet_hours_enabled is not None:
+        user.quiet_hours_enabled = payload.quiet_hours_enabled
+    if start:
+        user.quiet_hours_start = start
+    if end:
+        user.quiet_hours_end = end
+    db.commit()
+    db.refresh(user)
+    return _preferences_payload(db, user)
+
+
+@router.post("/test-push")
+def send_test_push(
+    payload: TestPushRequest = TestPushRequest(),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Send a test push to the caller's devices. Only a superadmin may target another user (audited)."""
+    actor_id = int(current_user["user_id"])
+    target_id = payload.user_id or actor_id
+    if target_id != actor_id:
+        if str(current_user.get("role", "")).lower() != "superadmin":
+            raise HTTPException(status_code=403, detail="Only a superadmin can send a test to another user")
+        if not db.query(User).filter(User.id == target_id).first():
+            raise HTTPException(status_code=404, detail="User not found")
+        log_audit(
+            db,
+            user_id=actor_id,
+            action="notification_test_push",
+            entity_type="User",
+            entity_id=target_id,
+            new_values={"target_user_id": target_id},
+            auto_commit=True,
+        )
+    result = WebPushService.send_test(db, target_id)
+    return {"user_id": target_id, "push_configured": not result["disabled"], **result}
 
 @router.get("/{notification_id}", response_model=NotificationResponse)
 def get_notification(
@@ -385,48 +519,6 @@ def delete_notification(
         },
         auto_commit=True,
     )
-
-
-@router.get("/stream")
-async def stream_notifications(
-    request: Request,
-    access_token: str = Query(default=""),
-):
-    """SSE stream for realtime notification events (token passed via query for EventSource compatibility)."""
-    if not access_token:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing access token")
-
-    payload = verify_token(access_token)
-    user_id = payload.get("sub")
-    if user_id is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-
-    try:
-        user_id = int(user_id)
-    except (TypeError, ValueError):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-
-    async def event_stream():
-        async for chunk in notification_realtime_hub.stream(user_id=user_id, request=request):
-            yield chunk
-
-    return StreamingResponse(
-        event_stream(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
-    )
-
-
-@router.get("/push/public-key")
-def get_push_public_key():
-    return {
-        "enabled": settings.web_push_configured,
-        "public_key": settings.WEB_PUSH_PUBLIC_KEY if settings.web_push_configured else "",
-    }
 
 
 @router.post("/push/subscribe", status_code=status.HTTP_201_CREATED)

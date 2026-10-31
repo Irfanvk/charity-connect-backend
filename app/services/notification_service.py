@@ -5,7 +5,8 @@ import logging
 from app.models import Notification, User
 from app.models.models import UserRole
 from app.schemas import NotificationCreate, NotificationAdminUpdate
-from app.services.realtime_notification_service import notification_realtime_hub
+from app.services.notification_prefs import push_allowed, quiet_hours_resume_at
+from app.services.realtime_notification_service import publish_realtime_event
 from app.services.settings_service import render_message
 from app.services.web_push_service import WebPushService
 from app.workers.runtime import can_enqueue_celery_tasks
@@ -30,6 +31,12 @@ class NotificationService:
             "created_at": notification.created_at.isoformat() if notification.created_at else None,
             "read_at": notification.read_at.isoformat() if notification.read_at else None,
             "target_role": notification.target_role.value if hasattr(notification.target_role, "value") else notification.target_role,
+            "type": notification.type,
+            "category": notification.category,
+            "link_url": notification.link_url,
+            "entity_type": notification.entity_type,
+            "entity_id": notification.entity_id,
+            "is_urgent": bool(notification.is_urgent),
         }
 
     @staticmethod
@@ -37,7 +44,7 @@ class NotificationService:
         """Fan out a newly created notification to realtime and web push channels."""
         try:
             payload = NotificationService._serialize_event(notification)
-            notification_realtime_hub.publish_event(
+            publish_realtime_event(
                 user_id=notification.user_id,
                 event={"type": "create", "data": payload},
             )
@@ -46,15 +53,33 @@ class NotificationService:
             pass
 
         try:
-            if can_enqueue_celery_tasks():
-                from app.workers.tasks import send_web_push_notification
-
-                send_web_push_notification.delay(notification.id)
-            else:
-                WebPushService.send_new_notification(db=db, notification=notification)
+            NotificationService._deliver_push(db, notification)
         except Exception:
             # Push delivery must not affect persisted notification records.
-            pass
+            logger.exception("Push delivery failed for notification %s", getattr(notification, "id", None))
+
+    @staticmethod
+    def _deliver_push(db: Session, notification: Notification) -> None:
+        """Apply preferences and quiet hours (IST), then send now or schedule via Celery."""
+        if not notification.is_urgent:
+            if not push_allowed(db, notification.user_id, notification.category):
+                return
+            user = db.query(User).filter(User.id == notification.user_id).first()
+            resume_at = quiet_hours_resume_at(user)
+            if resume_at is not None:
+                # Deferred pushes need Celery (eta); without it the push is skipped, the record stays.
+                if can_enqueue_celery_tasks():
+                    from app.workers.tasks import send_web_push_notification
+
+                    send_web_push_notification.apply_async(args=[notification.id], eta=resume_at)
+                return
+
+        if can_enqueue_celery_tasks():
+            from app.workers.tasks import send_web_push_notification
+
+            send_web_push_notification.delay(notification.id)
+        else:
+            WebPushService.send_new_notification(db=db, notification=notification)
 
     @staticmethod
     def create_user_notification(
@@ -63,6 +88,12 @@ class NotificationService:
         title: str,
         message: str,
         target_role: str | None = None,
+        category: str | None = None,
+        link_url: str | None = None,
+        entity_type: str | None = None,
+        entity_id: int | None = None,
+        is_urgent: bool = False,
+        ntype: str | None = None,
     ):
         """Create a direct notification for a single user."""
         user = db.query(User).filter(User.id == user_id).first()
@@ -78,6 +109,12 @@ class NotificationService:
             title=title,
             message=message,
             target_role=normalized_role,
+            type=ntype or "info",
+            category=category,
+            link_url=link_url,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            is_urgent=is_urgent,
         )
 
         db.add(notification)
@@ -92,6 +129,8 @@ class NotificationService:
         title: str,
         message: str,
         target_role: str | None = None,
+        category: str | None = None,
+        link_url: str | None = None,
     ) -> dict:
         """Queue notification creation via Celery with safe fallback."""
         if not can_enqueue_celery_tasks():
@@ -100,7 +139,7 @@ class NotificationService:
         try:
             from app.workers.tasks import send_user_notification
 
-            send_user_notification.delay(user_id, title, message, target_role)
+            send_user_notification.delay(user_id, title, message, target_role, category, link_url)
             return {"queued": True, "worker": "celery"}
         except (ImportError, OperationalError, OSError, RuntimeError):
             # Keep API behavior resilient even if worker is unavailable.
@@ -151,11 +190,51 @@ class NotificationService:
             return f"{start.strftime('%b')}–{end.strftime('%b %Y')}"
         return f"{start.strftime('%b %Y')}–{end.strftime('%b %Y')}"
 
+    SECURITY_EVENTS = {
+        "password_changed": ("Password changed", "Your password was changed. If this was not you, contact an administrator immediately."),
+        "password_reset": ("Password reset", "Your password was reset using a reset link. If this was not you, contact an administrator immediately."),
+        "role_changed": ("Account role changed", "Your account role was changed by an administrator."),
+        "account_deactivated": ("Account deactivated", "Your account was deactivated by an administrator."),
+    }
+
     @staticmethod
-    def _send_status_notification(db: Session, user_id: int, title: str, message: str, ntype: str) -> None:
+    def notify_security_event(db: Session, user_id: int, event: str) -> None:
+        """Urgent notification: bypasses push preferences and quiet hours. Never raises."""
+        content = NotificationService.SECURITY_EVENTS.get(event)
+        if not content or not user_id:
+            return
+        NotificationService._send_status_notification(
+            db, user_id, content[0], content[1], "warning",
+            category="security", link_url="/Profile",
+            entity_type="user", entity_id=user_id, is_urgent=True,
+        )
+
+    @staticmethod
+    def _send_status_notification(
+        db: Session,
+        user_id: int,
+        title: str,
+        message: str,
+        ntype: str,
+        category: str | None = None,
+        link_url: str | None = None,
+        entity_type: str | None = None,
+        entity_id: int | None = None,
+        is_urgent: bool = False,
+    ) -> None:
         """Persist then dispatch. Never raises: failures are logged only."""
         try:
-            notification = Notification(user_id=user_id, title=title, message=message, type=ntype)
+            notification = Notification(
+                user_id=user_id,
+                title=title,
+                message=message,
+                type=ntype,
+                category=category,
+                link_url=link_url,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                is_urgent=is_urgent,
+            )
             db.add(notification)
             db.commit()
             db.refresh(notification)
@@ -225,7 +304,13 @@ class NotificationService:
         except Exception:
             logger.exception("Failed to build challan notification")
             return
-        NotificationService._send_status_notification(db, user_id, title, message, ntype)
+        NotificationService._send_status_notification(
+            db, user_id, title, message, ntype,
+            category="payment_updates",
+            link_url=f"/Challans?challan={challan.id}",
+            entity_type="challan",
+            entity_id=challan.id,
+        )
 
     @staticmethod
     def notify_bulk_status_change(db: Session, bulk_group, event: str, reason: str | None = None) -> None:
@@ -252,7 +337,13 @@ class NotificationService:
         except Exception:
             logger.exception("Failed to build bulk challan notification")
             return
-        NotificationService._send_status_notification(db, user_id, title, message, ntype)
+        NotificationService._send_status_notification(
+            db, user_id, title, message, ntype,
+            category="payment_updates",
+            link_url=f"/Challans?bulk={bulk_group.bulk_group_id}",
+            entity_type="bulk_challan",
+            entity_id=bulk_group.id,
+        )
 
     @staticmethod
     def _active_admin_ids(db: Session, exclude_user_id: int | None = None) -> list[int]:
@@ -267,7 +358,14 @@ class NotificationService:
 
     @staticmethod
     def notify_admins_proof_uploaded(
-        db: Session, member, months: list[str], uploader_user_id: int | None = None
+        db: Session,
+        member,
+        months: list[str],
+        uploader_user_id: int | None = None,
+        *,
+        challan_id: int | None = None,
+        bulk_group_id: str | None = None,
+        bulk_id: int | None = None,
     ) -> None:
         """One in-app notification per active admin/superadmin (except the uploader) per upload. Never raises."""
         try:
@@ -283,9 +381,17 @@ class NotificationService:
         except Exception:
             logger.exception("Failed to build admin proof notification")
             return
+        if bulk_group_id:
+            link, entity_type, entity_id = f"/Challans?status=pending&bulk={bulk_group_id}", "bulk_challan", bulk_id
+        elif challan_id:
+            link, entity_type, entity_id = f"/Challans?status=pending&challan={challan_id}", "challan", challan_id
+        else:
+            link, entity_type, entity_id = "/Challans?status=pending", None, None
         for admin_id in admin_ids:
             NotificationService._send_status_notification(
-                db, admin_id, "New payment proof", message, "payment"
+                db, admin_id, "New payment proof", message, "payment",
+                category="admin_payment_reviews", link_url=link,
+                entity_type=entity_type, entity_id=entity_id,
             )
 
     @staticmethod
@@ -321,9 +427,19 @@ class NotificationService:
             logger.exception("Failed to build recorded payment notification")
             return
         for admin_id in admin_ids:
-            NotificationService._send_status_notification(db, admin_id, "Payment needs verification", message, "payment")
+            NotificationService._send_status_notification(
+                db, admin_id, "Payment needs verification", message, "payment",
+                category="admin_payment_reviews",
+                link_url=f"/Challans?status=pending&challan={first.id}",
+                entity_type="challan", entity_id=first.id,
+            )
         if member_user_id and member_user_id != actor_user_id:
-            NotificationService._send_status_notification(db, member_user_id, "Payment recorded", member_message, "info")
+            NotificationService._send_status_notification(
+                db, member_user_id, "Payment recorded", member_message, "info",
+                category="payment_updates",
+                link_url=f"/Challans?challan={first.id}",
+                entity_type="challan", entity_id=first.id,
+            )
 
     @staticmethod
     def send_payment_receipt_whatsapp(db: Session, challans) -> None:
@@ -363,7 +479,10 @@ class NotificationService:
             return
         for admin_id in admin_ids:
             NotificationService._send_status_notification(
-                db, admin_id, "Fund utilization needs approval", message, "info"
+                db, admin_id, "Fund utilization needs approval", message, "info",
+                category="admin_fund_approvals",
+                link_url=f"/FundUtilization?tab=approval&entry={utilization.id}",
+                entity_type="fund_utilization", entity_id=utilization.id,
             )
 
     @staticmethod
@@ -395,7 +514,12 @@ class NotificationService:
         except Exception:
             logger.exception("Failed to build fund utilization status notification")
             return
-        NotificationService._send_status_notification(db, user_id, title, message, ntype)
+        NotificationService._send_status_notification(
+            db, user_id, title, message, ntype,
+            category="admin_fund_approvals",
+            link_url=f"/FundUtilization?entry={utilization.id}",
+            entity_type="fund_utilization", entity_id=utilization.id,
+        )
 
     @staticmethod
     def create_notification(db: Session, notification_data: NotificationCreate, _admin_id: int = None):
@@ -414,6 +538,8 @@ class NotificationService:
                 message=notification_data.message,
                 target_role=notification_data.target_role,
                 type=notification_data.type or "info",
+                category="announcements",
+                link_url="/Notifications",
                 created_at=batch_created_at,
             )
             db.add(notification)

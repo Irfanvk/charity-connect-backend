@@ -230,7 +230,8 @@ def bulk_create_challans(
         created_at = cast(datetime, bulk_group.created_at)
 
         NotificationService.notify_admins_proof_uploaded(
-            db, member, list(request.months), current_user_id
+            db, member, list(request.months), current_user_id,
+            bulk_group_id=bulk_group_id, bulk_id=bulk_group.id,
         )
         
         return BulkChallanResponse(

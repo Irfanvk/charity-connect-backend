@@ -680,6 +680,11 @@ class NotificationResponse(BaseModel):
     is_read: bool
     created_at: datetime
     read_at: Optional[datetime]
+    category: Optional[str] = None
+    link_url: Optional[str] = None
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
+    is_urgent: bool = False
 
     class Config:
         from_attributes = True
