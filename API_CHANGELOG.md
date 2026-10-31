@@ -1,5 +1,26 @@
 # API Changelog
 
+## 2026-10-31
+
+### Added
+- **Admin-recorded payments (maker-checker)**
+  - `POST /challans/admin-record` (admin/superadmin, multipart form): `member_id`, `type` (`monthly`|`campaign`), `months` (repeated or comma-separated `YYYY-MM`) or `campaign_id`, `amount_per_month`/`amount`, `payment_method` (`cash`|`bank_transfer`|`upi`|`cheque`|`other`), `transaction_ref`, `received_on` (IST date, not in the future), `collected_by_user_id`, `entry_notes`, optional `proof_file` or `proof_file_id`. Returns the created PENDING challans (one per month). Errors: `400` validation, `403` own record, `409` duplicate `transaction_ref`, `422` unavailable months.
+  - `GET /admin/reports/cash-collected?month=YYYY-MM` (admin/superadmin): per collecting admin `count`, `pending_amount`, `approved_amount`, plus totals; month is the IST month of `received_on`.
+  - `ChallanResponse` adds `created_by_user_id`, `created_by_name`, `entry_source`, `transaction_ref`, `received_on`, `collected_by_user_id`, `collected_by_name`, `entry_notes`.
+  - `GET /settings/branding` (no auth) and `GET /settings/public`; superadmin-only platform settings endpoints with audit trail.
+  - `GET /challans/payable-months` now includes `business_timezone` and an IST `current_month`.
+- **Fund utilization two-person rule**: `PATCH /fund-utilizations/{id}/approve|reject|revert`; summary counts approved entries only and adds `pending_utilized_total` and `pending_count`.
+
+### Changed
+- `POST /members` now allows admin and superadmin (offline members supported). Imports remain superadmin-only.
+- `POST /challans/{id}/approve` and `POST /admin/bulk/{id}/approve` return `403` when the approver created the admin-entered challan, or collected the cash (imports exempt). Reject/revert require a reason of at least 10 characters, and an approval can only be reversed by a different admin. All challan/request/reset actions on your own record return `403`.
+- Password reset: admin/superadmin account resets need a superadmin; the reset link with token is returned only once in the approve response and never in list responses.
+- Proof-upload notifications go to all active admins/superadmins except the uploader.
+
+### Database
+- `challans`: `created_by_user_id`, `entry_source`, `transaction_ref`, `received_on`, `collected_by_user_id`, `entry_notes`, plus reversal columns. Existing approved rows with no approver and no proof are backfilled as `import`, all others as `self`.
+- `fund_utilizations`: status and approval/reversal columns (existing rows set to `approved`).
+- Applied by `ensure_runtime_schema`; SQL in `migrations/20261031_separation_of_duties.sql` and `migrations/20261031_admin_recorded_payments.sql`. Alembic is not configured.
 ## 2026-08-31
 
 ### Fixed
