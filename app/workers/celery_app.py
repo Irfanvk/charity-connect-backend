@@ -14,7 +14,7 @@ celery = Celery(
 )
 
 celery.conf.update(
-    timezone=settings.CELERY_TIMEZONE,
+    timezone=settings.BUSINESS_TIMEZONE,
     enable_utc=True,
     task_default_queue="default",
     task_ignore_result=result_backend_url is None,
@@ -33,7 +33,7 @@ celery.conf.task_routes = {
     "app.workers.tasks.send_monthly_membership_reminders": {"queue": "notifications"},
 }
 
-# Monthly reminder for membership payment cycle (1st day of each month, 09:00 UTC).
+# Monthly reminder for membership payment cycle (1st day of each month, 09:00 business time / IST).
 celery.conf.beat_schedule = {
     "monthly-membership-reminder": {
         "task": "app.workers.tasks.send_monthly_membership_reminders",

@@ -189,13 +189,29 @@ class Challan(Base):
     created_at = Column(DateTime, server_default=func.now())
     proof_uploaded_at = Column(DateTime, nullable=True)
     approved_at = Column(DateTime, nullable=True)
+    reversed_at = Column(DateTime, nullable=True)
+    reversed_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reversal_reason = Column(Text, nullable=True)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
     # Relationships
     member = relationship("Member", back_populates="challans")
     campaign = relationship("Campaign", back_populates="challans")
     approved_by = relationship("User", foreign_keys=[approved_by_admin_id])
+    reversed_by = relationship("User", foreign_keys=[reversed_by_admin_id])
     bulk_group = relationship("BulkChallanGroup", back_populates="challans")
+
+    @property
+    def approved_by_name(self):
+        return self.approved_by.username if self.approved_by else None
+
+    @property
+    def member_user_id(self):
+        return self.member.user_id if self.member else None
+
+    @property
+    def reversed_by_name(self):
+        return self.reversed_by.username if self.reversed_by else None
 
 
 class BulkChallanGroup(Base):
@@ -217,6 +233,9 @@ class BulkChallanGroup(Base):
     created_at = Column(DateTime, server_default=func.now())
     approved_at = Column(DateTime, nullable=True)
     rejected_at = Column(DateTime, nullable=True)
+    reversed_at = Column(DateTime, nullable=True)
+    reversed_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reversal_reason = Column(Text, nullable=True)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     notes = Column(Text, nullable=True)  # Member notes
     
@@ -387,11 +406,20 @@ class FundUtilization(Base):
     recipient = Column(String(255), nullable=True)     # person/org that received the funds
     date = Column(DateTime, nullable=False, default=datetime.utcnow)
     registered_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    status = Column(String(20), nullable=False, default="pending", server_default="pending")
+    approved_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    reversed_at = Column(DateTime, nullable=True)
+    reversed_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reversal_reason = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     # Relationships
     registered_by = relationship("User", foreign_keys=[registered_by_admin_id])
+    approved_by = relationship("User", foreign_keys=[approved_by_admin_id])
+    reversed_by = relationship("User", foreign_keys=[reversed_by_admin_id])
 
 
 class PasswordResetRequest(Base):

@@ -12,6 +12,7 @@ from app.schemas.schemas import (
     BulkChallanApprove,
     BulkChallanApproveResponse,
     BulkChallanReject,
+    ChallanRevert,
     BulkChallanRejectResponse,
     BulkChallanDetails,
     BulkChallanLinkedChallan,
@@ -37,7 +38,9 @@ from app.models.models import (
 )
 from app.utils.auth import get_current_user, get_current_admin, get_current_superadmin, verify_password
 from app.utils.audit import log_audit
+from app.utils.permissions import assert_not_self, assert_different_actor, require_reason
 from app.config import settings
+from app.services.notification_service import NotificationService
 
 # ✅ admin router — prefix="/admin"
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -506,6 +509,8 @@ def get_pending_bulk_operations(
             member_id=group.member_id,
             member_name=user.username if user else None,
             member_email=user.email if user else None,
+            member_user_id=member.user_id if member else None,
+            approved_by_admin_id=group.approved_by_admin_id,
             months=months,
             months_count=len(months),
             total_amount=group.total_amount,
@@ -612,6 +617,7 @@ def approve_bulk_challans(
         raise HTTPException(status_code=400, detail="Bulk operation already approved")
     if bulk_group.status == "rejected":
         raise HTTPException(status_code=400, detail="Cannot approve rejected bulk operation")
+    assert_not_self(db, current_user, bulk_group.member_id, "approve")
 
     try:
         challan_ids = json.loads(bulk_group.challan_ids_list) if bulk_group.challan_ids_list else []
@@ -637,8 +643,11 @@ def approve_bulk_challans(
             action="bulk_approve",
             entity_type="BulkChallanGroup",
             entity_id=bulk_group.id,
+            old_values=json.dumps({"status": "pending_approval"}),
             new_values=json.dumps({
                 "status": "approved",
+                "actor_user_id": admin_user_id,
+                "member_id": bulk_group.member_id,
                 "months": months,
                 "total_amount": bulk_group.total_amount,
                 "admin_notes": request.admin_notes,
@@ -648,6 +657,8 @@ def approve_bulk_challans(
         ))
         db.commit()
         db.refresh(bulk_group)
+
+        NotificationService.notify_bulk_status_change(db, bulk_group, "approved")
 
         return BulkChallanApproveResponse(
             bulk_group_id=bulk_group.bulk_group_id,
@@ -679,11 +690,8 @@ def reject_bulk_challans(
     admin_user_id = current_user.get("user_id")
     admin_user    = db.query(User).filter(User.id == admin_user_id).first()
 
-    if not request.reason:
-        raise HTTPException(
-            status_code=422,
-            detail=[{"loc": ["body", "reason"], "msg": "Rejection reason required", "type": "value_error"}],
-        )
+    reason = require_reason(request.reason, "Rejection reason")
+    request.reason = reason
     if request.action not in ["delete", "reject"]:
         raise HTTPException(
             status_code=422,
@@ -695,11 +703,18 @@ def reject_bulk_challans(
     ).first()
     if not bulk_group:
         raise HTTPException(status_code=404, detail="Bulk operation not found")
-    if bulk_group.status == "approved":
-        raise HTTPException(status_code=400, detail="Cannot reject approved bulk operation")
+    assert_not_self(db, current_user, bulk_group.member_id, "reject")
+
+    old_group_status = bulk_group.status
+    was_approved = old_group_status == "approved"
+    if was_approved:
+        if request.action == "delete":
+            raise HTTPException(status_code=400, detail="Approved bulk operations cannot be deleted; reject them instead")
+        assert_different_actor(admin_user_id, bulk_group.approved_by_admin_id, "Rejection")
 
     try:
         challan_ids = json.loads(bulk_group.challan_ids_list) if bulk_group.challan_ids_list else []
+        now = datetime.utcnow()
 
         for challan_id in challan_ids:
             challan = db.query(Challan).filter(Challan.id == challan_id).first()
@@ -707,12 +722,24 @@ def reject_bulk_challans(
                 if request.action == "delete":
                     db.delete(challan)
                 else:  # action == "reject"
+                    if challan.status == ChallanStatus.APPROVED:
+                        challan.reversed_at = now
+                        challan.reversed_by_admin_id = admin_user_id
+                        challan.reversal_reason = reason
+                        challan.approved_by_admin_id = None
+                        challan.approved_at = None
                     challan.status           = ChallanStatus.REJECTED
                     challan.rejection_reason = request.reason
 
+        if was_approved:
+            bulk_group.reversed_at = now
+            bulk_group.reversed_by_admin_id = admin_user_id
+            bulk_group.reversal_reason = reason
+            bulk_group.approved_by_admin_id = None
+            bulk_group.approved_at = None
         bulk_group.status           = "rejected"
         bulk_group.rejection_reason = request.reason
-        bulk_group.rejected_at      = datetime.utcnow()
+        bulk_group.rejected_at      = now
 
         months = json.loads(bulk_group.months_list) if bulk_group.months_list else []
 
@@ -721,14 +748,20 @@ def reject_bulk_challans(
             action="bulk_reject",
             entity_type="BulkChallanGroup",
             entity_id=bulk_group.id,
+            old_values=json.dumps({"status": old_group_status}),
             new_values=json.dumps({
                 "status": "rejected",
+                "action": request.action,
                 "reason": request.reason,
+                "actor_user_id": admin_user_id,
+                "member_id": bulk_group.member_id,
                 "months": months,
             }),
         ))
         db.commit()
         db.refresh(bulk_group)
+
+        NotificationService.notify_bulk_status_change(db, bulk_group, "rejected", request.reason)
 
         return BulkChallanRejectResponse(
             bulk_group_id=bulk_group.bulk_group_id,
@@ -739,6 +772,88 @@ def reject_bulk_challans(
             reason=request.reason,
             rejected_by=admin_user.email if admin_user else None,
         )
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.patch("/bulk/{bulk_group_id}/revert")
+def revert_bulk_challans(
+    bulk_group_id: str,
+    request: ChallanRevert,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Revert an approved or rejected bulk group back to pending review (Admin only)."""
+    if not _is_admin_role(current_user):
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    admin_user_id = current_user.get("user_id")
+    reason = require_reason(request.reason, "Reason")
+
+    bulk_group = db.query(BulkChallanGroup).filter(
+        BulkChallanGroup.bulk_group_id == bulk_group_id
+    ).first()
+    if not bulk_group:
+        raise HTTPException(status_code=404, detail="Bulk operation not found")
+    assert_not_self(db, current_user, bulk_group.member_id, "revert")
+
+    old_status = bulk_group.status
+    if old_status not in ("approved", "rejected"):
+        raise HTTPException(status_code=400, detail="Only approved or rejected bulk operations can be reverted")
+    was_approved = old_status == "approved"
+    if was_approved:
+        assert_different_actor(admin_user_id, bulk_group.approved_by_admin_id, "Reversal")
+
+    try:
+        challan_ids = json.loads(bulk_group.challan_ids_list) if bulk_group.challan_ids_list else []
+        now = datetime.utcnow()
+        for challan_id in challan_ids:
+            challan = db.query(Challan).filter(Challan.id == challan_id).first()
+            if challan and challan.status in (ChallanStatus.APPROVED, ChallanStatus.REJECTED):
+                if challan.status == ChallanStatus.APPROVED:
+                    challan.reversed_at = now
+                    challan.reversed_by_admin_id = admin_user_id
+                    challan.reversal_reason = reason
+                challan.status = ChallanStatus.PENDING
+                challan.approved_by_admin_id = None
+                challan.approved_at = None
+                challan.rejection_reason = None
+
+        if was_approved:
+            bulk_group.reversed_at = now
+            bulk_group.reversed_by_admin_id = admin_user_id
+            bulk_group.reversal_reason = reason
+        bulk_group.status = "pending_approval"
+        bulk_group.approved_by_admin_id = None
+        bulk_group.approved_at = None
+        bulk_group.rejection_reason = None
+        bulk_group.rejected_at = None
+
+        db.add(AuditLog(
+            user_id=admin_user_id,
+            action="bulk_revert",
+            entity_type="BulkChallanGroup",
+            entity_id=bulk_group.id,
+            old_values=json.dumps({"status": old_status}),
+            new_values=json.dumps({
+                "status": "pending_approval",
+                "reason": reason,
+                "actor_user_id": admin_user_id,
+                "member_id": bulk_group.member_id,
+            }),
+        ))
+        db.commit()
+        db.refresh(bulk_group)
+
+        NotificationService.notify_bulk_status_change(db, bulk_group, "reverted", reason)
+
+        return {
+            "bulk_group_id": bulk_group.bulk_group_id,
+            "status": bulk_group.status,
+            "challan_ids": challan_ids,
+            "reason": reason,
+        }
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=str(e)) from e

@@ -5,8 +5,10 @@ from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
 from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanReject, ChallanRevert, ChallanUpdate, ChallanHistoryImportSummary, ChallanSummaryResponse, ChallanListResponse, OutstandingReceivablesResponse, ChallanPayableMonthsResponse, ImportJobCreateResponse, ImportJobStatusResponse, CollectionStatsResponse, MultiChallanCreate
 from app.services import ChallanService, MemberService
+from app.services.notification_service import NotificationService
 from app.services.import_job_service import ImportJobService
 from app.utils import get_current_user, get_current_admin, get_current_superadmin, log_audit
+from app.utils.permissions import assert_not_self, assert_different_actor
 from typing import List, Optional
 
 router = APIRouter(prefix="/challans", tags=["Challans"])
@@ -378,7 +380,12 @@ def upload_proof(
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File too large (max 5MB)")
 
-    return ChallanService.upload_proof(db, challan_id, content, file.filename)
+    result = ChallanService.upload_proof(db, challan_id, content, file.filename)
+    if not _is_admin(current_user):
+        NotificationService.notify_admins_proof_uploaded(
+            db, challan.member, [result.month] if result.month else []
+        )
+    return result
 
 
 # ------------------------------------------------------------------
@@ -528,6 +535,9 @@ def update_challan(
             )
 
     old_status = challan.status
+    changes = update_data.dict(exclude_unset=True)
+    if _is_admin(current_user) and {"amount", "month", "campaign_id"} & set(changes):
+        assert_not_self(db, current_user, challan.member_id, "edit")
     result = ChallanService.update_challan(db, challan_id, update_data)
     if _is_admin(current_user):
         log_audit(
@@ -537,7 +547,7 @@ def update_challan(
             entity_type="Challan",
             entity_id=challan_id,
             old_values={"status": old_status},
-            new_values=update_data.dict(exclude_unset=True),
+            new_values={"status": old_status, **changes},
             auto_commit=True,
         )
     return result
@@ -554,11 +564,12 @@ def approve_challan(
     db: Session = Depends(get_db),
 ):
     challan = ChallanService.get_challan(db, challan_id)
+    assert_not_self(db, current_user, challan.member_id, "approve")
 
     if challan.status != ChallanStatus.PENDING.value:
         raise HTTPException(status_code=400, detail="Challan already processed")
 
-    admin_id = approve_data.approved_by_admin_id or current_user.get("user_id")
+    admin_id = current_user.get("user_id")
     result = ChallanService.approve_challan(db, challan_id, admin_id)
     log_audit(
         db,
@@ -570,6 +581,7 @@ def approve_challan(
         new_values={"status": "approved", "member_id": challan.member_id, "amount": float(challan.amount)},
         auto_commit=True,
     )
+    NotificationService.notify_challan_status_change(db, challan, "approved")
     return result
 
 
@@ -584,12 +596,15 @@ def reject_challan(
     db: Session = Depends(get_db),
 ):
     challan = ChallanService.get_challan(db, challan_id)
+    assert_not_self(db, _current_user, challan.member_id, "reject")
 
     if challan.status not in (ChallanStatus.PENDING.value, ChallanStatus.APPROVED.value):
         raise HTTPException(status_code=400, detail="Only pending or approved challans can be rejected")
 
     old_status = challan.status
-    result = ChallanService.reject_challan(db, challan_id, reject_data)
+    if old_status == ChallanStatus.APPROVED.value:
+        assert_different_actor(_current_user.get("user_id"), challan.approved_by_admin_id, "Rejection")
+    result = ChallanService.reject_challan(db, challan_id, reject_data, actor_id=_current_user.get("user_id"))
     log_audit(
         db,
         user_id=_current_user.get("user_id"),
@@ -597,8 +612,11 @@ def reject_challan(
         entity_type="Challan",
         entity_id=challan_id,
         old_values={"status": old_status},
-        new_values={"status": "rejected", "reason": reject_data.rejection_reason},
+        new_values={"status": "rejected", "reason": reject_data.rejection_reason, "member_id": challan.member_id},
         auto_commit=True,
+    )
+    NotificationService.notify_challan_status_change(
+        db, challan, "rejected", reject_data.rejection_reason, _current_user.get("username")
     )
     return result
 
@@ -614,12 +632,17 @@ def revert_challan(
     db: Session = Depends(get_db),
 ):
     challan = ChallanService.get_challan(db, challan_id)
+    assert_not_self(db, current_user, challan.member_id, "revert")
 
     if challan.status not in (ChallanStatus.APPROVED.value, ChallanStatus.REJECTED.value):
         raise HTTPException(status_code=400, detail="Only approved or rejected challans can be reverted")
 
     old_status = challan.status
-    result = ChallanService.revert_challan(db, challan_id)
+    if old_status == ChallanStatus.APPROVED.value:
+        assert_different_actor(current_user.get("user_id"), challan.approved_by_admin_id, "Reversal")
+    result = ChallanService.revert_challan(
+        db, challan_id, reason=revert_data.reason, actor_id=current_user.get("user_id")
+    )
     log_audit(
         db,
         user_id=current_user.get("user_id"),
@@ -630,6 +653,7 @@ def revert_challan(
         new_values={"status": "pending", "reason": revert_data.reason},
         auto_commit=True,
     )
+    NotificationService.notify_challan_status_change(db, challan, "reverted", revert_data.reason)
     return result
 
 
@@ -649,7 +673,15 @@ def delete_challan(
         member = MemberService.get_member_for_user(db, current_user["user_id"])
         if member is None or challan.member_id != member.id:
             raise HTTPException(status_code=403, detail="Not authorized to delete this challan")
+    else:
+        assert_not_self(db, current_user, challan.member_id, "delete")
 
+    deleted_snapshot = {
+        "status": challan.status,
+        "member_id": challan.member_id,
+        "amount": float(challan.amount or 0),
+        "month": challan.month,
+    }
     result = ChallanService.delete_challan(db, challan_id)
 
     if _is_admin(current_user):
@@ -659,7 +691,7 @@ def delete_challan(
             action="challan_delete",
             entity_type="Challan",
             entity_id=challan_id,
-            old_values={"status": challan.status, "member_id": challan.member_id},
+            old_values=deleted_snapshot,
             new_values={"deleted": True},
             auto_commit=True,
         )

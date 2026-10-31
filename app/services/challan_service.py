@@ -12,7 +12,14 @@ from fastapi import HTTPException, status
 from datetime import datetime, date
 from app.schemas import ChallanHistoryImportSummary
 from typing import Optional
-
+from app.config import settings
+from app.utils.timezone import (
+    business_to_naive_utc,
+    current_month_business,
+    now_business,
+    to_business,
+    today_business,
+)
 
 class ChallanService:
     """Challan management service."""
@@ -90,7 +97,7 @@ class ChallanService:
         if not member:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member not found")
 
-        today = datetime.utcnow().date().replace(day=1)
+        today = today_business().replace(day=1)
 
         # --- Determine start month ---
         # Priority:
@@ -106,7 +113,7 @@ class ChallanService:
             except ValueError:
                 start_month = today
         elif member.join_date:
-            jd = member.join_date.date().replace(day=1)
+            jd = to_business(member.join_date).date().replace(day=1)
             # Trust join_date only when it pre-dates today
             start_month = jd if jd < today else today
         else:
@@ -149,6 +156,7 @@ class ChallanService:
         return {
             "member_id": member_id,
             "current_month": current_month,
+            "business_timezone": settings.BUSINESS_TIMEZONE,
             "pending_months": pending_months,
             "current_month_payable": current_month_payable,
             "upcoming_months": upcoming_months,
@@ -597,7 +605,7 @@ class ChallanService:
         return challan
     
     @staticmethod
-    def reject_challan(db: Session, challan_id: int, reject_data: ChallanReject):
+    def reject_challan(db: Session, challan_id: int, reject_data: ChallanReject, actor_id: int | None = None):
         """Reject challan."""
         
         challan = db.query(Challan).filter(Challan.id == challan_id).first()
@@ -613,6 +621,11 @@ class ChallanService:
                 detail="Only pending or approved challans can be rejected",
             )
         
+        if challan.status == ChallanStatus.APPROVED:
+            challan.reversed_at = datetime.utcnow()
+            challan.reversed_by_admin_id = actor_id
+            challan.reversal_reason = reject_data.rejection_reason
+
         challan.status = ChallanStatus.REJECTED
         challan.rejection_reason = reject_data.rejection_reason
         challan.approved_by_admin_id = None
@@ -631,7 +644,7 @@ class ChallanService:
         return challan
 
     @staticmethod
-    def revert_challan(db: Session, challan_id: int):
+    def revert_challan(db: Session, challan_id: int, reason: str | None = None, actor_id: int | None = None):
         """Revert an approved or rejected challan back to pending."""
 
         challan = db.query(Challan).filter(Challan.id == challan_id).first()
@@ -646,6 +659,11 @@ class ChallanService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Only approved or rejected challans can be reverted",
             )
+
+        if challan.status == ChallanStatus.APPROVED:
+            challan.reversed_at = datetime.utcnow()
+            challan.reversed_by_admin_id = actor_id
+            challan.reversal_reason = reason
 
         challan.status = ChallanStatus.PENDING
         challan.approved_by_admin_id = None
@@ -975,7 +993,7 @@ class ChallanService:
         monthly_query = base_query.filter(Challan.status == ChallanStatus.APPROVED)
         # Default to the current calendar month when no month is specified so that
         # monthly_collection always reflects monthly (not campaign) payments.
-        target_month = month or datetime.utcnow().strftime("%Y-%m")
+        target_month = month or current_month_business()
         monthly_query = monthly_query.filter(
             Challan.type == ChallanType.MONTHLY,
             Challan.month == target_month,
@@ -1023,7 +1041,7 @@ class ChallanService:
             due_members_query = due_members_query.filter(Member.id == member_id)
 
         inferred_items = []
-        today = datetime.utcnow().date().replace(day=1)
+        today = today_business().replace(day=1)
         for member in due_members_query.all():
             payable = ChallanService.get_payable_months(db, member.id)
             for month in payable["all_months"]:
@@ -1079,12 +1097,15 @@ class ChallanService:
         """Aggregate approved-challan amounts by time period."""
         from datetime import timedelta
 
-        now = datetime.utcnow()
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        # Monday-based week
-        week_start = (today_start - timedelta(days=today_start.weekday()))
-        month_start = today_start.replace(day=1)
-        year_start = today_start.replace(month=1, day=1)
+        # Period boundaries are business-time midnights, converted to naive UTC
+        # to compare against the UTC-stored timestamps.
+        now = now_business()
+        today_start_local = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start_local = today_start_local - timedelta(days=today_start_local.weekday())
+        today_start = business_to_naive_utc(today_start_local)
+        week_start = business_to_naive_utc(week_start_local)
+        month_start = business_to_naive_utc(today_start_local.replace(day=1))
+        year_start = business_to_naive_utc(today_start_local.replace(month=1, day=1))
 
         base = db.query(Challan).filter(Challan.status == ChallanStatus.APPROVED)
         base = base.filter(ChallanService._monthly_visibility_filter())

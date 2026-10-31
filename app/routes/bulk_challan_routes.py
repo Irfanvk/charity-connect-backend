@@ -22,6 +22,7 @@ from app.models.models import (
 )
 from app.utils.auth import get_current_user
 from app.services.challan_service import ChallanService
+from app.services.notification_service import NotificationService
 
 
 router = APIRouter(prefix="/challans", tags=["bulk-challans"])
@@ -226,6 +227,9 @@ def bulk_create_challans(
         db.commit()
         db.refresh(bulk_group)
         created_at = cast(datetime, bulk_group.created_at)
+
+        if current_role == UserRole.MEMBER.value:
+            NotificationService.notify_admins_proof_uploaded(db, member, list(request.months))
         
         return BulkChallanResponse(
             bulk_group_id=bulk_group_id,

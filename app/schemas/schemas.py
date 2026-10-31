@@ -525,9 +525,25 @@ class ChallanApprove(BaseModel):
 class ChallanReject(BaseModel):
     rejection_reason: str
 
+    @field_validator("rejection_reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        cleaned = (value or "").strip()
+        if len(cleaned) < 10:
+            raise ValueError("Rejection reason must be at least 10 characters")
+        return cleaned
+
 
 class ChallanRevert(BaseModel):
-    reason: Optional[str] = None
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        cleaned = (value or "").strip()
+        if len(cleaned) < 10:
+            raise ValueError("Reason must be at least 10 characters")
+        return cleaned
 
 
 class ChallanResponse(BaseModel):
@@ -546,6 +562,13 @@ class ChallanResponse(BaseModel):
     created_at: datetime
     proof_uploaded_at: Optional[datetime]
     approved_at: Optional[datetime]
+    approved_by_admin_id: Optional[int] = None
+    approved_by_name: Optional[str] = None
+    member_user_id: Optional[int] = None
+    reversed_at: Optional[datetime] = None
+    reversed_by_admin_id: Optional[int] = None
+    reversed_by_name: Optional[str] = None
+    reversal_reason: Optional[str] = None
     updated_at: datetime
     is_inferred_due: bool = False
 
@@ -606,6 +629,7 @@ class OutstandingReceivablesResponse(BaseModel):
 class ChallanPayableMonthsResponse(BaseModel):
     member_id: int
     current_month: str
+    business_timezone: str = "Asia/Kolkata"
     pending_months: List[str]
     current_month_payable: bool
     upcoming_months: List[str]
@@ -813,6 +837,8 @@ class BulkChallanListItem(BaseModel):
     member_id: int
     member_name: Optional[str] = None
     member_email: Optional[str] = None
+    member_user_id: Optional[int] = None
+    approved_by_admin_id: Optional[int] = None
     months: list[str]
     months_count: int
     total_amount: float
@@ -927,6 +953,15 @@ class FundUtilizationResponse(BaseModel):
     date: datetime
     registered_by_admin_id: int
     registered_by_name: Optional[str] = None
+    status: str = "pending"
+    approved_by_admin_id: Optional[int] = None
+    approved_by_name: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    reversed_at: Optional[datetime] = None
+    reversed_by_admin_id: Optional[int] = None
+    reversed_by_name: Optional[str] = None
+    reversal_reason: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -934,11 +969,25 @@ class FundUtilizationResponse(BaseModel):
         from_attributes = True
 
 
+class FundUtilizationReasonAction(BaseModel):
+    reason: str
+
+    @field_validator("reason")
+    @classmethod
+    def validate_reason(cls, value: str) -> str:
+        cleaned = (value or "").strip()
+        if len(cleaned) < 10:
+            raise ValueError("Reason must be at least 10 characters")
+        return cleaned
+
+
 class FundUtilizationSummary(BaseModel):
     total_collected: float
     total_utilized: float
     available_balance: float
     utilization_count: int
+    pending_utilized_total: float = 0.0
+    pending_count: int = 0
 
 
 # ── Password Reset Schemas ────────────────────────────────────────────────────

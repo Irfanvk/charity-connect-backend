@@ -1,12 +1,18 @@
 from sqlalchemy.orm import Session
 from kombu.exceptions import OperationalError
+import json
+import logging
 from app.models import Notification, User
+from app.models.models import UserRole
 from app.schemas import NotificationCreate, NotificationAdminUpdate
 from app.services.realtime_notification_service import notification_realtime_hub
 from app.services.web_push_service import WebPushService
 from app.workers.runtime import can_enqueue_celery_tasks
 from fastapi import HTTPException, status
 from datetime import datetime, timedelta
+
+
+logger = logging.getLogger(__name__)
 
 
 class NotificationService:
@@ -98,6 +104,212 @@ class NotificationService:
         except (ImportError, OperationalError, OSError, RuntimeError):
             # Keep API behavior resilient even if worker is unavailable.
             return {"queued": False, "worker": "fallback"}
+
+    # ------------------------------------------------------------------
+    # Challan status notifications
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _format_inr(amount) -> str:
+        """Format with Indian digit grouping, e.g. 1500000 -> 15,00,000."""
+        value = float(amount or 0)
+        whole, _, frac = f"{abs(value):.2f}".partition(".")
+        if len(whole) > 3:
+            head, tail = whole[:-3], whole[-3:]
+            groups = []
+            while len(head) > 2:
+                groups.insert(0, head[-2:])
+                head = head[:-2]
+            if head:
+                groups.insert(0, head)
+            whole = ",".join(groups + [tail])
+        text = whole if frac == "00" else f"{whole}.{frac}"
+        return f"₹{'-' if value < 0 else ''}{text}"
+
+    @staticmethod
+    def _format_month(month: str | None) -> str:
+        """'2026-10' -> 'Oct 2026'; unknown formats are returned unchanged."""
+        try:
+            return datetime.strptime(month, "%Y-%m").strftime("%b %Y")
+        except (TypeError, ValueError):
+            return month or "the selected month"
+
+    @staticmethod
+    def _format_month_range(months: list[str]) -> str:
+        valid = sorted(m for m in months if m)
+        if not valid:
+            return "the selected months"
+        first, last = valid[0], valid[-1]
+        if first == last:
+            return NotificationService._format_month(first)
+        try:
+            start = datetime.strptime(first, "%Y-%m")
+            end = datetime.strptime(last, "%Y-%m")
+        except ValueError:
+            return f"{first}–{last}"
+        if start.year == end.year:
+            return f"{start.strftime('%b')}–{end.strftime('%b %Y')}"
+        return f"{start.strftime('%b %Y')}–{end.strftime('%b %Y')}"
+
+    @staticmethod
+    def _send_status_notification(db: Session, user_id: int, title: str, message: str, ntype: str) -> None:
+        """Persist then dispatch. Never raises: failures are logged only."""
+        try:
+            notification = Notification(user_id=user_id, title=title, message=message, type=ntype)
+            db.add(notification)
+            db.commit()
+            db.refresh(notification)
+        except Exception:
+            logger.exception("Failed to create challan notification for user %s", user_id)
+            try:
+                db.rollback()
+            except Exception:
+                pass
+            return
+        try:
+            NotificationService.dispatch_notification(db, notification)
+        except Exception:
+            logger.exception("Failed to dispatch challan notification %s", notification.id)
+
+    @staticmethod
+    def _status_content(event: str, subject: str, reason: str | None) -> tuple[str, str, str]:
+        reason_text = (reason or "").strip() or "No reason provided"
+        if event == "approved":
+            return "Payment approved", f"Your {subject} has been approved.", "success"
+        if event == "rejected":
+            return (
+                "Payment rejected",
+                f"Your {subject} was rejected. Reason: {reason_text}. "
+                "Please re-upload your payment proof from the Challans page.",
+                "warning",
+            )
+        if event == "reverted":
+            return (
+                "Payment status changed",
+                f"Your {subject} is back under review. Reason: {reason_text}.",
+                "warning",
+            )
+        raise ValueError(f"Unknown challan event: {event}")
+
+    @staticmethod
+    def notify_challan_status_change(db: Session, challan, event: str, reason: str | None = None, actor_name: str | None = None) -> None:
+        """Notify the member that their challan was approved/rejected/reverted. Never raises."""
+        try:
+            member = challan.member
+            user_id = getattr(member, "user_id", None)
+            if not user_id:
+                return
+
+            amount = NotificationService._format_inr(challan.amount)
+            type_value = getattr(challan.type, "value", challan.type)
+            if type_value == "campaign" and challan.campaign is not None:
+                subject = f"donation of {amount} to {challan.campaign.title}"
+            else:
+                subject = f"monthly payment for {NotificationService._format_month(challan.month)} ({amount})"
+
+            title, message, ntype = NotificationService._status_content(event, subject, reason)
+            if actor_name and event != "approved":
+                message += f" (by {actor_name})"
+        except Exception:
+            logger.exception("Failed to build challan notification")
+            return
+        NotificationService._send_status_notification(db, user_id, title, message, ntype)
+
+    @staticmethod
+    def notify_bulk_status_change(db: Session, bulk_group, event: str, reason: str | None = None) -> None:
+        """Send ONE notification for a whole bulk group. Never raises."""
+        try:
+            user_id = getattr(bulk_group.member, "user_id", None)
+            if not user_id:
+                return
+            months = json.loads(bulk_group.months_list) if bulk_group.months_list else []
+            count = len(months)
+            subject = (
+                f"payment for {count} month{'s' if count != 1 else ''} "
+                f"({NotificationService._format_month_range(months)}, "
+                f"{NotificationService._format_inr(bulk_group.total_amount)})"
+            )
+            title, message, ntype = NotificationService._status_content(event, subject, reason)
+        except Exception:
+            logger.exception("Failed to build bulk challan notification")
+            return
+        NotificationService._send_status_notification(db, user_id, title, message, ntype)
+
+    @staticmethod
+    def notify_admins_proof_uploaded(db: Session, member, months: list[str]) -> None:
+        """One in-app notification per admin/superadmin per upload action. Never raises."""
+        try:
+            name = getattr(member, "full_name", None) or "a member"
+            label = NotificationService._format_month_range(months)
+            message = f"New payment proof from {name} for {label}"
+            admin_ids = [
+                row[0]
+                for row in db.query(User.id)
+                .filter(User.role.in_([UserRole.ADMIN, UserRole.SUPERADMIN]))
+                .all()
+            ]
+        except Exception:
+            logger.exception("Failed to build admin proof notification")
+            return
+        for admin_id in admin_ids:
+            NotificationService._send_status_notification(
+                db, admin_id, "New payment proof", message, "payment"
+            )
+
+    @staticmethod
+    def notify_fund_utilization_created(db: Session, utilization) -> None:
+        """Ask every OTHER admin/superadmin to review a new utilization. Never raises."""
+        try:
+            message = (
+                f"Fund utilization of {NotificationService._format_inr(utilization.amount)} "
+                f"for {utilization.title} needs your approval"
+            )
+            admin_ids = [
+                row[0]
+                for row in db.query(User.id)
+                .filter(
+                    User.role.in_([UserRole.ADMIN, UserRole.SUPERADMIN]),
+                    User.id != utilization.registered_by_admin_id,
+                )
+                .all()
+            ]
+        except Exception:
+            logger.exception("Failed to build fund utilization notification")
+            return
+        for admin_id in admin_ids:
+            NotificationService._send_status_notification(
+                db, admin_id, "Fund utilization needs approval", message, "info"
+            )
+
+    @staticmethod
+    def notify_fund_utilization_status_change(db: Session, utilization, event: str, reason: str | None = None) -> None:
+        """Tell the creator their utilization was approved/rejected/reverted. Never raises."""
+        try:
+            user_id = utilization.registered_by_admin_id
+            subject = (
+                f"fund utilization of {NotificationService._format_inr(utilization.amount)} "
+                f"for {utilization.title}"
+            )
+            reason_text = (reason or "").strip() or "No reason provided"
+            if event == "approved":
+                title, message, ntype = "Fund utilization approved", f"Your {subject} has been approved.", "success"
+            elif event == "rejected":
+                title, message, ntype = (
+                    "Fund utilization rejected",
+                    f"Your {subject} was rejected. Reason: {reason_text}",
+                    "warning",
+                )
+            elif event == "reverted":
+                title, message, ntype = (
+                    "Fund utilization reverted",
+                    f"Your {subject} was moved back to pending. Reason: {reason_text}",
+                    "warning",
+                )
+            else:
+                raise ValueError(f"Unknown fund utilization event: {event}")
+        except Exception:
+            logger.exception("Failed to build fund utilization status notification")
+            return
+        NotificationService._send_status_notification(db, user_id, title, message, ntype)
 
     @staticmethod
     def create_notification(db: Session, notification_data: NotificationCreate, _admin_id: int = None):

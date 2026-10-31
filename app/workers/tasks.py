@@ -7,6 +7,7 @@ from app.services.web_push_service import WebPushService
 from app.services.whatsapp_service import send_whatsapp_message
 from app.utils.invite_share import build_invite_share_message
 from app.utils.message_format import with_islamic_greeting
+from app.utils.timezone import now_business
 from app.workers.celery_app import celery
 
 
@@ -89,7 +90,7 @@ def send_welcome_notification(user_id: int):
 @celery.task(name="app.workers.tasks.send_monthly_membership_reminders", ignore_result=True)
 def send_monthly_membership_reminders():
     db = SessionLocal()
-    now = datetime.utcnow()
+    now = now_business()
     month_label = now.strftime("%B %Y")
 
     sent = 0

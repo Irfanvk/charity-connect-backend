@@ -111,6 +111,9 @@ CREATE TABLE IF NOT EXISTS challans (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     proof_uploaded_at TIMESTAMP,
     approved_at TIMESTAMP,
+    reversed_at TIMESTAMP,
+    reversed_by_admin_id INTEGER REFERENCES users(id),
+    reversal_reason TEXT,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (member_id) REFERENCES members(id),
     FOREIGN KEY (campaign_id) REFERENCES campaigns(id),
@@ -135,11 +138,35 @@ CREATE TABLE IF NOT EXISTS challan_bulk_groups (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     approved_at TIMESTAMP,
     rejected_at TIMESTAMP,
+    reversed_at TIMESTAMP,
+    reversed_by_admin_id INTEGER REFERENCES users(id),
+    reversal_reason TEXT,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     notes TEXT,
     FOREIGN KEY (member_id) REFERENCES members(id),
     FOREIGN KEY (created_by_user_id) REFERENCES users(id),
     FOREIGN KEY (approved_by_admin_id) REFERENCES users(id)
+);
+
+-- Create fund_utilizations table (two-person approval rule)
+CREATE TABLE IF NOT EXISTS fund_utilizations (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(255) NOT NULL,
+    description TEXT,
+    amount DOUBLE PRECISION NOT NULL,
+    category VARCHAR(100),
+    recipient VARCHAR(255),
+    date TIMESTAMP NOT NULL,
+    registered_by_admin_id INTEGER NOT NULL REFERENCES users(id),
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    approved_by_admin_id INTEGER REFERENCES users(id),
+    approved_at TIMESTAMP,
+    rejection_reason TEXT,
+    reversed_at TIMESTAMP,
+    reversed_by_admin_id INTEGER REFERENCES users(id),
+    reversal_reason TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 -- Add foreign key to challans for bulk_group_id

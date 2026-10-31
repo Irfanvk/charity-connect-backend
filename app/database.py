@@ -24,6 +24,45 @@ SessionLocal = sessionmaker(
 Base = declarative_base()
 
 
+def _add_missing_columns(connection, inspector, table: str, ddl: dict) -> set:
+    """Guarded ADD COLUMN; returns the names of columns that were added."""
+    if not inspector.has_table(table):
+        return set()
+    existing = {column["name"] for column in inspector.get_columns(table)}
+    added = set()
+    for name, column_ddl in ddl.items():
+        if name not in existing:
+            connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {column_ddl}"))
+            added.add(name)
+    return added
+
+
+def _ensure_separation_of_duties_columns(connection, inspector) -> None:
+    reversal_ddl = {
+        "reversed_at": "TIMESTAMP",
+        "reversed_by_admin_id": "INTEGER REFERENCES users(id)",
+        "reversal_reason": "TEXT",
+    }
+    _add_missing_columns(connection, inspector, "challans", reversal_ddl)
+    _add_missing_columns(connection, inspector, "challan_bulk_groups", reversal_ddl)
+
+    added = _add_missing_columns(
+        connection,
+        inspector,
+        "fund_utilizations",
+        {
+            "status": "VARCHAR(20) NOT NULL DEFAULT 'pending'",
+            "approved_by_admin_id": "INTEGER REFERENCES users(id)",
+            "approved_at": "TIMESTAMP",
+            "rejection_reason": "TEXT",
+            **reversal_ddl,
+        },
+    )
+    if "status" in added:
+        # Rows that existed before the two-person rule keep counting towards balances.
+        connection.execute(text("UPDATE fund_utilizations SET status = 'approved', approved_at = created_at"))
+
+
 def ensure_runtime_schema() -> None:
     """Apply additive schema updates for existing deployments."""
     with engine.begin() as connection:
@@ -52,6 +91,8 @@ def ensure_runtime_schema() -> None:
             if "type" not in notification_columns:
                 connection.execute(text("ALTER TABLE notifications ADD COLUMN type VARCHAR(20) DEFAULT 'info'"))
                 connection.execute(text("UPDATE notifications SET type = 'info' WHERE type IS NULL"))
+
+        _ensure_separation_of_duties_columns(connection, inspector)
 
         if not inspector.has_table("campaigns"):
             return

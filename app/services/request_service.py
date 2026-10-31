@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.models import AuditLog, Member, MemberRequest, RequestStatus, RequestType, User, Notification
 from app.services.notification_service import NotificationService
 from app.utils.file_handler import delete_file
+from app.utils.permissions import assert_not_own_user
 
 
 class RequestService:
@@ -299,6 +300,7 @@ class RequestService:
         if (item.status.value if hasattr(item.status, "value") else str(item.status)) != RequestStatus.PENDING.value:
             raise HTTPException(status_code=400, detail="Only pending requests can be approved")
 
+        assert_not_own_user(current_admin, item.user_id, "approve")
         RequestService._apply_approval_changes(db, item)
 
         item.status = RequestStatus.APPROVED
@@ -350,6 +352,7 @@ class RequestService:
         if (item.status.value if hasattr(item.status, "value") else str(item.status)) != RequestStatus.PENDING.value:
             raise HTTPException(status_code=400, detail="Only pending requests can be rejected")
 
+        assert_not_own_user(current_admin, item.user_id, "reject")
         reason = (rejection_reason or "").strip()
         if not reason:
             raise HTTPException(status_code=422, detail="rejection_reason is required")

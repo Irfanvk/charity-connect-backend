@@ -12,6 +12,7 @@ from app.config import settings
 from app.models.models import PasswordResetRequest, User, Notification
 from app.services.notification_service import NotificationService
 from app.utils import hash_password
+from app.utils.permissions import assert_not_own_user
 
 logger = logging.getLogger(__name__)
 
@@ -149,14 +150,8 @@ def approve_request(
     if not user:
         raise ValueError("Associated user account not found")
 
-    target_role = str(user.role).lower()
-    normalized_approver_role = str(approver_role or "").lower()
-    if target_role == "admin" and normalized_approver_role != "superadmin":
-        raise ValueError("Superadmin approval is required for admin password reset requests")
-
     approved_user_id = cast(int, user.id)
-    if approved_user_id == admin_id:
-        raise ValueError("Admins cannot approve password reset requests for their own account")
+    assert_not_own_user({"user_id": admin_id}, approved_user_id, "approve")
 
     token = secrets.token_urlsafe(48)
     now = _utcnow()
@@ -189,6 +184,8 @@ def reject_request(
         raise ValueError(f"PasswordResetRequest {req_id} not found")
     if req.status != "pending":
         raise ValueError(f"Request is already {req.status}")
+
+    assert_not_own_user({"user_id": admin_id}, req.user_id, "reject")
 
     now = _utcnow()
     req.status = "rejected"
