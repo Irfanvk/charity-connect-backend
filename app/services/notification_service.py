@@ -235,18 +235,31 @@ class NotificationService:
         NotificationService._send_status_notification(db, user_id, title, message, ntype)
 
     @staticmethod
-    def notify_admins_proof_uploaded(db: Session, member, months: list[str]) -> None:
-        """One in-app notification per admin/superadmin per upload action. Never raises."""
+    def _active_admin_ids(db: Session, exclude_user_id: int | None = None) -> list[int]:
+        """Ids of active admins/superadmins, optionally excluding one user."""
+        query = db.query(User.id).filter(
+            User.role.in_([UserRole.ADMIN, UserRole.SUPERADMIN]),
+            User.is_active == True,
+        )
+        if exclude_user_id is not None:
+            query = query.filter(User.id != exclude_user_id)
+        return [row[0] for row in query.all()]
+
+    @staticmethod
+    def notify_admins_proof_uploaded(
+        db: Session, member, months: list[str], uploader_user_id: int | None = None
+    ) -> None:
+        """One in-app notification per active admin/superadmin (except the uploader) per upload. Never raises."""
         try:
             name = getattr(member, "full_name", None) or "a member"
             label = NotificationService._format_month_range(months)
             message = f"New payment proof from {name} for {label}"
-            admin_ids = [
-                row[0]
-                for row in db.query(User.id)
-                .filter(User.role.in_([UserRole.ADMIN, UserRole.SUPERADMIN]))
-                .all()
-            ]
+            owner_id = getattr(member, "user_id", None)
+            if owner_id is not None:
+                owner_role = db.query(User.role).filter(User.id == owner_id).scalar()
+                if owner_role in (UserRole.ADMIN, UserRole.SUPERADMIN):
+                    message += " (admin's own payment — please review)"
+            admin_ids = NotificationService._active_admin_ids(db, exclude_user_id=uploader_user_id)
         except Exception:
             logger.exception("Failed to build admin proof notification")
             return
@@ -257,21 +270,15 @@ class NotificationService:
 
     @staticmethod
     def notify_fund_utilization_created(db: Session, utilization) -> None:
-        """Ask every OTHER admin/superadmin to review a new utilization. Never raises."""
+        """Ask every OTHER active admin/superadmin to review a new utilization. Never raises."""
         try:
             message = (
                 f"Fund utilization of {NotificationService._format_inr(utilization.amount)} "
                 f"for {utilization.title} needs your approval"
             )
-            admin_ids = [
-                row[0]
-                for row in db.query(User.id)
-                .filter(
-                    User.role.in_([UserRole.ADMIN, UserRole.SUPERADMIN]),
-                    User.id != utilization.registered_by_admin_id,
-                )
-                .all()
-            ]
+            admin_ids = NotificationService._active_admin_ids(
+                db, exclude_user_id=utilization.registered_by_admin_id
+            )
         except Exception:
             logger.exception("Failed to build fund utilization notification")
             return

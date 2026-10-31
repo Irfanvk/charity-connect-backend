@@ -94,7 +94,7 @@ sudo apt install redis-server && sudo systemctl start redis
 REDIS_URL=redis://localhost:6379/0
 CELERY_BROKER_URL=redis://localhost:6379/0
 CELERY_RESULT_BACKEND=redis://localhost:6379/0
-CELERY_TIMEZONE=UTC
+BUSINESS_TIMEZONE=Asia/Kolkata
 ENABLE_FASTAPI_LIMITER=false
 ```
 

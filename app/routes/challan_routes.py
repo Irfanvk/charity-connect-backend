@@ -381,10 +381,12 @@ def upload_proof(
         raise HTTPException(status_code=400, detail="File too large (max 5MB)")
 
     result = ChallanService.upload_proof(db, challan_id, content, file.filename)
-    if not _is_admin(current_user):
-        NotificationService.notify_admins_proof_uploaded(
-            db, challan.member, [result.month] if result.month else []
-        )
+    NotificationService.notify_admins_proof_uploaded(
+        db,
+        challan.member,
+        [result.month] if result.month else [],
+        current_user["user_id"],
+    )
     return result
 
 

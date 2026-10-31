@@ -14,6 +14,7 @@ celery = Celery(
 )
 
 celery.conf.update(
+    # Beat schedules (crontab) are evaluated in IST; timestamps stay UTC (enable_utc).
     timezone=settings.BUSINESS_TIMEZONE,
     enable_utc=True,
     task_default_queue="default",

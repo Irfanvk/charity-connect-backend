@@ -7,16 +7,56 @@ from typing import Optional, cast
 
 from sqlalchemy.orm import Session
 from sqlalchemy import func
+from fastapi import HTTPException
 
 from app.config import settings
 from app.models.models import PasswordResetRequest, User, Notification
 from app.services.notification_service import NotificationService
 from app.utils import hash_password
+from app.utils.audit import log_audit
 from app.utils.permissions import assert_not_own_user
 
 logger = logging.getLogger(__name__)
 
-TOKEN_EXPIRY_HOURS = 24
+TOKEN_EXPIRY_MINUTES = 30
+PRIVILEGED_ROLES = {"admin", "superadmin"}
+ADMIN_RESET_DENIED = "Password resets for admin accounts must be handled by the superadmin"
+SUPERADMIN_RESET_DENIED = "Superadmin password resets must be done from the server with seed_admin.py"
+
+
+def _role_value(user: Optional[User]) -> str:
+    role = getattr(user, "role", None)
+    return str(getattr(role, "value", role) or "").lower()
+
+
+def _authorize_resolution(db: Session, actor_id: int, target: Optional[User], action_label: str) -> None:
+    """Enforce who may approve/reject a reset for ``target``.
+
+    Admin and superadmin accounts can only be handled by a superadmin, and
+    never by the account owner. The actor's role is read from the database,
+    not from the caller.
+    """
+    if target is None:
+        return
+    target_role = _role_value(target)
+    if target_role not in PRIVILEGED_ROLES:
+        assert_not_own_user({"user_id": actor_id}, cast(int, target.id), action_label)
+        return
+
+    if target_role == "superadmin":
+        other_superadmin = (
+            db.query(User)
+            .filter(User.role == "superadmin", User.is_active == True, User.id != target.id)
+            .first()
+        )
+        if other_superadmin is None:
+            raise HTTPException(status_code=403, detail=SUPERADMIN_RESET_DENIED)
+
+    assert_not_own_user({"user_id": actor_id}, cast(int, target.id), action_label)
+
+    actor = db.query(User).filter(User.id == actor_id).first()
+    if _role_value(actor) != "superadmin":
+        raise HTTPException(status_code=403, detail=ADMIN_RESET_DENIED)
 
 
 def _utcnow() -> datetime:
@@ -151,23 +191,36 @@ def approve_request(
         raise ValueError("Associated user account not found")
 
     approved_user_id = cast(int, user.id)
-    assert_not_own_user({"user_id": admin_id}, approved_user_id, "approve")
+    _authorize_resolution(db, admin_id, user, "approve")
 
     token = secrets.token_urlsafe(48)
     now = _utcnow()
 
     req.status = "approved"
     req.reset_token = token
-    req.token_expires_at = now + timedelta(hours=TOKEN_EXPIRY_HOURS)
+    req.token_expires_at = now + timedelta(minutes=TOKEN_EXPIRY_MINUTES)
     req.admin_id = admin_id
     req.admin_notes = admin_notes
     req.resolved_at = now
 
+    log_audit(
+        db,
+        user_id=admin_id,
+        action="password_reset_approve",
+        entity_type="PasswordResetRequest",
+        entity_id=req.id,
+        old_values={"status": "pending"},
+        new_values={
+            "status": "approved",
+            "target_user_id": approved_user_id,
+            "target_role": _role_value(user),
+        },
+    )
     db.commit()
     db.refresh(req)
 
-    # WhatsApp link is built in the route layer (_build_reset_chat_url)
-    # and returned to the admin frontend for manual sending.
+    # The reset link is built in the route layer and returned only in the
+    # approve response; list endpoints never expose the token.
     return req
 
 
@@ -185,7 +238,8 @@ def reject_request(
     if req.status != "pending":
         raise ValueError(f"Request is already {req.status}")
 
-    assert_not_own_user({"user_id": admin_id}, req.user_id, "reject")
+    target = db.query(User).filter(User.id == req.user_id).first() if req.user_id else None
+    _authorize_resolution(db, admin_id, target, "reject")
 
     now = _utcnow()
     req.status = "rejected"
@@ -194,13 +248,29 @@ def reject_request(
     req.admin_notes = admin_notes
     req.resolved_at = now
 
+    log_audit(
+        db,
+        user_id=admin_id,
+        action="password_reset_reject",
+        entity_type="PasswordResetRequest",
+        entity_id=req.id,
+        old_values={"status": "pending"},
+        new_values={
+            "status": "rejected",
+            "reason": rejection_reason,
+            "target_user_id": req.user_id,
+            "target_role": _role_value(target),
+        },
+    )
     db.commit()
     db.refresh(req)
     return req
 
 
 def verify_token(db: Session, token: str) -> Optional[PasswordResetRequest]:
-    """Return the request if the token is valid and unexpired, else None."""
+    """Return the request if the token is valid, unused and unexpired, else None."""
+    if not token:
+        return None
     req = (
         db.query(PasswordResetRequest)
         .filter(
@@ -211,13 +281,13 @@ def verify_token(db: Session, token: str) -> Optional[PasswordResetRequest]:
     )
     if not req:
         return None
-    if req.token_expires_at and req.token_expires_at < _utcnow():
+    if not req.token_expires_at or req.token_expires_at < _utcnow():
         return None
     return req
 
 
 def complete_reset(db: Session, token: str, new_password: str) -> User:
-    """Set the new password and mark the request as used."""
+    """Set the new password and mark the request as used (single use)."""
     req = verify_token(db, token)
     if not req:
         raise ValueError("Token is invalid or has expired")
@@ -229,8 +299,22 @@ def complete_reset(db: Session, token: str, new_password: str) -> User:
     user.password_hash = hash_password(new_password)
 
     req.status = "used"
+    req.reset_token = None
     req.resolved_at = _utcnow()
 
+    log_audit(
+        db,
+        user_id=cast(int, user.id),
+        action="password_reset_complete",
+        entity_type="PasswordResetRequest",
+        entity_id=req.id,
+        old_values={"status": "approved"},
+        new_values={
+            "status": "used",
+            "target_user_id": cast(int, user.id),
+            "target_role": _role_value(user),
+        },
+    )
     db.commit()
     db.refresh(user)
     return user

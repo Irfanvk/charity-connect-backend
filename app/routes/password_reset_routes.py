@@ -23,14 +23,18 @@ from app.config import settings
 
 router = APIRouter(tags=["Password Reset"])
 
-TOKEN_EXPIRY_HOURS = 24
+TOKEN_EXPIRY_MINUTES = password_reset_service.TOKEN_EXPIRY_MINUTES
 
 
-def _build_reset_chat_url(user, reset_token=None) -> str:
-    """Build a wa.me link so the admin can manually send the reset link via WhatsApp."""
+def _build_reset_chat_url(user, reset_token=None) -> Optional[str]:
+    """Build a wa.me link so the admin can manually send the reset link via WhatsApp.
+
+    Only pass ``reset_token`` from the approve response; every other caller
+    must get the plain chat link (no token).
+    """
     phone = (getattr(user, "phone", None) or "") if user else ""
     if not phone:
-        return ""
+        return None
     if reset_token:
         base_url = _normalize_base_url()
         reset_link = f"{base_url}/ResetPassword?token={reset_token}"
@@ -38,7 +42,7 @@ def _build_reset_chat_url(user, reset_token=None) -> str:
             f"Your password reset request for PMB GCC PORTAL has been approved by the admin.\n\n"
             f"Click the link below to set your new password:\n"
             f"{reset_link}\n\n"
-            f"This link expires in {TOKEN_EXPIRY_HOURS} hours. "
+            f"This link expires in {TOKEN_EXPIRY_MINUTES} minutes and can be used only once. "
             f"Do not share this link with anyone."
         )
         return generate_whatsapp_chat_url(phone, message)
@@ -145,7 +149,7 @@ def list_requests(
                 user_username=user.username if user else None,
                 user_phone=user.phone if user else None,
                 user_email=user.email if user else None,
-                whatsapp_chat_url=_build_reset_chat_url(user, req.reset_token if req.status == "approved" else None),
+                whatsapp_chat_url=_build_reset_chat_url(user),
             )
         )
     return result

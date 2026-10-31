@@ -228,8 +228,9 @@ def bulk_create_challans(
         db.refresh(bulk_group)
         created_at = cast(datetime, bulk_group.created_at)
 
-        if current_role == UserRole.MEMBER.value:
-            NotificationService.notify_admins_proof_uploaded(db, member, list(request.months))
+        NotificationService.notify_admins_proof_uploaded(
+            db, member, list(request.months), current_user_id
+        )
         
         return BulkChallanResponse(
             bulk_group_id=bulk_group_id,

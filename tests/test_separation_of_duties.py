@@ -378,8 +378,14 @@ def test_admin_cannot_resolve_own_password_reset(db, world):
     db.refresh(req)
     assert req.status == "pending"
 
-    # another admin (no superadmin involved) can approve an admin's reset
-    password_reset_service.approve_request(db, req.id, admin2.id, approver_role="admin")
+    # another admin can NOT approve an admin's reset; only a superadmin can
+    with pytest.raises(HTTPException) as exc:
+        password_reset_service.approve_request(db, req.id, admin2.id, approver_role="admin")
+    assert exc.value.status_code == 403
+    db.refresh(req)
+    assert req.status == "pending"
+
+    password_reset_service.approve_request(db, req.id, world["super"].id)
     db.refresh(req)
     assert req.status == "approved"
 
