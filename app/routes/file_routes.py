@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.services.settings_service import get_setting
 from app.utils.file_handler import validate_file, save_file, delete_file
-from app.utils.auth import get_current_user
+from app.utils.auth import get_current_user, get_current_superadmin
 
 router = APIRouter(prefix="/files", tags=["Files"])
 
@@ -74,6 +74,27 @@ async def upload_avatar(
         "file_url": _build_url(saved_path),
         "filename": saved_path.split("/")[-1],
     }
+
+
+@router.post("/upload/branding")
+async def upload_branding_image(
+    file: UploadFile = File(...),
+    _current_user: dict = Depends(get_current_superadmin),
+):
+    """Upload a logo / QR / hero image for platform settings (superadmin, image only, max 1 MB)."""
+    from pathlib import Path
+
+    content = await file.read()
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in {".jpg", ".jpeg", ".png"}:
+        raise HTTPException(status_code=400, detail="Branding images must be JPEG or PNG.")
+    try:
+        validate_file(content, file.filename, max_size_mb=1)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+
+    saved_path = save_file(content, "branding", file.filename)
+    return {"file_url": _build_url(saved_path), "filename": saved_path.split("/")[-1]}
 
 
 @router.delete("/delete")

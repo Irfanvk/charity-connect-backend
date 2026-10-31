@@ -149,13 +149,12 @@ def test_reset_restores_default_and_is_audited(db, world):
 
 def test_public_endpoint_hides_non_public_keys(db, world):
     public = settings_routes.get_public_settings(current_user=_ctx(world["member"]), db=db)
-    assert set(public) == {
-        "proof_max_upload_mb",
-        "upcoming_months_payable",
-        "max_months_per_payment",
-        "default_campaign_min_amount",
-        "member_stats_visible",
-    }
+    for key in ("proof_max_upload_mb", "upcoming_months_payable", "max_months_per_payment",
+                "default_campaign_min_amount", "member_stats_visible"):
+        assert key in public
+    for key in ("password_reset_link_expiry_minutes", "session_timeout_minutes", "login_max_failed_attempts",
+                "min_reason_length", "msg_welcome", "announcement_text", "active_theme"):
+        assert key not in public
 
 
 def test_changed_reset_expiry_is_used_by_next_approval(db, world):

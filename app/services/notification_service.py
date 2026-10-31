@@ -6,6 +6,7 @@ from app.models import Notification, User
 from app.models.models import UserRole
 from app.schemas import NotificationCreate, NotificationAdminUpdate
 from app.services.realtime_notification_service import notification_realtime_hub
+from app.services.settings_service import render_message
 from app.services.web_push_service import WebPushService
 from app.workers.runtime import can_enqueue_celery_tasks
 from fastapi import HTTPException, status
@@ -171,11 +172,16 @@ class NotificationService:
             logger.exception("Failed to dispatch challan notification %s", notification.id)
 
     @staticmethod
-    def _status_content(event: str, subject: str, reason: str | None) -> tuple[str, str, str]:
+    def _status_content(event: str, subject: str, reason: str | None, db: Session | None = None, context: dict | None = None) -> tuple[str, str, str]:
         reason_text = (reason or "").strip() or "No reason provided"
+        ctx = {**(context or {}), "payment": subject, "reason": reason_text}
         if event == "approved":
+            if db is not None:
+                return "Payment approved", render_message(db, "msg_payment_approved", ctx), "success"
             return "Payment approved", f"Your {subject} has been approved.", "success"
         if event == "rejected":
+            if db is not None:
+                return "Payment rejected", render_message(db, "msg_payment_rejected", ctx), "warning"
             return (
                 "Payment rejected",
                 f"Your {subject} was rejected. Reason: {reason_text}. "
@@ -206,7 +212,14 @@ class NotificationService:
             else:
                 subject = f"monthly payment for {NotificationService._format_month(challan.month)} ({amount})"
 
-            title, message, ntype = NotificationService._status_content(event, subject, reason)
+            title, message, ntype = NotificationService._status_content(
+                event, subject, reason, db,
+                {
+                    "member_name": getattr(member, "full_name", None) or getattr(getattr(member, "user", None), "full_name", None) or "",
+                    "month": NotificationService._format_month(challan.month),
+                    "amount": amount,
+                },
+            )
             if actor_name and event != "approved":
                 message += f" (by {actor_name})"
         except Exception:
@@ -228,7 +241,14 @@ class NotificationService:
                 f"({NotificationService._format_month_range(months)}, "
                 f"{NotificationService._format_inr(bulk_group.total_amount)})"
             )
-            title, message, ntype = NotificationService._status_content(event, subject, reason)
+            title, message, ntype = NotificationService._status_content(
+                event, subject, reason, db,
+                {
+                    "member_name": getattr(bulk_group.member, "full_name", None) or "",
+                    "month": NotificationService._format_month_range(months),
+                    "amount": NotificationService._format_inr(bulk_group.total_amount),
+                },
+            )
         except Exception:
             logger.exception("Failed to build bulk challan notification")
             return

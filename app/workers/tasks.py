@@ -3,7 +3,7 @@ from datetime import datetime
 from app.database import SessionLocal
 from app.models import Member, Notification, User
 from app.services.notification_service import NotificationService
-from app.services.settings_service import get_setting
+from app.services.settings_service import get_setting, org_name, render_message, welcome_content
 from app.services.web_push_service import WebPushService
 from app.services.whatsapp_service import send_whatsapp_message
 from app.utils.invite_share import build_invite_share_message
@@ -26,7 +26,11 @@ def send_invite_message(phone: str, invite_code: str, expiry_date: str | None = 
         except ValueError:
             parsed_expiry_date = None
 
-    message = build_invite_share_message(invite_code, parsed_expiry_date)
+    db = SessionLocal()
+    try:
+        message = build_invite_share_message(invite_code, parsed_expiry_date, db)
+    finally:
+        db.close()
 
     send_whatsapp_message(phone, message)
 
@@ -75,11 +79,12 @@ def send_welcome_notification(user_id: int):
         if not user:
             return {"status": "skipped", "reason": "user_not_found", "user_id": user_id}
 
+        title, message = welcome_content(db, user.full_name)
         NotificationService.create_user_notification(
             db=db,
             user_id=user.id,
-            title="Welcome to PMB GCC PORTAL",
-            message=WELCOME_MESSAGE,
+            title=title,
+            message=message,
             target_role=user.role,
         )
 
@@ -112,14 +117,13 @@ def send_monthly_membership_reminders():
             if member.monthly_amount is None or float(member.monthly_amount) <= 0:
                 continue
 
+            reminder_ctx = {
+                "member_name": member.full_name or (member.user.full_name if member.user else "") or "",
+                "month": month_label,
+                "amount": member.monthly_amount,
+            }
             NotificationService.create_user_notification(
-                db=db,
-                user_id=member.user_id,
-                title="Monthly Membership Reminder",
-                message=with_islamic_greeting(
-                    f"Your monthly membership contribution for {month_label} is due. "
-                    f"Amount: {member.monthly_amount}."
-                ),
+                message=with_islamic_greeting(render_message(db, "msg_monthly_reminder", reminder_ctx)),
                 target_role="member",
             )
             sent += 1
@@ -128,7 +132,7 @@ def send_monthly_membership_reminders():
                 send_whatsapp_message(
                     member.user.phone,
                     with_islamic_greeting(
-                        f"PMB GCC PORTAL reminder: your monthly membership amount "
+                        f"{org_name(db)} reminder: your monthly membership amount "
                         f"for {month_label} is {member.monthly_amount}."
                     ),
                 )

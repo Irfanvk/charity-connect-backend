@@ -20,13 +20,13 @@ from app.services.whatsapp_service import generate_whatsapp_chat_url
 from app.utils.message_format import with_islamic_greeting
 from app.utils.invite_share import _normalize_base_url
 from app.config import settings
-from app.services.settings_service import get_setting
+from app.services.settings_service import get_setting, org_name
 
 router = APIRouter(tags=["Password Reset"])
 DEFAULT_TOKEN_EXPIRY_MINUTES = 30
 
 
-def _build_reset_chat_url(user, reset_token=None, expiry_minutes=DEFAULT_TOKEN_EXPIRY_MINUTES) -> Optional[str]:
+def _build_reset_chat_url(user, reset_token=None, expiry_minutes=DEFAULT_TOKEN_EXPIRY_MINUTES, org="PMB GCC PORTAL") -> Optional[str]:
     """Build a wa.me link so the admin can manually send the reset link via WhatsApp.
 
     Only pass ``reset_token`` from the approve response; every other caller
@@ -39,7 +39,7 @@ def _build_reset_chat_url(user, reset_token=None, expiry_minutes=DEFAULT_TOKEN_E
         base_url = _normalize_base_url()
         reset_link = f"{base_url}/ResetPassword?token={reset_token}"
         message = with_islamic_greeting(
-            f"Your password reset request for PMB GCC PORTAL has been approved by the admin.\n\n"
+            f"Your password reset request for {org} has been approved by the admin.\n\n"
             f"Click the link below to set your new password:\n"
             f"{reset_link}\n\n"
             f"This link expires in {expiry_minutes} minutes and can be used only once. "
@@ -192,7 +192,7 @@ def approve_request(
         user_phone=user.phone if user else None,
         user_email=user.email if user else None,
         whatsapp_chat_url=_build_reset_chat_url(
-            user, req.reset_token, get_setting(db, "password_reset_link_expiry_minutes")
+            user, req.reset_token, get_setting(db, "password_reset_link_expiry_minutes"), org_name(db)
         ),
     )
 

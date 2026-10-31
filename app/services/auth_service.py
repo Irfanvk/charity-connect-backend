@@ -6,7 +6,7 @@ from app.utils import hash_password, verify_password, generate_member_code
 from app.utils.message_format import with_islamic_greeting
 from fastapi import HTTPException, status
 from datetime import datetime, timedelta
-from app.services.settings_service import get_setting
+from app.services.settings_service import get_setting, welcome_content
 
 WELCOME_MESSAGE = with_islamic_greeting(
     "Your account is ready. Complete your profile and begin your charity journey."
@@ -259,19 +259,20 @@ class AuthService:
 
         from app.services.notification_service import NotificationService
 
+        welcome_title, welcome_message = welcome_content(db, user.full_name)
         enqueue_result = NotificationService.enqueue_user_notification(
-            user_id=new_user.id,
-            title="Welcome to PMB GCC PORTAL",
-            message=WELCOME_MESSAGE,
-            target_role=new_user.role,
+            user_id=user.id,
+            title=welcome_title,
+            message=welcome_message,
+            target_role=user.role,
         )
         if not enqueue_result.get("queued"):
             NotificationService.create_user_notification(
                 db=db,
-                user_id=new_user.id,
-                title="Welcome to PMB GCC PORTAL",
-                message=WELCOME_MESSAGE,
-                target_role=new_user.role,
+                user_id=user.id,
+                title=welcome_title,
+                message=welcome_message,
+                target_role=user.role,
             )
         
         return new_user
@@ -420,16 +421,16 @@ class AuthService:
 
         enqueue_result = NotificationService.enqueue_user_notification(
             user_id=user.id,
-            title="Welcome to PMB GCC PORTAL",
-            message=WELCOME_MESSAGE,
+            title=welcome_title,
+            message=welcome_message,
             target_role=user.role,
         )
         if not enqueue_result.get("queued"):
             NotificationService.create_user_notification(
                 db=db,
                 user_id=user.id,
-                title="Welcome to PMB GCC PORTAL",
-                message=WELCOME_MESSAGE,
+                title=welcome_title,
+                message=welcome_message,
                 target_role=user.role,
             )
     

@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, object_session
 from sqlalchemy import asc, desc
 from kombu.exceptions import OperationalError
 from app.models import Invite, User
@@ -78,8 +78,9 @@ class InviteService:
 
         invite.registration_url = build_invite_registration_url(invite.invite_code)
         invite.expiry_label = build_invite_expiry_label(invite.expiry_date)
-        invite.share_message = build_invite_share_message(invite.invite_code, invite.expiry_date)
-        invite.whatsapp_share_url = build_invite_whatsapp_share_url(invite.invite_code, invite.expiry_date)
+        invite_db = object_session(invite)
+        invite.share_message = build_invite_share_message(invite.invite_code, invite.expiry_date, invite_db)
+        invite.whatsapp_share_url = build_invite_whatsapp_share_url(invite.invite_code, invite.expiry_date, invite_db)
         
         # Add status based on is_used
         invite.status = "used" if invite.is_used else "pending"
@@ -133,7 +134,7 @@ class InviteService:
         db.refresh(new_invite)
 
         if new_invite.phone and settings.WHATSAPP_ENABLED:
-            invite_message = build_invite_share_message(new_invite.invite_code, new_invite.expiry_date)
+            invite_message = build_invite_share_message(new_invite.invite_code, new_invite.expiry_date, db)
 
             try:
                 if can_enqueue_celery_tasks():

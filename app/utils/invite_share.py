@@ -5,6 +5,8 @@ from urllib.parse import quote
 from app.config import settings
 from app.utils.message_format import with_islamic_greeting
 
+DEFAULT_ORG_NAME = "PMB GCC PORTAL"
+
 
 def _normalize_base_url() -> str:
     base_url = str(settings.FRONTEND_BASE_URL or "").strip().rstrip("/")
@@ -54,11 +56,23 @@ def build_invite_expiry_label(expiry_date: datetime | None) -> str | None:
     return f"This invite expires in {days} {unit}."
 
 
-def build_invite_share_message(invite_code: str, expiry_date: datetime | None = None) -> str:
+def build_invite_share_message(invite_code: str, expiry_date: datetime | None = None, db=None) -> str:
     normalized_code = str(invite_code or "").strip()
     registration_url = build_invite_registration_url(normalized_code)
+    expiry_label = build_invite_expiry_label(expiry_date) or ""
+
+    if db is not None:
+        from app.services.settings_service import render_message
+
+        message = render_message(db, "msg_invite_share", {
+            "invite_code": normalized_code,
+            "registration_url": registration_url,
+            "expiry_note": expiry_label,
+        })
+        return with_islamic_greeting(message)
+
     parts = [
-        "You've been invited to join PMB GCC PORTAL!",
+        f"You've been invited to join {DEFAULT_ORG_NAME}!",
         "",
         "Use this invite code to register:",
         normalized_code,
@@ -67,13 +81,12 @@ def build_invite_share_message(invite_code: str, expiry_date: datetime | None = 
         registration_url,
     ]
 
-    expiry_label = build_invite_expiry_label(expiry_date)
     if expiry_label:
         parts.extend(["", expiry_label])
 
     return with_islamic_greeting("\n".join(parts))
 
 
-def build_invite_whatsapp_share_url(invite_code: str, expiry_date: datetime | None = None) -> str:
-    share_message = build_invite_share_message(invite_code, expiry_date)
+def build_invite_whatsapp_share_url(invite_code: str, expiry_date: datetime | None = None, db=None) -> str:
+    share_message = build_invite_share_message(invite_code, expiry_date, db)
     return f"https://wa.me/?text={quote(share_message)}"

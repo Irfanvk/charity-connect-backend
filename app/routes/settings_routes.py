@@ -15,3 +15,9 @@ def get_public_settings(
 ):
     """Settings the frontend needs (limits etc.); any authenticated user."""
     return settings_service.public_settings(db)
+
+
+@router.get("/branding")
+def get_branding(db: Session = Depends(get_db)):
+    """Pre-login branding (theme, organisation name/logo, landing and login text). No auth."""
+    return settings_service.branding_settings(db)
