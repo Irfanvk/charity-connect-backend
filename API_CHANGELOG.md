@@ -2,6 +2,14 @@
 
 ## 2026-10-31
 
+### Notifications UX
+- `Notification` rows and responses gain `category`, `link_url`, `entity_type`, `entity_id`, `is_urgent`.
+- `GET/PUT /notifications/preferences` (category toggles, IST quiet hours); `POST /notifications/test-push` (superadmin may target `user_id`, audited).
+- `GET /notifications/push/public-key` now returns `{enabled, public_key, key_id}`.
+- `GET /admin/notifications/delivery-overview` (superadmin: all users; admin: own devices).
+- Env: `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` (`WEB_PUSH_*` still accepted). Rotate keys with `scripts/generate_vapid_keys.py`.
+- Fixed: `GET /notifications/stream` was shadowed by `/{notification_id}`; SSE frames used literal `\n`.
+
 ### Added
 - **Admin-recorded payments (maker-checker)**
   - `POST /challans/admin-record` (admin/superadmin, multipart form): `member_id`, `type` (`monthly`|`campaign`), `months` (repeated or comma-separated `YYYY-MM`) or `campaign_id`, `amount_per_month`/`amount`, `payment_method` (`cash`|`bank_transfer`|`upi`|`cheque`|`other`), `transaction_ref`, `received_on` (IST date, not in the future), `collected_by_user_id`, `entry_notes`, optional `proof_file` or `proof_file_id`. Returns the created PENDING challans (one per month). Errors: `400` validation, `403` own record, `409` duplicate `transaction_ref`, `422` unavailable months.
