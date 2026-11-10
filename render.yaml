@@ -53,22 +53,16 @@ services:
         value: "https://your-app.netlify.app"     # ← SET IN DASHBOARD (used in email links)
 
       # ── Web Push (VAPID) ──────────────────────────────────────────────────────
-      # Generate VAPID keys:
-      #   pip install py-vapid
-      #   python -m py_vapid --gen
-      # Copy the output to the fields below.
-      #
-      # WEB_PUSH_PRIVATE_KEY: paste the entire PEM content as a single base64 string:
-      #   python -c "import base64, pathlib; print(base64.b64encode(pathlib.Path('private_key.pem').read_bytes()).decode())"
-      - key: WEB_PUSH_PUBLIC_KEY
-        sync: false            # ← SET IN DASHBOARD — the URL-safe base64 public key
+      # Generate VAPID keys with: python scripts/generate_vapid_keys.py
+      # Set the SAME three values on web, worker and beat services.
+      - key: VAPID_PUBLIC_KEY
+        sync: false            # ← SET IN DASHBOARD — URL-safe base64 public key
 
-      - key: WEB_PUSH_PRIVATE_KEY
-        sync: false            # ← SET IN DASHBOARD — base64-encoded PEM (see instructions above)
+      - key: VAPID_PRIVATE_KEY
+        sync: false            # ← SET IN DASHBOARD — base64-encoded PEM
 
-      - key: WEB_PUSH_SUBJECT
+      - key: VAPID_SUBJECT
         value: "mailto:admin@charityhub.app"  # update to a real email / your domain
-
       # ── Optional: Cloudinary (file storage) ──────────────────────────────────
       - key: CLOUDINARY_CLOUD_NAME
         sync: false

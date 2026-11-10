@@ -265,6 +265,8 @@ class AuthService:
             title=welcome_title,
             message=welcome_message,
             target_role=user.role,
+            category="announcements",
+            link_url="/Notifications",
         )
         if not enqueue_result.get("queued"):
             NotificationService.create_user_notification(
@@ -273,6 +275,8 @@ class AuthService:
                 title=welcome_title,
                 message=welcome_message,
                 target_role=user.role,
+                category="announcements",
+                link_url="/Notifications",
             )
         
         return new_user
@@ -424,6 +428,8 @@ class AuthService:
             title=welcome_title,
             message=welcome_message,
             target_role=user.role,
+            category="announcements",
+            link_url="/Notifications",
         )
         if not enqueue_result.get("queued"):
             NotificationService.create_user_notification(
@@ -432,6 +438,8 @@ class AuthService:
                 title=welcome_title,
                 message=welcome_message,
                 target_role=user.role,
+                category="announcements",
+                link_url="/Notifications",
             )
     
     @staticmethod
@@ -494,4 +502,7 @@ class AuthService:
         user.password_hash = hash_password(new_password)
         db.commit()
         db.refresh(user)
+        from app.services.notification_service import NotificationService
+
+        NotificationService.notify_security_event(db, user.id, "password_changed")
         return user

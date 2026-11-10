@@ -1,3 +1,4 @@
+import hashlib
 import re
 import secrets
 import string
@@ -57,6 +58,11 @@ def generate_member_code(last_member_code: Optional[str] = None) -> str:
         return "MEM-0001"
 
 
+def password_fingerprint(password_hash: str) -> str:
+    """Short, non-reversible fingerprint of the stored hash. Changes whenever the password does."""
+    return hashlib.sha256(f"{SECRET_KEY}:{password_hash or ''}".encode()).hexdigest()[:16]
+
+
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """Create JWT access token."""
     to_encode = data.copy()
@@ -83,6 +89,31 @@ def verify_token(token: str) -> dict:
             detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
         ) from exc
+
+
+def resolve_session_role(db: Session, payload: dict, user_id: int):
+    """
+    Return the role to trust for this token.
+
+    Long-lived "remember me" tokens (claim ``rm``) are re-checked against the
+    account so they stop working once the user is deactivated or changes /
+    resets the password, and they use the user's current role rather than the
+    one baked into a weeks-old token. Short tokens keep the existing behaviour.
+    """
+    if not payload.get("rm"):
+        return payload.get("role")
+    user = db.query(User).filter(User.id == user_id).first()
+    if (
+        not user
+        or not user.is_active
+        or payload.get("pwv") != password_fingerprint(user.password_hash)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired. Please sign in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return user.role.value if hasattr(user.role, "value") else str(user.role)
 
 
 async def get_current_user(credentials = Depends(http_bearer), db: Session = Depends(get_db)):
@@ -112,6 +143,8 @@ async def get_current_user(credentials = Depends(http_bearer), db: Session = Dep
             detail="Invalid token",
         ) from exc
     
+    role = resolve_session_role(db, payload, user_id)
+
     try:
         now = datetime.utcnow()
         stale_before = now - timedelta(minutes=1)
@@ -123,7 +156,7 @@ async def get_current_user(credentials = Depends(http_bearer), db: Session = Dep
     except Exception:
         db.rollback()
 
-    return {"user_id": user_id, "role": payload.get("role")}
+    return {"user_id": user_id, "role": role}
 
 
 def get_current_admin(current_user: dict = Depends(get_current_user)):

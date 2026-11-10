@@ -1,6 +1,31 @@
 # API Changelog
 
+## 2026-11-10
+
+### Member requests: email changes
+- Approving a `profile_update` request with `requested_changes.email` now updates the user's email (lower-cased); previously it was silently ignored. If the email belongs to another account, approval returns `409` and the request stays pending.
+
+### Auth: remember me
+- `POST /auth/login` accepts `remember_me: bool` (default `false`). When true the token lasts `remember_me_days` (new platform setting, default 30, range 1-90, public) instead of `session_timeout_minutes`.
+- `TokenResponse` adds `expires_in` (seconds) and `remember_me`.
+- Remember-me tokens return `401` once the account is deactivated or its password changes, and authorize with the user's current role. Applies to the SSE stream too.
+- `POST /auth/register` still returns a token; the web app no longer signs in with it and redirects to the login page instead.
+
+### Member requests: profile photo
+- Fixed: request `status` in responses is lower-case again (`pending` | `approved` | `rejected`). It had become `PENDING` etc., which hid the admin Review/Approve/Reject actions and broke the member's "request already pending" guard. Filters accept either case.
+- `POST /requests/` with `requested_changes.avatar_url`: a member has at most one pending profile-photo request. A new submission updates the existing pending request in place (same `id`, no new admin notification) and deletes the superseded upload.
+- `requested_changes.avatar_url` must be `null` (removal) or a URL returned by `POST /files/upload/avatar`; other URLs return `400`.
+- `POST /files/upload/avatar` now stores the image temporarily (Cloudinary `<folder>/avatars_pending/`, tag `pending_avatar`). Approval moves it to `<folder>/avatars/` and rewrites `requested_changes.avatar_url`; rejection or cancellation deletes it. If the move fails, approval returns `502` and the request stays pending.
+
 ## 2026-10-31
+
+### Notifications UX
+- `Notification` rows and responses gain `category`, `link_url`, `entity_type`, `entity_id`, `is_urgent`.
+- `GET/PUT /notifications/preferences` (category toggles, IST quiet hours); `POST /notifications/test-push` (superadmin may target `user_id`, audited).
+- `GET /notifications/push/public-key` now returns `{enabled, public_key, key_id}`.
+- `GET /admin/notifications/delivery-overview` (superadmin: all users; admin: own devices).
+- Env: `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` (`WEB_PUSH_*` still accepted). Rotate keys with `scripts/generate_vapid_keys.py`.
+- Fixed: `GET /notifications/stream` was shadowed by `/{notification_id}`; SSE frames used literal `\n`.
 
 ### Added
 - **Admin-recorded payments (maker-checker)**

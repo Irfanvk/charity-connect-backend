@@ -475,6 +475,7 @@ def upload_proof(
         challan.member,
         [result.month] if result.month else [],
         current_user["user_id"],
+        challan_id=challan_id,
     )
     return result
 

@@ -41,6 +41,7 @@ from app.utils.permissions import assert_not_self, assert_different_actor, asser
 from app.config import settings
 from app.services.notification_service import NotificationService
 from app.services import settings_service
+from app.services.web_push_service import device_type_from_user_agent
 
 # ✅ admin router — prefix="/admin"
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -389,8 +390,101 @@ def get_notification_delivery_preview(
     }
 
 
-# ─── System Wipe ──────────────────────────────────────────────────────────────
+@router.get("/notifications/delivery-overview")
+def get_notification_delivery_overview(
+    search: str = Query(default="", max_length=100),
+    skip: int = Query(default=0, ge=0),
+    limit: int = Query(default=25, ge=1, le=100),
+    current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Push delivery visibility. Superadmin: everyone. Admin: only their own devices."""
+    is_super = str(current_user.get("role", "")).lower() == "superadmin"
+    since = datetime.utcnow() - timedelta(days=7)
 
+    user_query = db.query(User)
+    if not is_super:
+        user_query = user_query.filter(User.id == int(current_user["user_id"]))
+    users = user_query.all()
+    user_ids = [u.id for u in users]
+    subs_by_user: dict[int, list[PushSubscription]] = {}
+    if user_ids:
+        for sub in db.query(PushSubscription).filter(PushSubscription.user_id.in_(user_ids)).all():
+            subs_by_user.setdefault(sub.user_id, []).append(sub)
+
+    by_role: dict[str, int] = {}
+    by_device: dict[str, int] = {}
+    permission_states: dict[str, int] = {}
+    display_modes = {"installed": 0, "browser": 0, "unknown": 0}
+    failures_7d = 0
+    rows = []
+    term = search.strip().lower()
+
+    for user in users:
+        role = user.role.value if hasattr(user.role, "value") else str(user.role)
+        subs = subs_by_user.get(user.id, [])
+        active = [s for s in subs if s.is_active]
+        if active:
+            by_role[role] = by_role.get(role, 0) + 1
+            for device_type in {device_type_from_user_agent(s.user_agent) for s in active}:
+                by_device[device_type] = by_device.get(device_type, 0) + 1
+        permission = user.notification_permission or "unknown"
+        permission_states[permission] = permission_states.get(permission, 0) + 1
+        mode = (user.device_display_mode or "").lower()
+        if mode in ("standalone", "fullscreen", "minimal-ui"):
+            display_modes["installed"] += 1
+        elif mode:
+            display_modes["browser"] += 1
+        else:
+            display_modes["unknown"] += 1
+        failures_7d += sum(1 for s in subs if s.last_failure_at and s.last_failure_at >= since)
+
+        last_success = max((s.last_success_at for s in subs if s.last_success_at), default=None)
+        failed_subs = [s for s in subs if s.last_failure_at]
+        last_failed = max(failed_subs, key=lambda s: s.last_failure_at) if failed_subs else None
+        haystack = f"{user.full_name or ''} {user.username or ''} {role}".lower()
+        if term and term not in haystack:
+            continue
+        rows.append({
+            "user_id": user.id,
+            "full_name": user.full_name,
+            "username": user.username,
+            "role": role,
+            "notification_permission": permission,
+            "device_display_mode": user.device_display_mode,
+            "devices": [
+                {
+                    "label": s.device_label or "Device",
+                    "type": device_type_from_user_agent(s.user_agent),
+                    "is_active": bool(s.is_active),
+                    "last_success_at": s.last_success_at.isoformat() if s.last_success_at else None,
+                    "last_failure_at": s.last_failure_at.isoformat() if s.last_failure_at else None,
+                    "last_failure_reason": s.last_failure_reason,
+                }
+                for s in subs
+            ],
+            "last_success_at": last_success.isoformat() if last_success else None,
+            "last_failure_at": last_failed.last_failure_at.isoformat() if last_failed else None,
+            "last_failure_reason": last_failed.last_failure_reason if last_failed else None,
+        })
+
+    rows.sort(key=lambda r: (r["full_name"] or r["username"] or "").lower())
+    return {
+        "scope": "all" if is_super else "own",
+        "web_push_configured": settings.web_push_configured,
+        "vapid_key_id": settings.vapid_key_id,
+        "users_with_active_subscription": sum(by_role.values()),
+        "by_role": by_role,
+        "by_device_type": by_device,
+        "permission_states": permission_states,
+        "display_modes": display_modes,
+        "failures_last_7_days": failures_7d,
+        "total": len(rows),
+        "users": rows[skip: skip + limit],
+    }
+
+
+# ─── System Wipe ──────────────────────────────────────────────────────────────
 @router.post("/system/wipe", response_model=SystemWipeResponse)
 def wipe_system_data(
     payload: SystemWipeRequest,

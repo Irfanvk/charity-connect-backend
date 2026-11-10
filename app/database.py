@@ -85,6 +85,28 @@ def _ensure_admin_recorded_payment_columns(connection, inspector) -> None:
         ))
         connection.execute(text("UPDATE challans SET entry_source = 'self' WHERE entry_source IS NULL"))
 
+def _ensure_notification_ux_columns(connection, inspector) -> None:
+    _add_missing_columns(connection, inspector, "notifications", {
+        "category": "VARCHAR(30)",
+        "link_url": "VARCHAR(255)",
+        "entity_type": "VARCHAR(30)",
+        "entity_id": "INTEGER",
+        "is_urgent": "BOOLEAN NOT NULL DEFAULT false",
+    })
+    _add_missing_columns(connection, inspector, "push_subscriptions", {
+        "vapid_key_id": "VARCHAR(32)",
+        "last_success_at": "TIMESTAMP",
+        "last_failure_at": "TIMESTAMP",
+        "last_failure_reason": "VARCHAR(255)",
+        "device_label": "VARCHAR(100)",
+    })
+    _add_missing_columns(connection, inspector, "users", {
+        "quiet_hours_enabled": "BOOLEAN NOT NULL DEFAULT false",
+        "quiet_hours_start": "VARCHAR(5)",
+        "quiet_hours_end": "VARCHAR(5)",
+    })
+
+
 def ensure_runtime_schema() -> None:
     """Apply additive schema updates for existing deployments."""
     with engine.begin() as connection:
@@ -116,6 +138,7 @@ def ensure_runtime_schema() -> None:
 
         _ensure_separation_of_duties_columns(connection, inspector)
         _ensure_admin_recorded_payment_columns(connection, inspector)
+        _ensure_notification_ux_columns(connection, inspector)
 
         if not inspector.has_table("campaigns"):
             return

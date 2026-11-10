@@ -29,3 +29,6 @@ temp.zip
 project_plan_extracted.txt
 .local_artifacts/
 *.db
+
+# VAPID / TLS key material must never be committed
+*.pem

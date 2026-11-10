@@ -57,7 +57,14 @@ def send_web_push_notification(self, notification_id: int):
 
 
 @celery.task(name="app.workers.tasks.send_user_notification", ignore_result=True)
-def send_user_notification(user_id: int, title: str, message: str, target_role: str | None = None):
+def send_user_notification(
+    user_id: int,
+    title: str,
+    message: str,
+    target_role: str | None = None,
+    category: str | None = None,
+    link_url: str | None = None,
+):
     db = SessionLocal()
     try:
         NotificationService.create_user_notification(
@@ -66,6 +73,8 @@ def send_user_notification(user_id: int, title: str, message: str, target_role: 
             title=title,
             message=message,
             target_role=target_role,
+            category=category,
+            link_url=link_url,
         )
     finally:
         db.close()
@@ -86,6 +95,8 @@ def send_welcome_notification(user_id: int):
             title=title,
             message=message,
             target_role=user.role,
+            category="announcements",
+            link_url="/Notifications",
         )
 
         return {"status": "ok", "user_id": user.id}
@@ -122,10 +133,17 @@ def send_monthly_membership_reminders():
                 "month": month_label,
                 "amount": member.monthly_amount,
             }
-            NotificationService.create_user_notification(
-                message=with_islamic_greeting(render_message(db, "msg_monthly_reminder", reminder_ctx)),
-                target_role="member",
-            )
+            if member.user_id:
+                NotificationService.create_user_notification(
+                    db=db,
+                    user_id=member.user_id,
+                    title="Monthly payment reminder",
+                    message=with_islamic_greeting(render_message(db, "msg_monthly_reminder", reminder_ctx)),
+                    target_role="member",
+                    ntype="payment",
+                    category="reminders",
+                    link_url="/Challans",
+                )
             sent += 1
 
             if member.user and member.user.phone:

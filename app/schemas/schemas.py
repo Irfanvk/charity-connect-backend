@@ -66,6 +66,7 @@ class UserLogin(BaseModel):
     username: Optional[str] = None  # Can be username or email
     email: Optional[str] = None     # Backward compatibility
     password: str
+    remember_me: bool = False       # Long-lived session on this device
 
     @field_validator("username", "email", mode="before")
     @classmethod
@@ -162,6 +163,8 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str
     user: UserResponse
+    expires_in: Optional[int] = None  # seconds until the access token expires
+    remember_me: bool = False
 
 
 class ChangePasswordRequest(BaseModel):
@@ -680,6 +683,11 @@ class NotificationResponse(BaseModel):
     is_read: bool
     created_at: datetime
     read_at: Optional[datetime]
+    category: Optional[str] = None
+    link_url: Optional[str] = None
+    entity_type: Optional[str] = None
+    entity_id: Optional[int] = None
+    is_urgent: bool = False
 
     class Config:
         from_attributes = True

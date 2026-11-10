@@ -6,6 +6,7 @@ from app.models import User
 from app.schemas import UserLogin, UserRegisterWithInvite, UserResponse, TokenResponse, ChangePasswordRequest
 from app.services import AuthService
 from app.utils import create_access_token, get_current_user
+from app.utils.auth import password_fingerprint
 from app.utils.file_handler import save_file, validate_file, delete_file
 from app.config import settings
 from app.services.settings_service import get_setting
@@ -21,17 +22,21 @@ def login(credentials: UserLogin, request: Request, db: Session = Depends(get_db
     """
     source_ip = request.client.host if request.client else None
     user = AuthService.login(db, credentials, source_ip=source_ip)
-    
-    access_token_expires = timedelta(minutes=get_setting(db, "session_timeout_minutes"))
-    access_token = create_access_token(
-        data={"sub": str(user.id), "role": user.role},
-        expires_delta=access_token_expires,
-    )
-    
+
+    claims = {"sub": str(user.id), "role": user.role}
+    if credentials.remember_me:
+        access_token_expires = timedelta(days=get_setting(db, "remember_me_days"))
+        claims.update({"rm": True, "pwv": password_fingerprint(user.password_hash)})
+    else:
+        access_token_expires = timedelta(minutes=get_setting(db, "session_timeout_minutes"))
+    access_token = create_access_token(data=claims, expires_delta=access_token_expires)
+
     return {
         "access_token": access_token,
         "token_type": "bearer",
         "user": user,
+        "expires_in": int(access_token_expires.total_seconds()),
+        "remember_me": bool(credentials.remember_me),
     }
 
 

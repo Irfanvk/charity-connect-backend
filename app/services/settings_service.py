@@ -67,6 +67,10 @@ _ENTRIES = [
            _clamp(int(env_settings.ACCESS_TOKEN_EXPIRE_MINUTES), 30, 720),
            "Session timeout", "Lifetime of a login session (JWT access token).", "Security",
            min_=30, max_=720, unit="minutes"),
+    _entry("remember_me_days", "int", 30, "Remember me duration",
+           "How long a login with \"Remember me\" ticked stays signed in on that device. "
+           "Such sessions end early if the account is deactivated or its password changes.",
+           "Security", public=True, min_=1, max_=90, unit="days"),
     _entry("login_max_failed_attempts", "int", 10, "Max failed login attempts",
            "Failed attempts before a login is temporarily locked.", "Security",
            min_=3, max_=20, unit="attempts"),

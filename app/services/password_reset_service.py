@@ -134,6 +134,10 @@ def _notify_admins_new_request(
                 title=title,
                 message=message,
                 target_role="admin",
+                category="admin_requests",
+                link_url=f"/admin/requests?tab=password&request={req.id}",
+                entity_type="password_reset",
+                entity_id=req.id,
             )
             db.add(notification)
             created_notifications.append(notification)
@@ -317,4 +321,5 @@ def complete_reset(db: Session, token: str, new_password: str) -> User:
     )
     db.commit()
     db.refresh(user)
+    NotificationService.notify_security_event(db, cast(int, user.id), "password_reset")
     return user

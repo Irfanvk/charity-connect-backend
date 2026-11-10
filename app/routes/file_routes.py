@@ -2,7 +2,7 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.services.settings_service import get_setting
-from app.utils.file_handler import validate_file, save_file, delete_file
+from app.utils.file_handler import validate_file, save_file, delete_file, save_pending_avatar
 from app.utils.auth import get_current_user, get_current_superadmin
 
 router = APIRouter(prefix="/files", tags=["Files"])
@@ -69,7 +69,9 @@ async def upload_avatar(
     if ext not in {".jpg", ".jpeg", ".png"}:
         raise HTTPException(status_code=400, detail="Avatars must be JPEG or PNG images.")
 
-    saved_path = save_file(content, "avatars", file.filename)
+    # Member avatars go to temporary storage; they are moved to the permanent
+    # folder only when an admin approves the profile-update request.
+    saved_path = save_pending_avatar(content, file.filename)
     return {
         "file_url": _build_url(saved_path),
         "filename": saved_path.split("/")[-1],
