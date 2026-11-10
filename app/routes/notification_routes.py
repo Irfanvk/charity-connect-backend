@@ -4,7 +4,7 @@ import json
 from fastapi import APIRouter, Depends, status, Query, Request, Response, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
-from app.database import get_db
+from app.database import SessionLocal, get_db
 from app.models import Notification, User
 from app.schemas import (
     NotificationCreate,
@@ -19,6 +19,7 @@ from app.services import NotificationService, notification_prefs
 from app.services.realtime_notification_service import notification_realtime_hub
 from app.services.web_push_service import WebPushService
 from app.utils import get_current_user, get_current_admin, log_audit, verify_token
+from app.utils.auth import resolve_session_role
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 from app.services.whatsapp_service import send_whatsapp_message
@@ -186,6 +187,13 @@ async def stream_notifications(
         user_id = int(user_id)
     except (TypeError, ValueError):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    if payload.get("rm"):
+        check_db = SessionLocal()
+        try:
+            resolve_session_role(check_db, payload, user_id)
+        finally:
+            check_db.close()
 
     async def event_stream():
         async for chunk in notification_realtime_hub.stream(user_id=user_id, request=request):
