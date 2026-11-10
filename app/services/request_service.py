@@ -7,7 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.models import AuditLog, Member, MemberRequest, RequestStatus, RequestType, User, Notification
 from app.services.notification_service import NotificationService
-from app.utils.file_handler import delete_file
+from app.utils.file_handler import (
+    delete_file,
+    discard_pending_avatar,
+    is_pending_avatar_url,
+    promote_pending_avatar,
+)
 from app.utils.permissions import assert_not_own_user
 
 
@@ -35,7 +40,9 @@ class RequestService:
             "member_id": item.member_id,
             "user_id": item.user_id,
             "request_type": item.request_type.value if hasattr(item.request_type, "value") else str(item.request_type),
-            "status": item.status.value if hasattr(item.status, "value") else str(item.status),
+            # The Python enum values are upper-case but the API contract (and every
+            # frontend comparison) uses lower-case: pending | approved | rejected.
+            "status": RequestService._status_value(item),
             "subject": item.subject,
             "message": item.message,
             "requested_amount": item.requested_amount,
@@ -50,6 +57,22 @@ class RequestService:
             "member_name": member_name,
             "member_code": member_code,
         }
+
+    @staticmethod
+    def _status_value(item: MemberRequest) -> str:
+        raw = item.status.value if hasattr(item.status, "value") else str(item.status)
+        return str(raw).lower()
+
+    @staticmethod
+    def _avatar_url_in(item: MemberRequest):
+        """Return (has_avatar_key, avatar_url) for a profile-update request."""
+        try:
+            changes = json.loads(item.requested_changes or "{}")
+        except (TypeError, ValueError):
+            return False, None
+        if isinstance(changes, dict) and "avatar_url" in changes:
+            return True, changes.get("avatar_url")
+        return False, None
 
     @staticmethod
     def _notify_member(db: Session, user_id: int, title: str, message: str, request_id: int | None = None):
@@ -135,6 +158,63 @@ class RequestService:
             )
 
     @staticmethod
+    def _upsert_pending_avatar_request(
+        db: Session,
+        user_id: int,
+        member: Member,
+        changes: dict,
+        subject: str | None,
+        message: str,
+    ) -> dict | None:
+        """
+        Keep at most ONE pending profile-photo request per member.
+
+        If the member already has a pending request that changes avatar_url, it is
+        updated in place with the newest photo (the superseded temporary upload is
+        deleted) and its serialized form is returned. Returns None when there is no
+        pending photo request, so the caller creates a new one.
+        """
+        new_avatar_url = changes.get("avatar_url")
+        if new_avatar_url and not is_pending_avatar_url(new_avatar_url):
+            raise HTTPException(
+                status_code=400,
+                detail="Profile photo must be uploaded through /files/upload/avatar",
+            )
+
+        # Serialize concurrent submissions (double clicks, retries) per member.
+        db.query(Member).filter(Member.id == member.id).with_for_update().first()
+
+        pending = (
+            db.query(MemberRequest)
+            .filter(
+                MemberRequest.user_id == user_id,
+                MemberRequest.request_type == RequestType.PROFILE_UPDATE,
+                MemberRequest.status == RequestStatus.PENDING,
+            )
+            .order_by(MemberRequest.created_at.desc())
+            .all()
+        )
+        target = next((r for r in pending if RequestService._avatar_url_in(r)[0]), None)
+        if target is None:
+            return None
+
+        _, previous_avatar_url = RequestService._avatar_url_in(target)
+        merged = json.loads(target.requested_changes or "{}")
+        merged.update(changes)
+        target.requested_changes = json.dumps(merged)
+        target.subject = (subject or "").strip() or target.subject
+        target.message = (message or "").strip() or target.message
+        target.updated_at = datetime.utcnow()
+        db.add(target)
+        db.commit()
+        db.refresh(target)
+
+        if previous_avatar_url and previous_avatar_url != new_avatar_url:
+            discard_pending_avatar(previous_avatar_url)
+
+        return RequestService._serialize(db, target)
+
+    @staticmethod
     def create_request(
         db: Session,
         current_user: dict,
@@ -149,7 +229,15 @@ class RequestService:
 
         req_changes = None
         if request_type == RequestType.PROFILE_UPDATE:
-            req_changes = json.dumps(requested_changes or {})
+            changes = dict(requested_changes or {})
+            if "avatar_url" in changes:
+                existing = RequestService._upsert_pending_avatar_request(
+                    db, user_id=user_id, member=member, changes=changes,
+                    subject=subject, message=message,
+                )
+                if existing is not None:
+                    return existing
+            req_changes = json.dumps(changes)
 
         current_amount = member.monthly_amount if request_type == RequestType.MONTHLY_AMOUNT_CHANGE else None
 
@@ -241,14 +329,18 @@ class RequestService:
         if item.user_id != int(current_user.get("user_id")):
             raise HTTPException(status_code=403, detail="You are not allowed to cancel this request")
 
-        if (item.status.value if hasattr(item.status, "value") else str(item.status)) != RequestStatus.PENDING.value:
+        if RequestService._status_value(item) != "pending":
             raise HTTPException(status_code=400, detail="Only pending requests can be cancelled")
 
+        _, pending_avatar_url = RequestService._avatar_url_in(item)
         db.delete(item)
         db.commit()
+        discard_pending_avatar(pending_avatar_url)
 
     @staticmethod
-    def _apply_approval_changes(db: Session, item: MemberRequest):
+    def _apply_approval_changes(db: Session, item: MemberRequest) -> list[str]:
+        """Apply the request's changes. Returns file URLs to delete after commit."""
+        cleanup_urls: list[str] = []
         member = db.query(Member).filter(Member.id == item.member_id).first()
         if not member:
             raise HTTPException(status_code=404, detail="Member not found")
@@ -260,7 +352,7 @@ class RequestService:
                 raise HTTPException(status_code=400, detail="requested_amount is required")
             member.monthly_amount = float(item.requested_amount)
             db.add(member)
-            return
+            return cleanup_urls
 
         if request_type == RequestType.PROFILE_UPDATE.value:
             changes = json.loads(item.requested_changes or "{}")
@@ -279,11 +371,19 @@ class RequestService:
             if user and "avatar_url" in changes:
                 previous_avatar_url = user.avatar_url
                 next_avatar_url = changes.get("avatar_url")
+                if next_avatar_url:
+                    # Move the temporary upload into permanent storage.
+                    try:
+                        next_avatar_url = promote_pending_avatar(next_avatar_url)
+                    except RuntimeError as exc:
+                        raise HTTPException(status_code=502, detail=str(exc)) from exc
+                    changes["avatar_url"] = next_avatar_url
+                    item.requested_changes = json.dumps(changes)
                 user.avatar_url = next_avatar_url
 
-                # Best effort cleanup for replaced/removed Cloudinary avatars.
+                # Replaced/removed avatar is deleted only once the approval is committed.
                 if previous_avatar_url and previous_avatar_url != next_avatar_url:
-                    delete_file(previous_avatar_url)
+                    cleanup_urls.append(previous_avatar_url)
 
             if user and "username" in changes:
                 new_username = str(changes.get("username") or "").strip()
@@ -299,6 +399,8 @@ class RequestService:
             if user:
                 db.add(user)
 
+        return cleanup_urls
+
     @staticmethod
     def approve_request(db: Session, current_admin: dict, request_id: int, admin_notes: str | None = None) -> dict:
         role = str(current_admin.get("role", "")).lower()
@@ -309,11 +411,11 @@ class RequestService:
         if not item:
             raise HTTPException(status_code=404, detail="Request not found")
 
-        if (item.status.value if hasattr(item.status, "value") else str(item.status)) != RequestStatus.PENDING.value:
+        if RequestService._status_value(item) != "pending":
             raise HTTPException(status_code=400, detail="Only pending requests can be approved")
 
         assert_not_own_user(current_admin, item.user_id, "approve")
-        RequestService._apply_approval_changes(db, item)
+        cleanup_urls = RequestService._apply_approval_changes(db, item)
 
         item.status = RequestStatus.APPROVED
         item.admin_id = int(current_admin.get("user_id"))
@@ -341,6 +443,8 @@ class RequestService:
         )
 
         db.commit()
+        for url in cleanup_urls:
+            delete_file(url)  # best effort
         db.refresh(item)
         db.refresh(created_notification)
         NotificationService.dispatch_notification(db, created_notification)
@@ -362,7 +466,7 @@ class RequestService:
         if not item:
             raise HTTPException(status_code=404, detail="Request not found")
 
-        if (item.status.value if hasattr(item.status, "value") else str(item.status)) != RequestStatus.PENDING.value:
+        if RequestService._status_value(item) != "pending":
             raise HTTPException(status_code=400, detail="Only pending requests can be rejected")
 
         assert_not_own_user(current_admin, item.user_id, "reject")
@@ -396,6 +500,8 @@ class RequestService:
         )
 
         db.commit()
+        _, pending_avatar_url = RequestService._avatar_url_in(item)
+        discard_pending_avatar(pending_avatar_url)
         db.refresh(item)
         db.refresh(created_notification)
         NotificationService.dispatch_notification(db, created_notification)

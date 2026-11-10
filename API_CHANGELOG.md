@@ -1,5 +1,13 @@
 # API Changelog
 
+## 2026-11-10
+
+### Member requests: profile photo
+- Fixed: request `status` in responses is lower-case again (`pending` | `approved` | `rejected`). It had become `PENDING` etc., which hid the admin Review/Approve/Reject actions and broke the member's "request already pending" guard. Filters accept either case.
+- `POST /requests/` with `requested_changes.avatar_url`: a member has at most one pending profile-photo request. A new submission updates the existing pending request in place (same `id`, no new admin notification) and deletes the superseded upload.
+- `requested_changes.avatar_url` must be `null` (removal) or a URL returned by `POST /files/upload/avatar`; other URLs return `400`.
+- `POST /files/upload/avatar` now stores the image temporarily (Cloudinary `<folder>/avatars_pending/`, tag `pending_avatar`). Approval moves it to `<folder>/avatars/` and rewrites `requested_changes.avatar_url`; rejection or cancellation deletes it. If the move fails, approval returns `502` and the request stays pending.
+
 ## 2026-10-31
 
 ### Notifications UX
