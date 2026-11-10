@@ -9,6 +9,7 @@
 
 ### Celery workers (optional)
 - New env `CELERY_WORKERS_ENABLED` (default `false`). Push delivery, deferred quiet-hours pushes and queued notifications go to Celery only when it is `true` **and** the broker answers. Before, a reachable Redis alone was enough, so with Redis but no worker the tasks sat in the queue and pushes were never sent. With it `false` everything is sent directly from the API, as before.
+- Production (applied 2026-11-10): Redis and the worker are running, `CELERY_WORKERS_ENABLED=true` is set, and web push keys were created (push was not configured before).
 - VPS worker: `charity-celery.service` (`celery -A app.workers.celery_app:celery worker -Q notifications,default --concurrency=2`), `PartOf=charity.service` so every deploy restart also restarts the worker. No Celery beat: monthly reminders run inside the API.
 
 ### Monthly payment reminders (per member)
