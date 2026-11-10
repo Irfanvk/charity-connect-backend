@@ -1,5 +1,21 @@
 # API Changelog
 
+## 2026-11-11
+
+### Member self-activation (existing members, admin approval)
+Existing (imported) members activate their own account with their Member ID instead of an admin sending each one an invite link. Invite registration is unchanged.
+- `GET /member-activations/availability` (public): `{enabled}` from the new superadmin setting `self_activation_enabled` (bool, default `true`, Security).
+- `POST /member-activations` (public): `{member_code, full_name, phone, email?, no_email, whatsapp_phone?, username, password, last_paid_month?}`. `member_code` accepts `12`, `0012`, `#12`, `MEM-0012`. Email is required unless `no_email` is true, in which case `whatsapp_phone` is required. `last_paid_month` is optional `YYYY-MM`. Returns `201 {id, status: "pending", member_code, updated, message}`.
+  - `404` unknown Member ID; `409` Member ID already active, username/phone/email used by another account, username held by another pending request, or 3 pending requests for that ID; `400` invalid fields; `403` turned off; `429` more than 5 attempts per IP per hour.
+  - A resubmission by the same person (same phone or username) for the same Member ID updates the pending request in place. Admins are notified (`category: admin_requests`, `entity_type: member_activation`, `link_url: /admin/requests?tab=activations&request={id}`).
+  - Nothing on the member's account changes until approval. The password is stored hashed on the request.
+- `POST /auth/login` with the credentials of a pending or rejected activation (no account yet) returns `403` with `detail[0].type` = `activation_pending` | `activation_rejected` and `detail[0].input` = `{member_code, full_name, submitted_at}` or `{member_code, full_name, reason, reviewed_at}`. Wrong passwords stay `401`.
+- Admin: `GET /member-activations?status=pending|approved|rejected|all&skip&limit` returns `{items, total, pending_total}`; `GET /member-activations/{id}`; `POST /member-activations/{id}/approve {admin_notes?}`; `POST /member-activations/{id}/reject {rejection_reason, admin_notes?}` (reason at least `min_reason_length`). Items include `record` (what is on file: member code, name, phone, email, status, monthly amount, months paid, last paid month) and `checks` (`name`: match | close | different, `last_paid_month`: match | different | not_given | no_records, `already_active`, `other_pending`, `conflicts`).
+- Approve sets the existing member user's username, password, phone, email, WhatsApp and `is_active = true`, keeps the member record and payment history, auto-rejects other pending requests for the same Member ID, writes an audit log, and sends the member a welcome notification. `409` if the account became active meanwhile or a username/phone/email conflict appeared.
+- `GET /auth/check-username` also reports usernames held by pending activations as unavailable.
+- `UserResponse` adds `whatsapp_phone` and `welcome_pending`. `GET /auth/me/welcome` returns `{show, full_name, member_code, months_paid, total_paid, first_month, last_month}` while `welcome_pending` is true; `POST /auth/me/welcome/seen` clears it.
+- Schema (additive, applied at startup; manual fallback `migrations/20261111_member_activation.sql`): new table `member_activations`; `users.whatsapp_phone VARCHAR(20)`, `users.welcome_pending BOOLEAN NOT NULL DEFAULT false`.
+
 ## 2026-11-10
 
 ### Member requests: email changes

@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, Request, UploadFile, File, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import User
+from app.models import MemberActivation, User
+from app.services.member_activation_service import MemberActivationService
 from app.schemas import UserLogin, UserRegisterWithInvite, UserResponse, TokenResponse, ChangePasswordRequest
 from app.services import AuthService
 from app.utils import create_access_token, get_current_user
@@ -70,6 +71,11 @@ def check_username_availability(
     Returns {"available": true} if the username is not yet taken.
     """
     exists = db.query(User).filter(func.lower(User.username) == func.lower(username)).first()
+    if exists is None:
+        exists = db.query(MemberActivation).filter(
+            func.lower(MemberActivation.username) == func.lower(username),
+            MemberActivation.status == "pending",
+        ).first()
     return {"available": exists is None, "username": username}
 
 
@@ -80,6 +86,17 @@ def get_current_user_info(current_user: dict = Depends(get_current_user), db: Se
     """
     user = AuthService.get_current_user(db, current_user["user_id"])
     return user
+
+
+@router.get("/me/welcome")
+def get_welcome(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Welcome summary shown once after a self-activation is approved."""
+    return MemberActivationService.welcome_summary(db, int(current_user["user_id"]))
+
+
+@router.post("/me/welcome/seen")
+def welcome_seen(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    return MemberActivationService.mark_welcome_seen(db, int(current_user["user_id"]))
 
 
 @router.post("/logout")

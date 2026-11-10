@@ -25,6 +25,7 @@ from app.routes import (
     audit_log_router,
     fund_utilization_router,
     password_reset_router,
+    activation_router,
 )
 import logging
 from app.services.realtime_notification_service import redis_bridge_url, run_redis_subscriber
@@ -104,6 +105,7 @@ app.include_router(user_router)
 app.include_router(audit_log_router)
 app.include_router(fund_utilization_router)
 app.include_router(password_reset_router)
+app.include_router(activation_router)
 app.include_router(settings_router)
 
 # Serve locally uploaded files (avatars, challan proofs, campaign images).

@@ -133,6 +133,8 @@ class UserResponse(BaseModel):
     notification_permission: Optional[str] = None
     notification_permission_updated_at: Optional[datetime] = None
     device_display_mode: Optional[str] = None
+    whatsapp_phone: Optional[str] = None
+    welcome_pending: bool = False
 
     class Config:
         from_attributes = True

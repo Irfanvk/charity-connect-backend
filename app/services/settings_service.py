@@ -71,6 +71,9 @@ _ENTRIES = [
            "How long a login with \"Remember me\" ticked stays signed in on that device. "
            "Such sessions end early if the account is deactivated or its password changes.",
            "Security", public=True, min_=1, max_=90, unit="days"),
+    _entry("self_activation_enabled", "bool", True, "Member self-activation",
+           "Existing members can activate their own account with their Member ID "
+           "from the login page; an admin approves each request.", "Security"),
     _entry("login_max_failed_attempts", "int", 10, "Max failed login attempts",
            "Failed attempts before a login is temporarily locked.", "Security",
            min_=3, max_=20, unit="attempts"),
