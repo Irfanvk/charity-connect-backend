@@ -16,6 +16,7 @@ from app.schemas import (
     NotificationSentDeleteResponse,
 )
 from app.services import NotificationService, notification_prefs
+from app.services import payment_reminder_service
 from app.services.realtime_notification_service import notification_realtime_hub
 from app.services.web_push_service import WebPushService
 from app.utils import get_current_user, get_current_admin, log_audit, verify_token
@@ -224,6 +225,8 @@ class NotificationPreferencesUpdate(BaseModel):
     quiet_hours_enabled: Optional[bool] = None
     quiet_hours_start: Optional[str] = Field(default=None, pattern=r"^\d{2}:\d{2}$")
     quiet_hours_end: Optional[str] = Field(default=None, pattern=r"^\d{2}:\d{2}$")
+    payment_reminder_enabled: Optional[bool] = None
+    payment_reminder_day: Optional[int] = Field(default=None, ge=1, le=28)
 
 
 class TestPushRequest(BaseModel):
@@ -240,6 +243,7 @@ def _preferences_payload(db: Session, user: User) -> dict:
             "timezone": settings.BUSINESS_TIMEZONE,
         },
         "urgent_always_delivered": True,
+        "payment_reminder": payment_reminder_service.preferences_for(db, user),
     }
 
 
@@ -273,6 +277,9 @@ def update_notification_preferences(
         db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
 
+    payment_reminder_service.save_preferences(
+        user, payload.payment_reminder_enabled, payload.payment_reminder_day,
+    )
     if payload.quiet_hours_enabled is not None:
         user.quiet_hours_enabled = payload.quiet_hours_enabled
     if start:

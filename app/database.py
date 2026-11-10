@@ -107,6 +107,27 @@ def _ensure_notification_ux_columns(connection, inspector) -> None:
     })
 
 
+def _ensure_member_activation_columns(connection, inspector) -> None:
+    # The member_activations table itself is created by Base.metadata.create_all.
+    _add_missing_columns(connection, inspector, "users", {
+        "whatsapp_phone": "VARCHAR(20)",
+        "welcome_pending": "BOOLEAN NOT NULL DEFAULT false",
+    })
+
+
+def _ensure_payment_reminder_columns(connection, inspector) -> None:
+    # The payment_reminder_logs table itself is created by Base.metadata.create_all.
+    _add_missing_columns(connection, inspector, "users", {
+        "payment_reminder_enabled": "BOOLEAN",
+        "payment_reminder_day": "INTEGER",
+        "onboarding_completed_at": "TIMESTAMP",
+    })
+    _add_missing_columns(connection, inspector, "users", {
+        "app_version": "VARCHAR(40)",
+        "app_version_seen_at": "TIMESTAMP",
+    })
+
+
 def ensure_runtime_schema() -> None:
     """Apply additive schema updates for existing deployments."""
     with engine.begin() as connection:
@@ -139,6 +160,8 @@ def ensure_runtime_schema() -> None:
         _ensure_separation_of_duties_columns(connection, inspector)
         _ensure_admin_recorded_payment_columns(connection, inspector)
         _ensure_notification_ux_columns(connection, inspector)
+        _ensure_member_activation_columns(connection, inspector)
+        _ensure_payment_reminder_columns(connection, inspector)
 
         if not inspector.has_table("campaigns"):
             return

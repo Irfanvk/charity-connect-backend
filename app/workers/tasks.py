@@ -106,55 +106,11 @@ def send_welcome_notification(user_id: int):
 
 @celery.task(name="app.workers.tasks.send_monthly_membership_reminders", ignore_result=True)
 def send_monthly_membership_reminders():
+    """Kept for Celery beat setups; the API process runs the same schedule by itself."""
+    from app.services.payment_reminder_service import run_due_reminders
+
     db = SessionLocal()
-    now = now_business()
-    month_label = now.strftime("%B %Y")
-
-    sent = 0
     try:
-        if not get_setting(db, "monthly_reminder_enabled"):
-            return {"status": "skipped", "reason": "disabled"}
-        if now.day != get_setting(db, "monthly_reminder_day"):
-            return {"status": "skipped", "reason": "not reminder day"}
-
-        members = (
-            db.query(Member)
-            .join(User, Member.user_id == User.id)
-            .filter(User.is_active == True)
-            .all()
-        )
-
-        for member in members:
-            if member.monthly_amount is None or float(member.monthly_amount) <= 0:
-                continue
-
-            reminder_ctx = {
-                "member_name": member.full_name or (member.user.full_name if member.user else "") or "",
-                "month": month_label,
-                "amount": member.monthly_amount,
-            }
-            if member.user_id:
-                NotificationService.create_user_notification(
-                    db=db,
-                    user_id=member.user_id,
-                    title="Monthly payment reminder",
-                    message=with_islamic_greeting(render_message(db, "msg_monthly_reminder", reminder_ctx)),
-                    target_role="member",
-                    ntype="payment",
-                    category="reminders",
-                    link_url="/Challans",
-                )
-            sent += 1
-
-            if member.user and member.user.phone:
-                send_whatsapp_message(
-                    member.user.phone,
-                    with_islamic_greeting(
-                        f"{org_name(db)} reminder: your monthly membership amount "
-                        f"for {month_label} is {member.monthly_amount}."
-                    ),
-                )
-
-        return {"status": "ok", "sent": sent}
+        return run_due_reminders(db, now_business().date())
     finally:
         db.close()

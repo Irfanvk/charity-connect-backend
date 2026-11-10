@@ -1,5 +1,40 @@
 # API Changelog
 
+## 2026-11-11
+
+### App version tracking
+- `POST /users/me/device-status` accepts optional `app_version` (`[0-9A-Za-z._-]`, max 40), stored as `users.app_version` + `app_version_seen_at`. Older clients that do not send it keep working.
+- `GET /admin/notifications/delivery-overview` adds `latest_app_version`, `by_app_version` (`"not reported"` for devices that never sent one), `users_on_latest_version`, and per user `app_version`, `app_version_seen_at`, `on_latest_version`. Builds are named `YYYYMMDD.HHMM-<commit>` so the largest is the newest.
+- Schema (additive, applied at startup; fallback `migrations/20261111_app_version.sql`): `users.app_version VARCHAR(40)`, `users.app_version_seen_at TIMESTAMP`.
+
+### Celery workers (optional)
+- New env `CELERY_WORKERS_ENABLED` (default `false`). Push delivery, deferred quiet-hours pushes and queued notifications go to Celery only when it is `true` **and** the broker answers. Before, a reachable Redis alone was enough, so with Redis but no worker the tasks sat in the queue and pushes were never sent. With it `false` everything is sent directly from the API, as before.
+- Production (applied 2026-11-10): Redis and the worker are running, `CELERY_WORKERS_ENABLED=true` is set, and web push keys were created (push was not configured before).
+- VPS worker: `charity-celery.service` (`celery -A app.workers.celery_app:celery worker -Q notifications,default --concurrency=2`), `PartOf=charity.service` so every deploy restart also restarts the worker. No Celery beat: monthly reminders run inside the API.
+
+### Monthly payment reminders (per member)
+- Each member picks their reminder day (1-28). Default: on, on the organisation's `monthly_reminder_day`. A reminder is skipped when that month already has an approved or pending (submitted) monthly challan; one follow-up is sent 7 days later (capped at month end) if still unpaid. At most two per member per month; logged in the new `payment_reminder_logs` table (unique member + month + kind), so reruns, restarts and multiple workers never duplicate. Sent up to 2 days late if the server was down.
+- Runs inside the API process (checks every 30 min from 09:00 IST; env `PAYMENT_REMINDER_SCHEDULER=false` turns it off). Celery is no longer needed for reminders; the Celery task `send_monthly_membership_reminders` now calls the same code.
+- Notifications use `category: reminders`, `type: payment`, `link_url: /Challans`. New template setting `msg_monthly_reminder_followup`; `{amount}` is now formatted like `₹1,000`.
+- `GET /notifications/preferences` adds `payment_reminder: {enabled, day, uses_default_day, default_day, applies, organisation_enabled}`. `PUT /notifications/preferences` accepts `payment_reminder_enabled` and `payment_reminder_day` (1-28).
+- `POST /auth/me/onboarding {address?, payment_reminder_enabled?, payment_reminder_day?}` saves the first-login setup on the server and sets `onboarding_completed_at`. The address is saved directly only if the member has none; otherwise the response says `address_needs_approval: true` and the app sends a profile request.
+- `UserResponse` adds `payment_reminder_enabled`, `payment_reminder_day`, `onboarding_completed_at`.
+- Schema (additive, applied at startup; fallback `migrations/20261111_payment_reminders.sql`): table `payment_reminder_logs`; `users.payment_reminder_enabled BOOLEAN`, `users.payment_reminder_day INTEGER`, `users.onboarding_completed_at TIMESTAMP`.
+
+### Member self-activation (existing members, admin approval)
+Existing (imported) members activate their own account with their Member ID instead of an admin sending each one an invite link. Invite registration is unchanged.
+- `GET /member-activations/availability` (public): `{enabled}` from the new superadmin setting `self_activation_enabled` (bool, default `true`, Security).
+- `POST /member-activations` (public): `{member_code, full_name, phone, email?, no_email, whatsapp_phone?, username, password, last_paid_month?}`. `member_code` accepts `12`, `0012`, `#12`, `MEM-0012`. Email is required unless `no_email` is true, in which case `whatsapp_phone` is required. `last_paid_month` is optional `YYYY-MM`. Returns `201 {id, status: "pending", member_code, updated, message}`.
+  - `404` unknown Member ID; `409` Member ID already active, username/phone/email used by another account, username held by another pending request, or 3 pending requests for that ID; `400` invalid fields; `403` turned off; `429` more than 5 attempts per IP per hour.
+  - A resubmission by the same person (same phone or username) for the same Member ID updates the pending request in place. Admins are notified (`category: admin_requests`, `entity_type: member_activation`, `link_url: /admin/requests?tab=activations&request={id}`).
+  - Nothing on the member's account changes until approval. The password is stored hashed on the request.
+- `POST /auth/login` with the credentials of a pending or rejected activation (no account yet) returns `403` with `detail[0].type` = `activation_pending` | `activation_rejected` and `detail[0].input` = `{member_code, full_name, submitted_at}` or `{member_code, full_name, reason, reviewed_at}`. Wrong passwords stay `401`.
+- Admin: `GET /member-activations?status=pending|approved|rejected|all&skip&limit` returns `{items, total, pending_total}`; `GET /member-activations/{id}`; `POST /member-activations/{id}/approve {admin_notes?}`; `POST /member-activations/{id}/reject {rejection_reason, admin_notes?}` (reason at least `min_reason_length`). Items include `record` (what is on file: member code, name, phone, email, status, monthly amount, months paid, last paid month) and `checks` (`name`: match | close | different, `last_paid_month`: match | different | not_given | no_records, `already_active`, `other_pending`, `conflicts`).
+- Approve sets the existing member user's username, password, phone, email, WhatsApp and `is_active = true`, keeps the member record and payment history, auto-rejects other pending requests for the same Member ID, writes an audit log, and sends the member a welcome notification. `409` if the account became active meanwhile or a username/phone/email conflict appeared.
+- `GET /auth/check-username` also reports usernames held by pending activations as unavailable.
+- `UserResponse` adds `whatsapp_phone` and `welcome_pending`. `GET /auth/me/welcome` returns `{show, full_name, member_code, months_paid, total_paid, first_month, last_month}` while `welcome_pending` is true; `POST /auth/me/welcome/seen` clears it.
+- Schema (additive, applied at startup; manual fallback `migrations/20261111_member_activation.sql`): new table `member_activations`; `users.whatsapp_phone VARCHAR(20)`, `users.welcome_pending BOOLEAN NOT NULL DEFAULT false`.
+
 ## 2026-11-10
 
 ### Member requests: email changes

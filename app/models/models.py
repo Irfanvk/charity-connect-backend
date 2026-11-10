@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Boolean, Text, Enum, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Boolean, Text, Enum, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -74,6 +74,16 @@ class User(Base):
     quiet_hours_enabled = Column(Boolean, default=False, nullable=False)
     quiet_hours_start = Column(String(5), nullable=True)  # 'HH:MM' IST
     quiet_hours_end = Column(String(5), nullable=True)  # 'HH:MM' IST
+    whatsapp_phone = Column(String(20), nullable=True)
+    # Set when a self-activation is approved; cleared once the welcome screen is seen.
+    welcome_pending = Column(Boolean, default=False, nullable=False, server_default="false")
+    # Monthly payment reminder. NULL enabled = on (default); NULL day = the organisation's day.
+    payment_reminder_enabled = Column(Boolean, nullable=True)
+    payment_reminder_day = Column(Integer, nullable=True)  # 1-28
+    onboarding_completed_at = Column(DateTime, nullable=True)
+    # Web app build last reported by this user's device (see /users/me/device-status).
+    app_version = Column(String(40), nullable=True)
+    app_version_seen_at = Column(DateTime, nullable=True)
     
     # Relationships
     member = relationship("Member", back_populates="user", uselist=False)
@@ -124,6 +134,51 @@ class Member(Base):
         if self.user:
             return self.user.email
         return None
+
+
+class PaymentReminderLog(Base):
+    """One row per reminder sent, so a member never gets the same reminder twice."""
+    __tablename__ = "payment_reminder_logs"
+    __table_args__ = (UniqueConstraint("member_id", "month", "kind", name="uq_payment_reminder_member_month_kind"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    month = Column(String(7), nullable=False)  # YYYY-MM (IST)
+    kind = Column(String(20), nullable=False)  # first | follow_up
+    sent_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+class MemberActivation(Base):
+    """An existing (imported) member asking to activate their own account.
+
+    Nothing touches the member's user account until an admin approves. The
+    chosen password is kept here (hashed) so the applicant can sign in to see
+    the status of their request.
+    """
+    __tablename__ = "member_activations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id"), nullable=False, index=True)
+    member_code_entered = Column(String(50), nullable=False)
+    full_name = Column(String(255), nullable=False)
+    username = Column(String(255), nullable=False, index=True)
+    password_hash = Column(String(255), nullable=False)
+    phone = Column(String(20), nullable=False)
+    email = Column(String(255), nullable=True)
+    whatsapp_phone = Column(String(20), nullable=True)
+    last_paid_month = Column(String(7), nullable=True)  # YYYY-MM, optional proof
+    status = Column(String(20), nullable=False, default="pending", index=True)  # pending | approved | rejected
+    rejection_reason = Column(Text, nullable=True)
+    admin_notes = Column(Text, nullable=True)
+    reviewed_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    reviewed_at = Column(DateTime, nullable=True)
+    source_ip = Column(String(64), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    member = relationship("Member")
+    reviewed_by = relationship("User", foreign_keys=[reviewed_by_admin_id])
 
 
 class Invite(Base):

@@ -113,6 +113,18 @@ class AuthService:
             user = db.query(User).filter(func.lower(User.email) == normalized_identifier).first()
         
         if not user or not verify_password(user_login.password, user.password_hash):
+            # The credentials may belong to a self-activation request that has
+            # no account yet: tell the applicant where their request stands.
+            from app.services.member_activation_service import MemberActivationService
+            activation_status = MemberActivationService.status_for_login(db, identifier, user_login.password)
+            if activation_status:
+                AuthService._reset_failed_attempts(rate_limit_keys)
+                # Fits the API's error shape: detail[0].type / .msg / .input
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={
+                    "type": activation_status["code"],
+                    "msg": activation_status["message"],
+                    "input": activation_status,
+                })
             AuthService._register_failed_attempt(
                 rate_limit_keys,
                 get_setting(db, "login_max_failed_attempts"),

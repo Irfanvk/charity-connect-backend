@@ -21,6 +21,8 @@ def celery_result_backend_url() -> str | None:
 
 
 def can_enqueue_celery_tasks(timeout: float = 0.2) -> bool:
+    if not settings.CELERY_WORKERS_ENABLED:
+        return False
     broker_url = str(settings.CELERY_BROKER_URL or "").strip()
     if not broker_url:
         return False

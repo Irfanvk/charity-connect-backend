@@ -133,6 +133,11 @@ class UserResponse(BaseModel):
     notification_permission: Optional[str] = None
     notification_permission_updated_at: Optional[datetime] = None
     device_display_mode: Optional[str] = None
+    whatsapp_phone: Optional[str] = None
+    welcome_pending: bool = False
+    payment_reminder_enabled: Optional[bool] = None
+    payment_reminder_day: Optional[int] = None
+    onboarding_completed_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
@@ -157,6 +162,7 @@ class UserUpdate(BaseModel):
 class DeviceStatusUpdate(BaseModel):
     notification_permission: str = Field(pattern="^(default|granted|denied|unsupported)$")
     device_display_mode: Optional[str] = Field(default=None, max_length=30)
+    app_version: Optional[str] = Field(default=None, max_length=40, pattern=r"^[0-9A-Za-z._-]+$")
 
 
 class TokenResponse(BaseModel):
