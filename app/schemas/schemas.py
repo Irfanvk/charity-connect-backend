@@ -135,6 +135,9 @@ class UserResponse(BaseModel):
     device_display_mode: Optional[str] = None
     whatsapp_phone: Optional[str] = None
     welcome_pending: bool = False
+    payment_reminder_enabled: Optional[bool] = None
+    payment_reminder_day: Optional[int] = None
+    onboarding_completed_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True

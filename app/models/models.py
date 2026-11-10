@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Boolean, Text, Enum, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Boolean, Text, Enum, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -77,6 +77,10 @@ class User(Base):
     whatsapp_phone = Column(String(20), nullable=True)
     # Set when a self-activation is approved; cleared once the welcome screen is seen.
     welcome_pending = Column(Boolean, default=False, nullable=False, server_default="false")
+    # Monthly payment reminder. NULL enabled = on (default); NULL day = the organisation's day.
+    payment_reminder_enabled = Column(Boolean, nullable=True)
+    payment_reminder_day = Column(Integer, nullable=True)  # 1-28
+    onboarding_completed_at = Column(DateTime, nullable=True)
     
     # Relationships
     member = relationship("Member", back_populates="user", uselist=False)
@@ -127,6 +131,19 @@ class Member(Base):
         if self.user:
             return self.user.email
         return None
+
+
+class PaymentReminderLog(Base):
+    """One row per reminder sent, so a member never gets the same reminder twice."""
+    __tablename__ = "payment_reminder_logs"
+    __table_args__ = (UniqueConstraint("member_id", "month", "kind", name="uq_payment_reminder_member_month_kind"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id"), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    month = Column(String(7), nullable=False)  # YYYY-MM (IST)
+    kind = Column(String(20), nullable=False)  # first | follow_up
+    sent_at = Column(DateTime, server_default=func.now(), nullable=False)
 
 
 class MemberActivation(Base):

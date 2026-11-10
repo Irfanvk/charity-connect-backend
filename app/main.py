@@ -135,6 +135,10 @@ async def startup_event() -> None:
         # Forward events published by Celery workers to this process's SSE hub.
         app.state.realtime_bridge_task = asyncio.create_task(run_redis_subscriber())
 
+    if settings.PAYMENT_REMINDER_SCHEDULER:
+        from app.services.payment_reminder_service import reminder_scheduler_loop
+        app.state.payment_reminder_task = asyncio.create_task(reminder_scheduler_loop())
+
     if not settings.ENABLE_FASTAPI_LIMITER:
         return
 
@@ -152,9 +156,10 @@ async def startup_event() -> None:
 
 @app.on_event("shutdown")
 async def shutdown_event() -> None:
-    bridge_task = getattr(app.state, "realtime_bridge_task", None)
-    if bridge_task:
-        bridge_task.cancel()
+    for task_name in ("realtime_bridge_task", "payment_reminder_task"):
+        task = getattr(app.state, task_name, None)
+        if task:
+            task.cancel()
     if FastAPILimiter and getattr(FastAPILimiter, "redis", None):
         await FastAPILimiter.close()
 

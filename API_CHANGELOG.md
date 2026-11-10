@@ -2,6 +2,15 @@
 
 ## 2026-11-11
 
+### Monthly payment reminders (per member)
+- Each member picks their reminder day (1-28). Default: on, on the organisation's `monthly_reminder_day`. A reminder is skipped when that month already has an approved or pending (submitted) monthly challan; one follow-up is sent 7 days later (capped at month end) if still unpaid. At most two per member per month; logged in the new `payment_reminder_logs` table (unique member + month + kind), so reruns, restarts and multiple workers never duplicate. Sent up to 2 days late if the server was down.
+- Runs inside the API process (checks every 30 min from 09:00 IST; env `PAYMENT_REMINDER_SCHEDULER=false` turns it off). Celery is no longer needed for reminders; the Celery task `send_monthly_membership_reminders` now calls the same code.
+- Notifications use `category: reminders`, `type: payment`, `link_url: /Challans`. New template setting `msg_monthly_reminder_followup`; `{amount}` is now formatted like `₹1,000`.
+- `GET /notifications/preferences` adds `payment_reminder: {enabled, day, uses_default_day, default_day, applies, organisation_enabled}`. `PUT /notifications/preferences` accepts `payment_reminder_enabled` and `payment_reminder_day` (1-28).
+- `POST /auth/me/onboarding {address?, payment_reminder_enabled?, payment_reminder_day?}` saves the first-login setup on the server and sets `onboarding_completed_at`. The address is saved directly only if the member has none; otherwise the response says `address_needs_approval: true` and the app sends a profile request.
+- `UserResponse` adds `payment_reminder_enabled`, `payment_reminder_day`, `onboarding_completed_at`.
+- Schema (additive, applied at startup; fallback `migrations/20261111_payment_reminders.sql`): table `payment_reminder_logs`; `users.payment_reminder_enabled BOOLEAN`, `users.payment_reminder_day INTEGER`, `users.onboarding_completed_at TIMESTAMP`.
+
 ### Member self-activation (existing members, admin approval)
 Existing (imported) members activate their own account with their Member ID instead of an admin sending each one an invite link. Invite registration is unchanged.
 - `GET /member-activations/availability` (public): `{enabled}` from the new superadmin setting `self_activation_enabled` (bool, default `true`, Security).

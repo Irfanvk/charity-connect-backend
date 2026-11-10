@@ -4,6 +4,9 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models import MemberActivation, User
 from app.services.member_activation_service import MemberActivationService
+from app.services import payment_reminder_service
+from pydantic import BaseModel, Field
+from typing import Optional
 from app.schemas import UserLogin, UserRegisterWithInvite, UserResponse, TokenResponse, ChangePasswordRequest
 from app.services import AuthService
 from app.utils import create_access_token, get_current_user
@@ -11,7 +14,7 @@ from app.utils.auth import password_fingerprint
 from app.utils.file_handler import save_file, validate_file, delete_file
 from app.config import settings
 from app.services.settings_service import get_setting
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -97,6 +100,49 @@ def get_welcome(current_user: dict = Depends(get_current_user), db: Session = De
 @router.post("/me/welcome/seen")
 def welcome_seen(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     return MemberActivationService.mark_welcome_seen(db, int(current_user["user_id"]))
+
+
+class OnboardingPayload(BaseModel):
+    address: Optional[str] = Field(default=None, max_length=1000)
+    payment_reminder_enabled: Optional[bool] = None
+    payment_reminder_day: Optional[int] = Field(default=None, ge=1, le=28)
+
+
+@router.post("/me/onboarding")
+def complete_onboarding(
+    payload: OnboardingPayload,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Save the first-login setup form on the server (any device sees it as done).
+
+    The address is saved directly only when the member has none yet; changing an
+    existing address still goes through an admin-approved profile request.
+    """
+    user = db.get(User, int(current_user["user_id"]))
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    member = user.member
+    address = " ".join(str(payload.address or "").split()) or None
+    address_saved = False
+    address_needs_approval = False
+    if address and member is not None:
+        if not (member.address or "").strip():
+            member.address = address
+            address_saved = True
+        elif member.address.strip() != address:
+            address_needs_approval = True
+    payment_reminder_service.save_preferences(user, payload.payment_reminder_enabled, payload.payment_reminder_day)
+    if user.onboarding_completed_at is None:
+        user.onboarding_completed_at = datetime.utcnow()
+    db.commit()
+    db.refresh(user)
+    return {
+        "onboarding_completed_at": user.onboarding_completed_at,
+        "address_saved": address_saved,
+        "address_needs_approval": address_needs_approval,
+        "payment_reminder": payment_reminder_service.preferences_for(db, user),
+    }
 
 
 @router.post("/logout")

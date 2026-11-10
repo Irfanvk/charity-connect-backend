@@ -148,6 +148,8 @@ class Settings(BaseSettings):
     CELERY_STORE_RESULTS: bool = os.getenv("CELERY_STORE_RESULTS", "false").lower() == "true"
     BUSINESS_TIMEZONE: str = os.getenv("BUSINESS_TIMEZONE", "Asia/Kolkata")
     ENABLE_FASTAPI_LIMITER: bool = os.getenv("ENABLE_FASTAPI_LIMITER", "false").lower() == "true"
+    # Monthly payment reminders run inside the API process (no Celery needed).
+    PAYMENT_REMINDER_SCHEDULER: bool = os.getenv("PAYMENT_REMINDER_SCHEDULER", "true").lower() == "true"
 
     # Cloudinary (file storage — uploads, avatars, payment proofs)
     CLOUDINARY_CLOUD_NAME: str = os.getenv("CLOUDINARY_CLOUD_NAME", "")

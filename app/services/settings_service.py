@@ -103,8 +103,10 @@ _ENTRIES = [
     # Reminders & messaging
     _entry("monthly_reminder_enabled", "bool", True, "Monthly reminders",
            "Send the monthly membership reminders.", "Reminders & messaging"),
-    _entry("monthly_reminder_day", "int", 1, "Reminder day of month",
-           "Day of the month (IST) on which reminders are sent.", "Reminders & messaging",
+    _entry("monthly_reminder_day", "int", 1, "Default reminder day",
+           "Day of the month (IST) for members who have not picked their own reminder day. "
+           "Members can choose any day from 1 to 28; unpaid members get one follow-up 7 days later.",
+           "Reminders & messaging",
            min_=1, max_=28, unit="day"),
     _entry("whatsapp_payment_receipts", "bool", False, "WhatsApp payment receipts",
            "Send a WhatsApp receipt when a payment is approved.", "Reminders & messaging"),
@@ -168,6 +170,11 @@ _ENTRIES = [
            "Your monthly membership contribution for {month} is due. Amount: {amount}.",
            "Monthly reminder message", "In-app reminder text.", "Messages", max_len=500,
            multiline=True, placeholders=["member_name", "month", "amount", "org_name"]),
+    _entry("msg_monthly_reminder_followup", "template",
+           "A gentle reminder: your monthly contribution for {month} ({amount}) is still due. "
+           "Please ignore this if you have already paid.",
+           "Follow-up reminder message", "Sent 7 days after the first reminder if still unpaid.", "Messages",
+           max_len=500, multiline=True, placeholders=["member_name", "month", "amount", "org_name"]),
     _entry("msg_payment_approved", "template", "Your {payment} has been approved.",
            "Payment approved message", "In-app notification text.", "Messages", max_len=500,
            multiline=True, placeholders=["member_name", "month", "amount", "payment", "org_name"]),
