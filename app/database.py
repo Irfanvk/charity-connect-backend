@@ -122,6 +122,10 @@ def _ensure_payment_reminder_columns(connection, inspector) -> None:
         "payment_reminder_day": "INTEGER",
         "onboarding_completed_at": "TIMESTAMP",
     })
+    _add_missing_columns(connection, inspector, "users", {
+        "app_version": "VARCHAR(40)",
+        "app_version_seen_at": "TIMESTAMP",
+    })
 
 
 def ensure_runtime_schema() -> None:

@@ -417,8 +417,11 @@ def get_notification_delivery_overview(
     permission_states: dict[str, int] = {}
     display_modes = {"installed": 0, "browser": 0, "unknown": 0}
     failures_7d = 0
+    by_app_version: dict[str, int] = {}
     rows = []
     term = search.strip().lower()
+    # Builds are named YYYYMMDD.HHMM-<commit>, so the largest is the newest one seen.
+    latest_app_version = max((u.app_version for u in users if u.app_version), default=None)
 
     for user in users:
         role = user.role.value if hasattr(user.role, "value") else str(user.role)
@@ -438,6 +441,8 @@ def get_notification_delivery_overview(
         else:
             display_modes["unknown"] += 1
         failures_7d += sum(1 for s in subs if s.last_failure_at and s.last_failure_at >= since)
+        version_key = user.app_version or "not reported"
+        by_app_version[version_key] = by_app_version.get(version_key, 0) + 1
 
         last_success = max((s.last_success_at for s in subs if s.last_success_at), default=None)
         failed_subs = [s for s in subs if s.last_failure_at]
@@ -452,6 +457,9 @@ def get_notification_delivery_overview(
             "role": role,
             "notification_permission": permission,
             "device_display_mode": user.device_display_mode,
+            "app_version": user.app_version,
+            "app_version_seen_at": user.app_version_seen_at.isoformat() if user.app_version_seen_at else None,
+            "on_latest_version": bool(latest_app_version and user.app_version == latest_app_version),
             "devices": [
                 {
                     "label": s.device_label or "Device",
@@ -479,6 +487,9 @@ def get_notification_delivery_overview(
         "permission_states": permission_states,
         "display_modes": display_modes,
         "failures_last_7_days": failures_7d,
+        "latest_app_version": latest_app_version,
+        "by_app_version": by_app_version,
+        "users_on_latest_version": by_app_version.get(latest_app_version, 0) if latest_app_version else 0,
         "total": len(rows),
         "users": rows[skip: skip + limit],
     }

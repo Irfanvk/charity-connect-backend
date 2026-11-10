@@ -81,6 +81,9 @@ class User(Base):
     payment_reminder_enabled = Column(Boolean, nullable=True)
     payment_reminder_day = Column(Integer, nullable=True)  # 1-28
     onboarding_completed_at = Column(DateTime, nullable=True)
+    # Web app build last reported by this user's device (see /users/me/device-status).
+    app_version = Column(String(40), nullable=True)
+    app_version_seen_at = Column(DateTime, nullable=True)
     
     # Relationships
     member = relationship("Member", back_populates="user", uselist=False)

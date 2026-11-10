@@ -28,6 +28,9 @@ def report_device_status(
     user.notification_permission_updated_at = datetime.utcnow()
     user.device_display_mode = payload.device_display_mode
     user.last_activity_user_agent = request.headers.get("user-agent", "")[:500]
+    if payload.app_version:
+        user.app_version = payload.app_version
+        user.app_version_seen_at = datetime.utcnow()
     db.add(user)
     db.commit()
 

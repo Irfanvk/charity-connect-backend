@@ -162,6 +162,7 @@ class UserUpdate(BaseModel):
 class DeviceStatusUpdate(BaseModel):
     notification_permission: str = Field(pattern="^(default|granted|denied|unsupported)$")
     device_display_mode: Optional[str] = Field(default=None, max_length=30)
+    app_version: Optional[str] = Field(default=None, max_length=40, pattern=r"^[0-9A-Za-z._-]+$")
 
 
 class TokenResponse(BaseModel):

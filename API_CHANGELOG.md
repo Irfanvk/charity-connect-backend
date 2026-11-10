@@ -2,6 +2,11 @@
 
 ## 2026-11-11
 
+### App version tracking
+- `POST /users/me/device-status` accepts optional `app_version` (`[0-9A-Za-z._-]`, max 40), stored as `users.app_version` + `app_version_seen_at`. Older clients that do not send it keep working.
+- `GET /admin/notifications/delivery-overview` adds `latest_app_version`, `by_app_version` (`"not reported"` for devices that never sent one), `users_on_latest_version`, and per user `app_version`, `app_version_seen_at`, `on_latest_version`. Builds are named `YYYYMMDD.HHMM-<commit>` so the largest is the newest.
+- Schema (additive, applied at startup; fallback `migrations/20261111_app_version.sql`): `users.app_version VARCHAR(40)`, `users.app_version_seen_at TIMESTAMP`.
+
 ### Celery workers (optional)
 - New env `CELERY_WORKERS_ENABLED` (default `false`). Push delivery, deferred quiet-hours pushes and queued notifications go to Celery only when it is `true` **and** the broker answers. Before, a reachable Redis alone was enough, so with Redis but no worker the tasks sat in the queue and pushes were never sent. With it `false` everything is sent directly from the API, as before.
 - VPS worker: `charity-celery.service` (`celery -A app.workers.celery_app:celery worker -Q notifications,default --concurrency=2`), `PartOf=charity.service` so every deploy restart also restarts the worker. No Celery beat: monthly reminders run inside the API.
