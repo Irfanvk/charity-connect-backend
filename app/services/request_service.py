@@ -385,6 +385,19 @@ class RequestService:
                 if previous_avatar_url and previous_avatar_url != next_avatar_url:
                     cleanup_urls.append(previous_avatar_url)
 
+            if user and "email" in changes:
+                new_email = str(changes.get("email") or "").strip().lower()
+                if new_email:
+                    taken = db.query(User).filter(
+                        func.lower(User.email) == new_email, User.id != user.id
+                    ).first()
+                    if taken:
+                        raise HTTPException(
+                            status_code=409,
+                            detail="This email is already used by another account. Reject the request with a reason.",
+                        )
+                    user.email = new_email
+
             if user and "username" in changes:
                 new_username = str(changes.get("username") or "").strip()
                 if new_username:

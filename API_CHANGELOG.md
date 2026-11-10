@@ -2,6 +2,9 @@
 
 ## 2026-11-10
 
+### Member requests: email changes
+- Approving a `profile_update` request with `requested_changes.email` now updates the user's email (lower-cased); previously it was silently ignored. If the email belongs to another account, approval returns `409` and the request stays pending.
+
 ### Auth: remember me
 - `POST /auth/login` accepts `remember_me: bool` (default `false`). When true the token lasts `remember_me_days` (new platform setting, default 30, range 1-90, public) instead of `session_timeout_minutes`.
 - `TokenResponse` adds `expires_in` (seconds) and `remember_me`.

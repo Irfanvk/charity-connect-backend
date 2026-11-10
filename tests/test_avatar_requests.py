@@ -199,3 +199,28 @@ def test_pending_url_detection():
     assert is_pending_avatar_url("/uploads/avatars_pending/abc.jpg")
     assert not is_pending_avatar_url("/uploads/avatars/abc.jpg")
     assert not is_pending_avatar_url(None)
+
+
+def _detail_request(db, user, changes):
+    return RequestService.create_request(
+        db, _ctx(user), RequestType.PROFILE_UPDATE, "Email change request",
+        "Please change my email.", None, changes,
+    )
+
+
+def test_approved_email_change_is_applied(db, world, storage):
+    req = _detail_request(db, world["member"], {"email": "New@Example.org"})
+    RequestService.approve_request(db, _ctx(world["admin"]), req["id"])
+    db.refresh(world["member"])
+    assert world["member"].email == "new@example.org"
+
+
+def test_email_change_to_taken_email_is_refused(db, world, storage):
+    world["admin"].email = "taken@example.org"
+    db.commit()
+    req = _detail_request(db, world["member"], {"email": "taken@example.org"})
+    with pytest.raises(HTTPException) as exc:
+        RequestService.approve_request(db, _ctx(world["admin"]), req["id"])
+    assert exc.value.status_code == 409
+    db.rollback()
+    assert db.get(MemberRequest, req["id"]).status == RequestStatus.PENDING
