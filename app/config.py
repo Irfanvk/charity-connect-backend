@@ -146,6 +146,9 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = os.getenv("CELERY_BROKER_URL", REDIS_URL)
     CELERY_RESULT_BACKEND: str = os.getenv("CELERY_RESULT_BACKEND", REDIS_URL)
     CELERY_STORE_RESULTS: bool = os.getenv("CELERY_STORE_RESULTS", "false").lower() == "true"
+    # Only hand work to Celery when a worker is actually running (set by the VPS setup).
+    # A reachable Redis alone is not enough: tasks would sit in the queue unprocessed.
+    CELERY_WORKERS_ENABLED: bool = os.getenv("CELERY_WORKERS_ENABLED", "false").lower() == "true"
     BUSINESS_TIMEZONE: str = os.getenv("BUSINESS_TIMEZONE", "Asia/Kolkata")
     ENABLE_FASTAPI_LIMITER: bool = os.getenv("ENABLE_FASTAPI_LIMITER", "false").lower() == "true"
     # Monthly payment reminders run inside the API process (no Celery needed).

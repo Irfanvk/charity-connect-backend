@@ -2,6 +2,10 @@
 
 ## 2026-11-11
 
+### Celery workers (optional)
+- New env `CELERY_WORKERS_ENABLED` (default `false`). Push delivery, deferred quiet-hours pushes and queued notifications go to Celery only when it is `true` **and** the broker answers. Before, a reachable Redis alone was enough, so with Redis but no worker the tasks sat in the queue and pushes were never sent. With it `false` everything is sent directly from the API, as before.
+- VPS worker: `charity-celery.service` (`celery -A app.workers.celery_app:celery worker -Q notifications,default --concurrency=2`), `PartOf=charity.service` so every deploy restart also restarts the worker. No Celery beat: monthly reminders run inside the API.
+
 ### Monthly payment reminders (per member)
 - Each member picks their reminder day (1-28). Default: on, on the organisation's `monthly_reminder_day`. A reminder is skipped when that month already has an approved or pending (submitted) monthly challan; one follow-up is sent 7 days later (capped at month end) if still unpaid. At most two per member per month; logged in the new `payment_reminder_logs` table (unique member + month + kind), so reruns, restarts and multiple workers never duplicate. Sent up to 2 days late if the server was down.
 - Runs inside the API process (checks every 30 min from 09:00 IST; env `PAYMENT_REMINDER_SCHEDULER=false` turns it off). Celery is no longer needed for reminders; the Celery task `send_monthly_membership_reminders` now calls the same code.
