@@ -352,6 +352,9 @@ class RequestService:
                 raise HTTPException(status_code=400, detail="requested_amount is required")
             member.monthly_amount = float(item.requested_amount)
             db.add(member)
+            # Months not paid yet follow the new fee; paid ones keep what was paid.
+            from app.services.challan_state import sync_unpaid_monthly_amounts
+            sync_unpaid_monthly_amounts(db, member)
             return cleanup_urls
 
         if request_type == RequestType.PROFILE_UPDATE.value:

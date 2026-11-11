@@ -880,6 +880,7 @@ class ChallanService:
         member_id: int = None,
         created_by: str = None,
         has_proof: bool = None,
+        submitted: bool = None,
     ):
         """Get all challans with optional server-side filtering.
 
@@ -927,6 +928,13 @@ class ChallanService:
                 query = query.filter(Challan.proof_uploaded_at.isnot(None))
             else:
                 query = query.filter(Challan.proof_uploaded_at.is_(None))
+
+        # ── submitted ────────────────────────────────────────────────────────
+        # true = something was handed in (proof, bulk payment or admin-recorded);
+        # false = "not paid yet" (e.g. months the 2026-04 import marked pending).
+        if submitted is not None:
+            from app.services.challan_state import submitted_clause
+            query = query.filter(submitted_clause() if submitted else ~submitted_clause())
 
         # ── member_id scoping ────────────────────────────────────────────────
         if member_id is not None:

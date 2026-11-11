@@ -498,6 +498,7 @@ def get_challans(
     member_id: Optional[int] = Query(default=None),   # ?member_id=5  (non-admin scoping)
     created_by: Optional[str] = Query(default=None),  # ?created_by=user@email.com
     has_proof: Optional[bool] = Query(default=None),  # ?has_proof=true
+    submitted: Optional[bool] = Query(default=None),  # ?submitted=true: only payments actually handed in
     # ────────────────────────────────────────────────────────────────
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -521,6 +522,7 @@ def get_challans(
             member_id=member_id,
             created_by=created_by,
             has_proof=has_proof,
+            submitted=submitted,
         )
     else:
         # Member path — always scope to this member, still honour
@@ -540,6 +542,7 @@ def get_challans(
             member_id=member.id,   # always override with the real member id
             created_by=None,       # member_id is definitive, no need for email fallback
             has_proof=has_proof,
+            submitted=submitted,
         )
 
 

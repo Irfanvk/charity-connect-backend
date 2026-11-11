@@ -48,8 +48,9 @@ def _notes(db, member):
     return db.query(Notification).filter(Notification.user_id == member.user_id).all()
 
 
-def _pay(db, member, month, status=ChallanStatus.APPROVED):
-    db.add(Challan(member_id=member.id, type=ChallanType.MONTHLY, month=month, amount=member.monthly_amount, status=status))
+def _pay(db, member, month, status=ChallanStatus.APPROVED, proof=True):
+    db.add(Challan(member_id=member.id, type=ChallanType.MONTHLY, month=month, amount=member.monthly_amount, status=status,
+                   proof_path="/uploads/proofs/x.jpg" if proof and status == ChallanStatus.PENDING else None))
     db.commit()
 
 
@@ -177,3 +178,11 @@ def test_onboarding_saves_address_only_when_empty(db, monkeypatch):
     db.refresh(member)
     assert member.address == "12 Main Road, Kasaragod"
     assert db.get(User, member.user_id).onboarding_completed_at == completed_at
+
+
+def test_imported_pending_without_proof_still_gets_a_reminder(db):
+    """The 2026-04 import marked unpaid months 'pending' with nothing attached."""
+    imported = _member(db, "dawood", day=5)
+    _pay(db, imported, "2026-12", ChallanStatus.PENDING, proof=False)
+    assert prs.run_due_reminders(db, date(2026, 12, 5))["first"] == 1
+    assert len(_notes(db, imported)) == 1
