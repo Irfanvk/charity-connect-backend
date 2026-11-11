@@ -3,7 +3,7 @@
 **Project:** CharityConnect  
 **Purpose:** Decisions, meeting minutes, and action items  
 **Owner:** Integration Lead  
-**Last Updated:** 2026-11-11
+**Last Updated:** 2026-11-12
 
 ---
 
@@ -11,6 +11,7 @@
 
 | Date | Decision | Owner | Status | Notes |
 |------|----------|-------|--------|-------|
+| 2026-11-12 | Imported "pending" months are "not paid yet"; unpaid months follow the member's fee | Backend | ✅ | Reported from a live phone: a ₹500/month member saw ₹100 months marked "Checking". The local copy shows 5,254 of 5,256 pending challans have no proof (created by the 2026-04 import for unpaid months), so reminders would have skipped 203 members and members saw "Checking" for months never paid. Rule in `challan_state.py`; `submitted` flag and `?submitted=` filter; reminders fixed; `sync_unpaid_monthly_amounts()` on approved amount changes and admin edits. Decision (user): only months not paid yet follow the fee, so paid history keeps the amount actually paid. Tests: `test_challan_state.py` plus a reminder test. |
 | 2026-11-10 | Production server changes made today (VPS) | Ops | ✅ | Run by the owner with scripts now in the frontend repo `scripts/`, each with a backup first in `/root/backups/manual/`. (1) Data: 204 members with joining date 2024-01-01 moved to 2024-08-01, the platform start month (old dates saved as CSV, full DB dump taken). (2) Redis installed, local only; `charity-celery.service` worker added (`PartOf=charity.service`, so deploys restart it); `.env` gained `REDIS_URL` and `CELERY_WORKERS_ENABLED=true`. (3) Web push had never been configured (empty `WEB_PUSH_*` in `.env`): new VAPID keys generated on the server and push confirmed ENABLED; members must allow notifications once. Checked: the DB user can create tables, so startup schema updates apply without manual SQL. |
 | 2026-11-11 | Track which app version each user runs (backend) | Backend | ✅ | Devices send `app_version` with the existing device-status report; the superadmin delivery overview shows counts per version and who is on the newest. Tests: `tests/test_app_version.py`. |
 | 2026-11-11 | Celery worker + Redis on the VPS, guarded by CELERY_WORKERS_ENABLED | Backend | ✅ | `can_enqueue_celery_tasks()` only checked that the broker port answered, so Redis without a running worker would queue pushes forever. It now also requires `CELERY_WORKERS_ENABLED=true` (default false; `tests/test_celery_runtime.py`). VPS setup is a script the owner runs (check, YES, install; plus undo): installs local-only Redis, sets `REDIS_URL` and `CELERY_WORKERS_ENABLED=true` in `.env` (backed up first), creates `charity-celery.service` (`PartOf=charity.service`, so deploys restart it; deploy.yml unchanged), verifies with `celery inspect ping`. Realtime: SSE already sends `X-Accel-Buffering: no` and 20 s keep-alives; with Redis, events from the worker reach the browser through the existing Redis bridge, and it works with several API workers. No beat (reminders run in the API). |

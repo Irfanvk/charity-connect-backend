@@ -256,6 +256,12 @@ class Challan(Base):
     received_on = Column(Date, nullable=True)
     collected_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     entry_notes = Column(Text, nullable=True)
+
+    @property
+    def submitted(self) -> bool:
+        """False for a 'not paid yet' challan (generated, or imported pending without proof)."""
+        from app.services.challan_state import is_submitted
+        return is_submitted(self)
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     
     # Relationships

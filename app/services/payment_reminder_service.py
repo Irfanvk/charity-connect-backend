@@ -79,11 +79,15 @@ def save_preferences(user: User, enabled: bool | None = None, day: int | None = 
 
 
 def _month_paid(db: Session, member_id: int, month: str) -> bool:
+    """Approved, or pending with something actually handed in (see challan_state)."""
+    from app.services.challan_state import submitted_clause
+
     return db.query(Challan.id).filter(
         Challan.member_id == member_id,
         Challan.type == ChallanType.MONTHLY,
         Challan.month == month,
         Challan.status.in_(PAID_STATUSES),
+        submitted_clause(),
     ).first() is not None
 
 

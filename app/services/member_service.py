@@ -577,6 +577,12 @@ class MemberService:
             if key in update_fields and update_fields[key] is not None:
                 setattr(member, key, update_fields[key])
 
+        if update_fields.get("monthly_amount") is not None:
+            # Months not paid yet follow the new fee; paid ones keep what was paid.
+            from app.services.challan_state import sync_unpaid_monthly_amounts
+            db.flush()
+            sync_unpaid_monthly_amounts(db, member)
+
         db.commit()
         db.refresh(member)
 

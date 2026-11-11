@@ -1,5 +1,15 @@
 # API Changelog
 
+## 2026-11-12
+
+### "Not paid yet" months and the monthly fee
+- The 2026-04 import created a `pending` challan, with nothing attached, for every month a member had not paid. A challan now counts as **submitted** only if it is approved or rejected, has a proof (`proof_path` / `proof_uploaded_at`), belongs to a bulk payment (`bulk_group_id`), or was recorded by an admin (`entry_source = admin`). Otherwise it means "not paid yet". Shared rule: `app/services/challan_state.py`.
+- `ChallanResponse` adds `submitted: bool`. It is `false` for "not paid yet"; clients without the field should treat it as `true`.
+- `GET /challans/?submitted=true|false` filters on that. The admin review list and the nav badge use `status=pending&submitted=true`.
+- Monthly fee: months not paid yet always use the member's current `monthly_amount`. They are updated when an amount-change request is approved, and when an admin edits the member. Paid, submitted or rejected challans keep the amount actually paid.
+- Payment reminders treat a month as paid only if it is approved, or pending with something handed in. Before this, imported "not paid yet" months wrongly skipped the reminder.
+- One-off data correction: `scripts/vps-fix-unpaid-amounts.sh` in CharityConnect. It previews first, saves the old amounts to CSV, then corrects them in one transaction.
+
 ## 2026-11-11
 
 ### App version tracking

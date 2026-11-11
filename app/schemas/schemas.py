@@ -580,6 +580,7 @@ class ChallanResponse(BaseModel):
     reversal_reason: Optional[str] = None
     created_by_user_id: Optional[int] = None
     created_by_name: Optional[str] = None
+    submitted: bool = True  # False = not paid yet (nothing handed in)
     entry_source: Optional[str] = None
     transaction_ref: Optional[str] = None
     received_on: Optional[date] = None
