@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.database import Base
-from app.models.models import AuditLog, User, UserRole
+from app.models.models import AppSetting, AuditLog, User, UserRole
 from app.services import settings_service
 from app.services.notification_service import NotificationService
 from app.utils.auth import get_current_superadmin
@@ -120,7 +120,7 @@ def test_message_templates_reject_unknown_placeholders_and_render(db, world):
 
 def test_branding_is_public_and_has_no_private_fields(db, world):
     _set(db, world["super"], org_display_name="Test Org", landing_headline="Welcome",
-         payment_upi_id="secret@upi", payment_instructions_text="Pay here",
+         payment_instructions_text="Pay here",
          support_email="help@example.org", announcement_text="hidden")
     data = settings_routes.get_branding(db=db)
     assert set(data) == {
@@ -128,15 +128,41 @@ def test_branding_is_public_and_has_no_private_fields(db, world):
         "landing_subtext", "landing_hero_image_url", "login_welcome_text",
     }
     assert data["org_display_name"] == "Test Org"
-    assert "secret@upi" not in str(data) and "Pay here" not in str(data) and "help@example.org" not in str(data)
+    assert "bank_details_enabled" not in data and "Pay here" not in str(data) and "help@example.org" not in str(data)
 
 
-def test_public_settings_include_payment_details_theme_and_announcement(db, world):
-    _set(db, world["super"], payment_upi_id="pay@upi", payment_account_number_masked_display="XXXX 4417")
+def test_public_settings_include_payment_note_theme_and_announcement(db, world):
+    _set(db, world["super"], payment_instructions_text="Send the screenshot after paying")
     data = settings_service.public_settings(db)
-    assert data["payment_upi_id"] == "pay@upi"
-    assert data["payment_account_number_masked_display"] == "XXXX 4417"
+    assert data["payment_instructions_text"] == "Send the screenshot after paying"
+    assert data["bank_details_enabled"] is True
     assert data["theme"] == "default" and data["announcement"] is None
+
+
+LOCKED_PAYMENT_KEYS = (
+    "payment_upi_id", "payment_upi_qr_image_url", "payment_bank_name", "payment_account_name",
+    "payment_account_number_masked_display", "payment_ifsc_or_iban",
+)
+
+
+def test_bank_details_cannot_be_set_from_the_app(db, world):
+    """The account, UPI ID and QR live in the web app code. No setting may carry them."""
+    for key in LOCKED_PAYMENT_KEYS:
+        assert key not in settings_service.SETTINGS_REGISTRY
+        with pytest.raises(HTTPException) as exc:
+            _set(db, world["super"], **{key: "intruder@upi"})
+        assert exc.value.status_code == 400
+
+    # A value left in the database from before (or written there directly) is never served.
+    db.add(AppSetting(key="payment_upi_id", value="intruder@upi"))
+    db.commit()
+    settings_service.invalidate_cache()
+    assert "intruder@upi" not in str(settings_service.public_settings(db))
+
+
+def test_superadmin_can_hide_bank_details(db, world):
+    _set(db, world["super"], bank_details_enabled=False)
+    assert settings_service.public_settings(db)["bank_details_enabled"] is False
 
 
 def test_image_fields_accept_uploads_only(db, world):

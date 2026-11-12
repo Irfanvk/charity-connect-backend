@@ -83,7 +83,7 @@ async def upload_branding_image(
     file: UploadFile = File(...),
     _current_user: dict = Depends(get_current_superadmin),
 ):
-    """Upload a logo / QR / hero image for platform settings (superadmin, image only, max 1 MB)."""
+    """Upload a logo / hero image for platform settings (superadmin, image only, max 1 MB)."""
     from pathlib import Path
 
     content = await file.read()

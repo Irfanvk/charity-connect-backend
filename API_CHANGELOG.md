@@ -14,6 +14,12 @@
 
 ## 2026-11-12
 
+### Bank details are locked in the web app
+- The bank account, UPI ID and QR are no longer settings. They live in the web app code (`src/config/bankDetails.js` in CharityConnect) so a stolen admin login or direct database access cannot redirect payments.
+- Removed settings: `payment_upi_id`, `payment_upi_qr_image_url`, `payment_bank_name`, `payment_account_name`, `payment_account_number_masked_display`, `payment_ifsc_or_iban`. `PUT /admin/settings` with any of them returns 400 (unknown setting), and `GET /settings/public` no longer returns them, even if old rows remain in `app_settings`.
+- New setting `bank_details_enabled` (bool, default `true`, public, superadmin): show or hide the bank details page and card. It cannot change their content.
+- `payment_instructions_text` stays; the app shows it as a separate "Note from the admins".
+
 ### "Not paid yet" months and the monthly fee
 - The 2026-04 import created a `pending` challan, with nothing attached, for every month a member had not paid. A challan now counts as **submitted** only if it is approved or rejected, has a proof (`proof_path` / `proof_uploaded_at`), belongs to a bulk payment (`bulk_group_id`), or was recorded by an admin (`entry_source = admin`). Otherwise it means "not paid yet". Shared rule: `app/services/challan_state.py`.
 - `ChallanResponse` adds `submitted: bool`. It is `false` for "not paid yet"; clients without the field should treat it as `true`.
