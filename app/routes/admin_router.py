@@ -41,6 +41,7 @@ from app.utils.permissions import assert_not_self, assert_different_actor, asser
 from app.config import settings
 from app.services.notification_service import NotificationService
 from app.services import settings_service
+from app.services.bulk_rules import internal_error, taken_months
 from app.services.web_push_service import device_type_from_user_agent
 
 # ✅ admin router — prefix="/admin"
@@ -100,7 +101,7 @@ def _build_proof_url(proof_file_id: str | None) -> str | None:
     if not proof_file_id:
         return None
     cleaned = str(proof_file_id).strip()
-    if not cleaned:
+    if not cleaned or cleaned.startswith("no-proof:"):
         return None
     if cleaned.startswith("http://") or cleaned.startswith("https://"):
         return cleaned
@@ -613,25 +614,76 @@ def wipe_system_data(
 
 # ─── Bulk Operations ──────────────────────────────────────────────────────────
 
+BULK_STATUSES = ("pending_approval", "approved", "rejected")
+
+
+def _member_display_name(member, user) -> str | None:
+    return (
+        (getattr(member, "full_name", None) or "").strip()
+        or (getattr(user, "full_name", None) or "").strip()
+        or getattr(user, "username", None)
+    )
+
+
+def _lock_bulk_group(db: Session, bulk_group_id: str):
+    """Load the group with a row lock, so two admins cannot approve or reject it at once."""
+    bulk_group = (
+        db.query(BulkChallanGroup)
+        .filter(BulkChallanGroup.bulk_group_id == bulk_group_id)
+        .with_for_update()
+        .first()
+    )
+    if not bulk_group:
+        raise HTTPException(status_code=404, detail="Bulk operation not found")
+    return bulk_group
+
+
+def _group_challans(db: Session, bulk_group) -> tuple[list[int], list]:
+    challan_ids = json.loads(bulk_group.challan_ids_list) if bulk_group.challan_ids_list else []
+    challans = db.query(Challan).filter(Challan.id.in_(challan_ids)).all() if challan_ids else []
+    return challan_ids, challans
+
+
+def _assert_months_free(db: Session, bulk_group, challans, action: str) -> None:
+    """Refuse if any month of this group was paid or submitted again in another payment."""
+    months = [c.month for c in challans if c.month]
+    clash = taken_months(db, bulk_group.member_id, months, exclude_ids=[c.id for c in challans])
+    if clash:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": f"Cannot {action}: these months already have another payment",
+                "duplicate_months": clash,
+            },
+        )
+
+
 @router.get("/bulk-pending-review", response_model=BulkChallanListResponse)
 def get_pending_bulk_operations(
-    days: int = Query(default=7, ge=1, le=365),
+    days: int | None = Query(default=None, ge=1, le=3650),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=100, ge=1, le=200),
     sort_by: str = "created_at",
     order: str = "desc",
+    status: str = Query(default="pending_approval"),
     db: Session = Depends(get_db),
     current_user: dict = Depends(get_current_user),
 ):
-    """Get all pending bulk challan operations for admin review (Admin only)."""
+    """Bulk payments for admin review (Admin only).
+
+    status: pending_approval (default), approved, rejected or all. Pending payments
+    are never hidden by age; ``days`` only narrows the list when given.
+    """
     if not _is_admin_role(current_user):
         raise HTTPException(status_code=403, detail="Admin access required")
+    if status != "all" and status not in BULK_STATUSES:
+        raise HTTPException(status_code=400, detail="status must be pending_approval, approved, rejected or all")
 
-    cutoff = datetime.utcnow() - timedelta(days=days)
-    base_query = db.query(BulkChallanGroup).filter(
-        BulkChallanGroup.status == "pending_approval",
-        BulkChallanGroup.created_at >= cutoff,
-    )
+    base_query = db.query(BulkChallanGroup)
+    if status != "all":
+        base_query = base_query.filter(BulkChallanGroup.status == status)
+    if days is not None:
+        base_query = base_query.filter(BulkChallanGroup.created_at >= datetime.utcnow() - timedelta(days=days))
     query = base_query
 
     if sort_by == "member_name":
@@ -646,11 +698,17 @@ def get_pending_bulk_operations(
             BulkChallanGroup.created_at.asc() if order == "asc" else BulkChallanGroup.created_at.desc()
         )
 
-    total_pending = base_query.count()
+    total = base_query.count()
+    total_pending = (
+        total if status == "pending_approval" and days is None
+        else db.query(BulkChallanGroup).filter(BulkChallanGroup.status == "pending_approval").count()
+    )
     bulk_groups   = query.offset(skip).limit(limit).all()
 
     member_ids  = {group.member_id for group in bulk_groups}
     creator_ids = {group.created_by_user_id for group in bulk_groups}
+    creator_ids.update(group.approved_by_admin_id for group in bulk_groups if group.approved_by_admin_id)
+    creator_ids.discard(None)
 
     members = (
         db.query(Member).filter(Member.id.in_(member_ids)).all() if member_ids else []
@@ -670,10 +728,13 @@ def get_pending_bulk_operations(
         months     = json.loads(group.months_list) if group.months_list else []
         proof_url  = _build_proof_url(group.proof_file_id)
 
+        approved_by = users_by_id.get(group.approved_by_admin_id) if group.approved_by_admin_id else None
+        group_challan_ids = json.loads(group.challan_ids_list) if group.challan_ids_list else []
         items.append(BulkChallanListItem(
             bulk_group_id=group.bulk_group_id,
             member_id=group.member_id,
-            member_name=user.username if user else None,
+            member_name=_member_display_name(member, user),
+            member_code=getattr(member, "member_code", None) if member else None,
             member_email=user.email if user else None,
             member_user_id=member.user_id if member else None,
             approved_by_admin_id=group.approved_by_admin_id,
@@ -686,10 +747,20 @@ def get_pending_bulk_operations(
             status=group.status,
             created_at=group.created_at,
             created_by_email=created_by.email if created_by else None,
+            created_by_user_id=group.created_by_user_id,
+            created_by_name=_member_display_name(None, created_by) if created_by else None,
+            entered_by_admin=bool(created_by and member and created_by.id != member.user_id),
+            has_proof=proof_url is not None,
             notes=group.notes,
+            approved_at=group.approved_at,
+            approved_by_name=_member_display_name(None, approved_by) if approved_by else None,
+            rejected_at=group.rejected_at,
+            rejection_reason=group.rejection_reason,
+            reversal_reason=group.reversal_reason,
+            challans_missing=len(group_challan_ids) > 0 and not db.query(Challan.id).filter(Challan.id.in_(group_challan_ids)).first(),
         ))
 
-    return BulkChallanListResponse(pending=total_pending, bulk_operations=items)
+    return BulkChallanListResponse(pending=total_pending, total=total, bulk_operations=items)
 
 
 @router.get("/bulk/{bulk_group_id}", response_model=BulkChallanDetails)
@@ -733,16 +804,26 @@ def get_bulk_challan_details(
         if (c := linked_by_id.get(cid)) is not None
     ]
 
+    proof_url = _build_proof_url(bulk_group.proof_file_id)
     return BulkChallanDetails(
         bulk_group_id=bulk_group.bulk_group_id,
         member_id=bulk_group.member_id,
-        member_name=user.username if user else None,
+        member_name=_member_display_name(member, user),
+        member_code=getattr(member, "member_code", None) if member else None,
+        member_user_id=member.user_id if member else None,
         member_email=user.email if user else None,
+        created_by_user_id=bulk_group.created_by_user_id,
+        created_by_name=_member_display_name(None, created_by) if created_by else None,
+        entered_by_admin=bool(created_by and member and created_by.id != member.user_id),
+        has_proof=proof_url is not None,
+        rejection_reason=bulk_group.rejection_reason,
+        rejected_at=bulk_group.rejected_at,
+        reversal_reason=bulk_group.reversal_reason,
         months=months,
         total_amount=bulk_group.total_amount,
         amount_per_month=bulk_group.amount_per_month,
         proof_file_id=bulk_group.proof_file_id,
-        proof_url=_build_proof_url(bulk_group.proof_file_id),
+        proof_url=proof_url,
         status=bulk_group.status,
         created_at=bulk_group.created_at,
         created_by_email=created_by.email if created_by else None,
@@ -774,19 +855,21 @@ def approve_bulk_challans(
             detail=[{"loc": ["body", "approved"], "msg": "Must be true to approve", "type": "value_error"}],
         )
 
-    bulk_group = db.query(BulkChallanGroup).filter(
-        BulkChallanGroup.bulk_group_id == bulk_group_id
-    ).first()
-    if not bulk_group:
-        raise HTTPException(status_code=404, detail="Bulk operation not found")
+    bulk_group = _lock_bulk_group(db, bulk_group_id)
     if bulk_group.status == "approved":
         raise HTTPException(status_code=400, detail="Bulk operation already approved")
     if bulk_group.status == "rejected":
         raise HTTPException(status_code=400, detail="Cannot approve rejected bulk operation")
     assert_not_self(db, current_user, bulk_group.member_id, "approve")
-    group_challan_ids = json.loads(bulk_group.challan_ids_list) if bulk_group.challan_ids_list else []
-    for group_challan in db.query(Challan).filter(Challan.id.in_(group_challan_ids)).all():
+    group_challan_ids, group_challans = _group_challans(db, bulk_group)
+    if not group_challans:
+        raise HTTPException(status_code=400, detail="This bulk payment has no months left to approve")
+    for group_challan in group_challans:
         assert_can_verify_entry(current_user, group_challan)
+    # Also covers groups an admin entered before entry_source was recorded on bulk payments.
+    if bulk_group.created_by_user_id is not None and int(bulk_group.created_by_user_id) == int(admin_user_id):
+        raise HTTPException(status_code=403, detail="Payments entered by an admin must be verified by a different admin.")
+    _assert_months_free(db, bulk_group, group_challans, "approve")
 
     try:
         challan_ids = group_challan_ids
@@ -843,9 +926,12 @@ def approve_bulk_challans(
             approved_at=bulk_group.approved_at,
             admin_notes=request.admin_notes,
         )
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise internal_error(e, "Bulk review") from e
 
 
 @router.patch("/bulk/{bulk_group_id}/reject", response_model=BulkChallanRejectResponse)
@@ -869,19 +955,18 @@ def reject_bulk_challans(
             status_code=422,
             detail=[{"loc": ["body", "action"], "msg": "Invalid action. Must be 'delete' or 'reject'", "type": "value_error"}],
         )
+    # Records are always kept: "delete" from older app versions is treated as "reject",
+    # so the member keeps the history and the reason.
+    request.action = "reject"
 
-    bulk_group = db.query(BulkChallanGroup).filter(
-        BulkChallanGroup.bulk_group_id == bulk_group_id
-    ).first()
-    if not bulk_group:
-        raise HTTPException(status_code=404, detail="Bulk operation not found")
+    bulk_group = _lock_bulk_group(db, bulk_group_id)
+    if bulk_group.status == "rejected":
+        raise HTTPException(status_code=400, detail="Bulk operation already rejected")
     assert_not_self(db, current_user, bulk_group.member_id, "reject")
 
     old_group_status = bulk_group.status
     was_approved = old_group_status == "approved"
     if was_approved:
-        if request.action == "delete":
-            raise HTTPException(status_code=400, detail="Approved bulk operations cannot be deleted; reject them instead")
         assert_different_actor(admin_user_id, bulk_group.approved_by_admin_id, "Rejection")
 
     try:
@@ -891,17 +976,14 @@ def reject_bulk_challans(
         for challan_id in challan_ids:
             challan = db.query(Challan).filter(Challan.id == challan_id).first()
             if challan:
-                if request.action == "delete":
-                    db.delete(challan)
-                else:  # action == "reject"
-                    if challan.status == ChallanStatus.APPROVED:
-                        challan.reversed_at = now
-                        challan.reversed_by_admin_id = admin_user_id
-                        challan.reversal_reason = reason
-                        challan.approved_by_admin_id = None
-                        challan.approved_at = None
-                    challan.status           = ChallanStatus.REJECTED
-                    challan.rejection_reason = request.reason
+                if challan.status == ChallanStatus.APPROVED:
+                    challan.reversed_at = now
+                    challan.reversed_by_admin_id = admin_user_id
+                    challan.reversal_reason = reason
+                    challan.approved_by_admin_id = None
+                    challan.approved_at = None
+                challan.status           = ChallanStatus.REJECTED
+                challan.rejection_reason = request.reason
 
         if was_approved:
             bulk_group.reversed_at = now
@@ -944,9 +1026,12 @@ def reject_bulk_challans(
             reason=request.reason,
             rejected_by=admin_user.email if admin_user else None,
         )
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise internal_error(e, "Bulk review") from e
 
 
 @router.patch("/bulk/{bulk_group_id}/revert")
@@ -963,16 +1048,20 @@ def revert_bulk_challans(
     admin_user_id = current_user.get("user_id")
     reason = require_reason(request.reason, "Reason", db)
 
-    bulk_group = db.query(BulkChallanGroup).filter(
-        BulkChallanGroup.bulk_group_id == bulk_group_id
-    ).first()
-    if not bulk_group:
-        raise HTTPException(status_code=404, detail="Bulk operation not found")
+    bulk_group = _lock_bulk_group(db, bulk_group_id)
     assert_not_self(db, current_user, bulk_group.member_id, "revert")
 
     old_status = bulk_group.status
     if old_status not in ("approved", "rejected"):
         raise HTTPException(status_code=400, detail="Only approved or rejected bulk operations can be reverted")
+    _, group_challans = _group_challans(db, bulk_group)
+    if not group_challans:
+        raise HTTPException(
+            status_code=400,
+            detail="The months of this bulk payment were deleted earlier, so it cannot be sent back for review.",
+        )
+    if old_status == "rejected":
+        _assert_months_free(db, bulk_group, group_challans, "send this payment back for review")
     was_approved = old_status == "approved"
     if was_approved:
         assert_different_actor(admin_user_id, bulk_group.approved_by_admin_id, "Reversal")
@@ -1026,6 +1115,9 @@ def revert_bulk_challans(
             "challan_ids": challan_ids,
             "reason": reason,
         }
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise internal_error(e, "Bulk review") from e

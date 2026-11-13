@@ -235,6 +235,8 @@ def test_admin_created_own_challan_is_never_auto_approved(db, world):
 
     admin1 = world["admin1"]
     member = world["members"]["admin1"]
+    member.monthly_amount = 500
+    db.commit()
     created = challan_routes.create_challan(
         ChallanCreate(member_id=member.id, type=ChallanType.MONTHLY, amount=500, month=current_month_business()),
         _ctx(admin1),

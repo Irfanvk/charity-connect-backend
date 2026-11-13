@@ -1,5 +1,17 @@
 # API Changelog
 
+## 2026-11-13
+
+### Bulk (multi-month) payments: amount, proof, review rules
+- **Amount:** for a member's own monthly payment the server always uses `members.monthly_amount`. `amount_per_month` (`POST /challans/bulk-create`) and `amount` (`POST /challans/`, `POST /challans/multi`) are ignored for those; a member with no fee gets 400 "Your monthly amount is not set yet". An admin entering a payment for someone else may still send a different amount (> 0).
+- **Who entered it:** a bulk payment an admin enters for another member is stored with `entry_source = "admin"`, so a different admin must approve it (403 otherwise). Approval is also refused to the admin who created the group, which covers groups saved before this change.
+- **Proof:** members must send `proof_file_id` (400 otherwise). An admin may leave it out only with `notes` as the reason (minimum reason length). A missing proof never becomes a `proof_url`; list and details return `has_proof: false`.
+- **Same month twice:** new payments are refused for a month that is approved or waiting (not only generated/pending). `PATCH /admin/bulk/{id}/approve` returns 409 if a month already has another payment, and `PATCH /admin/bulk/{id}/revert` of a rejected group returns 409 with `duplicate_months` if any month was submitted again.
+- **Reject keeps records:** `PATCH /admin/bulk/{id}/reject` always marks the months rejected and keeps the reason; `action: "delete"` (older apps) is treated as `"reject"`, and `action` now defaults to `"reject"`. Rejecting an already rejected group returns 400. Reverting a group whose months were deleted by an older version returns 400.
+- **Review list:** `GET /admin/bulk-pending-review` has no age limit by default (`days` is now optional, up to 3650) and takes `status=pending_approval|approved|rejected|all`. `pending` is always the number waiting; new `total` is the number matching `status`. Items add `member_code`, `created_by_user_id`, `created_by_name`, `entered_by_admin`, `has_proof`, `approved_at`, `approved_by_name`, `rejected_at`, `rejection_reason`, `reversal_reason`, `challans_missing`. `member_name` is the member's full name (was the username). `GET /admin/bulk/{id}` adds the same review fields plus `member_user_id`.
+- **Locking:** approve, reject and revert lock the group row (`SELECT ... FOR UPDATE`), so two admins acting at once cannot both succeed.
+- **Errors:** unexpected errors in bulk create and review return 500 "Something went wrong and nothing was changed. Please try again." and are logged; the raw exception is no longer sent. Error details that carry months now read as one sentence, e.g. "Challan already exists for one or more months: 2026-08, 2026-09"; the structured data stays in `detail[0].input`.
+
 ## 2026-11-12
 
 ### "Not paid yet" months and the monthly fee

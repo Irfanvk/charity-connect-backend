@@ -126,7 +126,7 @@ def _bulk(db, member, admin):
     group = BulkChallanGroup(
         bulk_group_id="BCH-0001", member_id=member.id, amount_per_month=500, total_amount=1500,
         proof_file_id="p", months_list=json.dumps(months), challan_ids_list="[]",
-        created_by_user_id=admin.id,
+        created_by_user_id=member.user_id,  # submitted by the member
     )
     db.add(group)
     db.flush()

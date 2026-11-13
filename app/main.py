@@ -164,6 +164,17 @@ async def shutdown_event() -> None:
         await FastAPILimiter.close()
 
 
+def _readable_msg(item: dict) -> str:
+    """A sentence for people, e.g. {"message": ..., "duplicate_months": [...]} -> "message: 2026-08, 2026-09"."""
+    msg = item.get("msg") or item.get("detail") or item.get("message")
+    if not isinstance(msg, str) or not msg:
+        return str(item)
+    months = item.get("duplicate_months") or item.get("invalid_months")
+    if isinstance(months, list) and months:
+        msg = f"{msg}: {', '.join(str(m) for m in months)}"
+    return msg
+
+
 def _ensure_detail_list(detail, default_loc=None, default_type="error"):
     loc = default_loc or ["request"]
 
@@ -175,7 +186,7 @@ def _ensure_detail_list(detail, default_loc=None, default_type="error"):
                     {
                         "type": item.get("type", default_type),
                         "loc": list(item.get("loc", loc)),
-                        "msg": item.get("msg") or item.get("detail") or str(item),
+                        "msg": _readable_msg(item),
                         "input": item.get("input"),
                     }
                 )
@@ -188,8 +199,9 @@ def _ensure_detail_list(detail, default_loc=None, default_type="error"):
             {
                 "type": detail.get("type", default_type),
                 "loc": list(detail.get("loc", loc)),
-                "msg": detail.get("msg") or detail.get("detail") or str(detail),
-                "input": detail.get("input"),
+                "msg": _readable_msg(detail),
+                # keep the structured data (e.g. duplicate_months) for apps that use it
+                "input": detail.get("input", {k: v for k, v in detail.items() if k not in ("msg", "message", "type", "loc")} or None),
             }
         ]
 

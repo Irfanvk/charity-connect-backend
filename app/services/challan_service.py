@@ -215,25 +215,23 @@ class ChallanService:
                     detail="Selected month is not currently payable for this member",
                 )
 
-            existing = db.query(Challan).filter(
-                Challan.member_id == member_id,
-                Challan.type == ChallanType.MONTHLY,
-                Challan.month == challan_data.month,
-                Challan.status.in_([ChallanStatus.GENERATED, ChallanStatus.PENDING]),
-            ).first()
-            
-            if existing:
+            from app.services.bulk_rules import monthly_amount_for, taken_months
+
+            if taken_months(db, member_id, [challan_data.month]):
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Challan already exists for this month",
                 )
-        
+            amount = monthly_amount_for(member, challan_data.amount, entry_source)
+        else:
+            amount = challan_data.amount
+
         new_challan = Challan(
             member_id=member_id,
             type=challan_data.type,
             month=challan_data.month,
             campaign_id=challan_data.campaign_id,
-            amount=challan_data.amount,
+            amount=amount,
             payment_method=normalize_payment_method(challan_data.payment_method),
             created_by_user_id=created_by_user_id,
             entry_source=entry_source,
@@ -309,16 +307,24 @@ class ChallanService:
                 detail=f"The following months are not available for this member: {invalid_months}",
             )
         
-        # Check for existing challans
-        existing = db.query(Challan).filter(
-            Challan.member_id == member_id,
-            Challan.type == challan_type,
-            Challan.month.in_(months),
-            Challan.status.in_([ChallanStatus.GENERATED, ChallanStatus.PENDING]),
-        ).all()
-        
-        if existing:
-            existing_months = [c.month for c in existing]
+        # Check for existing challans (paid, or waiting for review)
+        from app.services.bulk_rules import monthly_amount_for, taken_months
+
+        if len(set(months)) != len(months):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Each month can be selected only once")
+        if challan_type == ChallanType.MONTHLY:
+            existing_months = taken_months(db, member_id, months)
+            amount = monthly_amount_for(member, amount, entry_source)
+        else:
+            existing_months = sorted({
+                c.month for c in db.query(Challan).filter(
+                    Challan.member_id == member_id,
+                    Challan.type == challan_type,
+                    Challan.month.in_(months),
+                    Challan.status.in_([ChallanStatus.GENERATED, ChallanStatus.PENDING]),
+                ).all()
+            })
+        if existing_months:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Challans already exist for months: {existing_months}",
