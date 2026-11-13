@@ -31,6 +31,13 @@ jobs:
             echo "Restarting backend..."
             systemctl restart charity.service
 
+            # The Celery worker sends push notifications; restart it so it runs the new code too.
+            if systemctl list-unit-files charity-celery.service --no-legend | grep -q charity-celery; then
+              echo "Restarting notification worker..."
+              systemctl restart charity-celery.service
+              systemctl is-active charity-celery.service
+            fi
+
             echo "Checking service status..."
             systemctl --no-pager --full status charity.service
 
