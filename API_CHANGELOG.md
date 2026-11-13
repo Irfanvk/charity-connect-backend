@@ -2,6 +2,15 @@
 
 ## 2026-11-13
 
+### Members: country and city
+- New member fields `country` (ISO code from the phone country list: SA, AE, KW, OM, QA, BH, IN, CA, US, GB, AU, IQ, AZ, MA, ZA) and `city` (max 100). Added to `members` and `member_activations` at startup. Any other country returns 422 (400 on activation).
+- `POST /auth/register` and `POST /member-activations` accept `country` and `city`; they are optional for older app versions, and an approved activation copies them to the member.
+- New `PUT /members/me/location` `{country, city}` (both required, 400 otherwise): the signed-in member sets their own, no approval.
+- `PUT /members/{id}` and `POST /members/` accept `country` and `city`; an admin update can change but not clear them.
+- `GET /members/` (admins) takes `country` (ISO or `none` = not entered) and `phone_code` (`971`, `+971` or `AE`; `other` = no phone or a code not on the list). `search` also matches phone, WhatsApp number and city. Items and `MemberResponse` include `country` and `city`. The community directory does not.
+- `GET /members/` (admins) also takes `phone` (digits of the phone or WhatsApp number; spaces, dashes, `+` and a leading 0 are ignored; 400 without digits) and `registered` (`yes` = has an account and can sign in, `no` = not registered yet). `GET /members/summary` adds `registered_members`.
+- New `GET /members/stats/countries` (admins and superadmins): `{countries: [{country, name, count}], not_set, total}`.
+
 ### Push notifications: PEM private key now works
 - Phone/browser pop-ups failed for every device with "Could not deserialize key data": the VAPID private key setting resolves to PEM text, which pywebpush does not read. The backend now loads PEM (raw, base64-encoded or from a file) and raw base64url keys itself before sending. No API or setting change; existing subscriptions keep working, nobody needs to re-subscribe.
 

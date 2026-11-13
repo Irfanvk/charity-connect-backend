@@ -4,6 +4,8 @@ from typing import Optional, List, Any, Dict
 from datetime import date, datetime
 from enum import Enum
 
+from app.utils.countries import normalize_city, normalize_country
+
 
 class UserRole(str, Enum):
     SUPERADMIN = "superadmin"
@@ -84,7 +86,19 @@ class UserRegisterWithInvite(BaseModel):
     email: Optional[str] = None
     phone: Optional[str] = None
     address: Optional[str] = None
+    country: Optional[str] = None
+    city: Optional[str] = None
     monthly_amount: Optional[float] = 0.0
+
+    @field_validator("country", mode="before")
+    @classmethod
+    def validate_country(cls, v):
+        return normalize_country(v)
+
+    @field_validator("city", mode="before")
+    @classmethod
+    def validate_city(cls, v):
+        return normalize_city(v)
 
     @field_validator("email", mode="before")
     @classmethod
@@ -210,8 +224,19 @@ class MemberCreate(BaseModel):
     address: Optional[str] = None
     join_date: Optional[datetime] = None
     status: Optional[str] = "active"
+    country: Optional[str] = None
     city: Optional[str] = None
     notes: Optional[str] = None
+
+    @field_validator("country", mode="before")
+    @classmethod
+    def validate_country(cls, v):
+        return normalize_country(v)
+
+    @field_validator("city", mode="before")
+    @classmethod
+    def validate_city(cls, v):
+        return normalize_city(v)
 
 
 class MemberUpdate(BaseModel):
@@ -225,8 +250,19 @@ class MemberUpdate(BaseModel):
     address: Optional[str] = None
     status: Optional[str] = None
     join_date: Optional[datetime] = None
+    country: Optional[str] = None
     city: Optional[str] = None
     notes: Optional[str] = None
+
+    @field_validator("country", mode="before")
+    @classmethod
+    def validate_country(cls, v):
+        return normalize_country(v)
+
+    @field_validator("city", mode="before")
+    @classmethod
+    def validate_city(cls, v):
+        return normalize_city(v)
 
     @field_validator("monthly_amount")
     @classmethod
@@ -234,6 +270,22 @@ class MemberUpdate(BaseModel):
         if value is not None and (value < 50 or value > 10000):
             raise ValueError("Monthly amount must be between ₹50 and ₹10,000")
         return value
+
+
+class MemberLocationUpdate(BaseModel):
+    """A member's own country and city (both required; checked in the route for a clear message)."""
+    country: Optional[str] = None
+    city: Optional[str] = None
+
+    @field_validator("country", mode="before")
+    @classmethod
+    def validate_country(cls, v):
+        return normalize_country(v)
+
+    @field_validator("city", mode="before")
+    @classmethod
+    def validate_city(cls, v):
+        return normalize_city(v)
 
 
 class MemberResponse(BaseModel):
@@ -247,6 +299,8 @@ class MemberResponse(BaseModel):
     email: Optional[str] = None
     monthly_amount: float
     address: Optional[str]
+    country: Optional[str] = None
+    city: Optional[str] = None
     join_date: datetime
     status: str
     created_at: datetime
@@ -268,6 +322,7 @@ class MemberImportSummary(BaseModel):
 class MemberSummaryResponse(BaseModel):
     total_members: int
     active_members: int
+    registered_members: int = 0
 
 
 class MemberCommunityView(BaseModel):

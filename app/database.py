@@ -128,6 +128,17 @@ def _ensure_payment_reminder_columns(connection, inspector) -> None:
     })
 
 
+def _ensure_member_location_columns(connection, inspector) -> None:
+    _add_missing_columns(connection, inspector, "members", {
+        "country": "VARCHAR(2)",
+        "city": "VARCHAR(100)",
+    })
+    _add_missing_columns(connection, inspector, "member_activations", {
+        "country": "VARCHAR(2)",
+        "city": "VARCHAR(100)",
+    })
+
+
 def ensure_runtime_schema() -> None:
     """Apply additive schema updates for existing deployments."""
     with engine.begin() as connection:
@@ -162,6 +173,7 @@ def ensure_runtime_schema() -> None:
         _ensure_notification_ux_columns(connection, inspector)
         _ensure_member_activation_columns(connection, inspector)
         _ensure_payment_reminder_columns(connection, inspector)
+        _ensure_member_location_columns(connection, inspector)
 
         if not inspector.has_table("campaigns"):
             return

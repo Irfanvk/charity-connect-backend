@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, status, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
 from app.database import get_db, SessionLocal
-from app.schemas import MemberResponse, MemberUpdate, MemberCreate, MemberImportSummary, MemberSummaryResponse, MemberCommunityView, ImportJobCreateResponse, ImportJobStatusResponse
+from app.schemas import MemberResponse, MemberUpdate, MemberLocationUpdate, MemberCreate, MemberImportSummary, MemberSummaryResponse, MemberCommunityView, ImportJobCreateResponse, ImportJobStatusResponse
 from app.models.models import Member as MemberModel
 from app.services import MemberService
 from app.services.import_job_service import ImportJobService
@@ -51,6 +51,10 @@ def get_members(
     status: str | None = Query(default=None),   # <-- ADD THIS
     sort_by: str = Query(default="full_name"),
     sort_order: str = Query(default="asc"),
+    country: str | None = Query(default=None, description="ISO code where the member lives, or 'none'"),
+    phone_code: str | None = Query(default=None, description="Phone country code, e.g. 971 or +971, or 'other'"),
+    phone: str | None = Query(default=None, description="Digits of the phone or WhatsApp number"),
+    registered: str | None = Query(default=None, description="yes = has an account, no = not registered yet"),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -68,6 +72,10 @@ def get_members(
             status=status,
             sort_by=sort_by,
             sort_order=sort_order,
+            country=country,
+            phone_code=phone_code,
+            phone=phone,
+            registered=registered,
         )
     else:
         member = MemberService.get_member_for_user(db, current_user["user_id"])
@@ -84,6 +92,39 @@ def get_my_profile(
     """Get current user's member profile."""
     member = MemberService.get_member_for_user(db, current_user["user_id"])
     return member
+
+
+@router.put("/me/location", response_model=MemberResponse)
+def update_my_location(
+    payload: MemberLocationUpdate,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Set the signed-in member's country and city. Both are required for every member."""
+    if not payload.country:
+        raise HTTPException(status_code=400, detail="Please choose the country you live in.")
+    if not payload.city:
+        raise HTTPException(status_code=400, detail="Please enter your city.")
+    member = MemberService.update_my_location(db, current_user["user_id"], payload.country, payload.city)
+    log_audit(
+        db,
+        user_id=current_user.get("user_id"),
+        action="member_location_update",
+        entity_type="Member",
+        entity_id=member.id,
+        new_values={"country": member.country, "city": member.city},
+        auto_commit=True,
+    )
+    return member
+
+
+@router.get("/stats/countries")
+def get_country_breakdown(
+    _current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Member counts per country they live in (admins and superadmins)."""
+    return MemberService.get_country_breakdown(db)
 
 
 @router.get("/code/{member_code}", response_model=MemberResponse)
