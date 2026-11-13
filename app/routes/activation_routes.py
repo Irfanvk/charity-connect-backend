@@ -21,6 +21,9 @@ class MemberActivationCreate(BaseModel):
     username: str = Field(..., min_length=1, max_length=30)
     password: str = Field(..., min_length=1, max_length=128)
     last_paid_month: Optional[str] = Field(default=None, max_length=7)
+    # Optional so older app versions still work; the app asks for them again after sign-in.
+    country: Optional[str] = Field(default=None, max_length=2)
+    city: Optional[str] = Field(default=None, max_length=100)
 
 
 class MemberActivationApprove(BaseModel):

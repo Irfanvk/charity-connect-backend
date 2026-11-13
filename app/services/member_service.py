@@ -312,8 +312,13 @@ class MemberService:
         status: Optional[str] = None,
         sort_by: str = "full_name",
         sort_order: str = "asc",
+        country: Optional[str] = None,
+        phone_code: Optional[str] = None,
+        phone: Optional[str] = None,
+        registered: Optional[str] = None,
     ):
-        from sqlalchemy import asc, desc
+        from sqlalchemy import asc, desc, func, or_
+        from app.utils.countries import COUNTRIES, NOT_SET, dial_code_digits
 
         query = db.query(Member).join(User, Member.user_id == User.id)
 
@@ -324,8 +329,52 @@ class MemberService:
                 Member.full_name.ilike(term) |
                 User.username.ilike(term) |
                 User.email.ilike(term) |
-                Member.member_code.ilike(term)
+                Member.member_code.ilike(term) |
+                Member.city.ilike(term) |
+                User.phone.ilike(term) |
+                User.whatsapp_phone.ilike(term)
             )
+
+        # Phone number: digits only, so "050 123 4567", "+971-50..." and "501234567" all match.
+        if phone:
+            digits = re.sub(r"\D", "", phone).lstrip("0")
+            if not digits:
+                raise HTTPException(status_code=400, detail="Enter some digits of the phone number")
+            like = f"%{digits}%"
+            def bare(col):
+                return func.replace(func.replace(func.replace(col, " ", ""), "-", ""), "+", "")
+            query = query.filter(or_(bare(User.phone).like(like), bare(User.whatsapp_phone).like(like)))
+
+        # Registered = has signed up / activated their account (can sign in).
+        if registered:
+            flag = registered.strip().lower()
+            if flag in ("yes", "true", "1", "registered"):
+                query = query.filter(User.is_active.is_(True))
+            elif flag in ("no", "false", "0", "not_registered"):
+                query = query.filter(or_(User.is_active.is_(False), User.is_active.is_(None)))
+            else:
+                raise HTTPException(status_code=400, detail="registered must be yes or no")
+
+        # Country the member lives in ("none" = not entered yet)
+        if country:
+            code = country.strip().upper()
+            if code == NOT_SET.upper():
+                query = query.filter(or_(Member.country.is_(None), Member.country == ""))
+            elif code in COUNTRIES:
+                query = query.filter(Member.country == code)
+            else:
+                raise HTTPException(status_code=400, detail="Unknown country")
+
+        # Country code of the phone number (+971, 971 or AE; "other" = none of the listed codes)
+        if phone_code:
+            if phone_code.strip().lower() == "other":
+                known = {d for _, d in COUNTRIES.values()}
+                query = query.filter(or_(User.phone.is_(None), ~or_(*[User.phone.like(f"+{d}%") for d in known])))
+            else:
+                digits = dial_code_digits(phone_code)
+                if not digits:
+                    raise HTTPException(status_code=400, detail="Unknown phone country code")
+                query = query.filter(User.phone.like(f"+{digits}%"))
 
         # ✅ ONLY ACTIVE MEMBERS (important for dropdown)
         if status:    
@@ -360,6 +409,8 @@ class MemberService:
                     "phone": m.phone,
                     "email": m.email,
                     "address": m.address,
+                    "country": m.country,
+                    "city": m.city,
                     "status": m.status,
                     "is_active": m.user.is_active if m.user else False,
                     "join_date": m.join_date,
@@ -376,10 +427,42 @@ class MemberService:
     def get_members_summary(db: Session) -> dict:
         total_members = db.query(Member).count()
         active_members = db.query(Member).filter(Member.status == "active").count()
+        registered_members = (
+            db.query(Member).join(User, Member.user_id == User.id).filter(User.is_active.is_(True)).count()
+        )
         return {
+            "registered_members": int(registered_members),
             "total_members": int(total_members),
             "active_members": int(active_members),
         }
+
+    @staticmethod
+    def get_country_breakdown(db: Session) -> dict:
+        """Member counts per country they live in (admin dashboard)."""
+        from sqlalchemy import func
+        from app.utils.countries import COUNTRIES
+
+        rows = db.query(Member.country, func.count(Member.id)).group_by(Member.country).all()
+        countries = []
+        not_set = 0
+        for code, count in rows:
+            if code and code in COUNTRIES:
+                countries.append({"country": code, "name": COUNTRIES[code][0], "count": int(count)})
+            else:
+                not_set += int(count)
+        countries.sort(key=lambda c: (-c["count"], c["name"]))
+        return {"countries": countries, "not_set": not_set, "total": sum(c["count"] for c in countries) + not_set}
+
+    @staticmethod
+    def update_my_location(db: Session, user_id: int, country: str, city: str):
+        member = db.query(Member).filter(Member.user_id == user_id).first()
+        if not member:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Member profile not found")
+        member.country = country
+        member.city = city
+        db.commit()
+        db.refresh(member)
+        return member
 
     @staticmethod
     def create_member(db: Session, member_data: MemberCreate):
@@ -422,6 +505,8 @@ class MemberService:
                 member_code=member_code,
                 monthly_amount=member_data.monthly_amount,
                 address=member_data.address,
+                country=member_data.country,
+                city=member_data.city,
                 status=member_data.status or "active",
                 join_date=member_data.join_date,
                 full_name=member_data.full_name,
@@ -504,6 +589,8 @@ class MemberService:
             member_code=member_code,
             monthly_amount=member_data.monthly_amount,
             address=member_data.address,
+            country=member_data.country,
+            city=member_data.city,
             status=member_data.status or "active",
             join_date=member_data.join_date,
             full_name=full_name,
@@ -575,6 +662,10 @@ class MemberService:
 
         for key in ("monthly_amount", "address", "status", "join_date"):
             if key in update_fields and update_fields[key] is not None:
+                setattr(member, key, update_fields[key])
+        for key in ("country", "city"):
+            # An admin may correct these but not clear them: every member must have both.
+            if update_fields.get(key):
                 setattr(member, key, update_fields[key])
 
         if update_fields.get("monthly_amount") is not None:

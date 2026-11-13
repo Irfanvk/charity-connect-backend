@@ -104,6 +104,8 @@ class Member(Base):
     member_code = Column(String(50), unique=True, nullable=False, index=True)
     monthly_amount = Column(Float, default=0.0)
     address = Column(Text, nullable=True)
+    country = Column(String(2), nullable=True, index=True)  # ISO code, see app/utils/countries.py
+    city = Column(String(100), nullable=True)
     join_date = Column(DateTime, server_default=func.now())
     status = Column(String(50), default="active")  # active, inactive, suspended
     notes = Column(Text, nullable=True)
@@ -167,6 +169,8 @@ class MemberActivation(Base):
     phone = Column(String(20), nullable=False)
     email = Column(String(255), nullable=True)
     whatsapp_phone = Column(String(20), nullable=True)
+    country = Column(String(2), nullable=True)
+    city = Column(String(100), nullable=True)
     last_paid_month = Column(String(7), nullable=True)  # YYYY-MM, optional proof
     status = Column(String(20), nullable=False, default="pending", index=True)  # pending | approved | rejected
     rejection_reason = Column(Text, nullable=True)

@@ -25,6 +25,7 @@ from app.models.models import ChallanStatus, ChallanType
 from app.services.notification_service import NotificationService
 from app.services.settings_service import get_setting
 from app.utils import hash_password, verify_password
+from app.utils.countries import normalize_city, normalize_country
 from app.utils.message_format import with_islamic_greeting
 
 logger = logging.getLogger(__name__)
@@ -166,6 +167,7 @@ def _contact_conflicts(db: Session, exclude_user_id: int | None, *, username=Non
 
 # ── Service ────────────────────────────────────────────────────────────────
 
+
 class MemberActivationService:
 
     @staticmethod
@@ -185,6 +187,11 @@ class MemberActivationService:
         email = None if payload.no_email else normalize_email(payload.email)
         whatsapp = normalize_phone(payload.whatsapp_phone)
         last_paid = (payload.last_paid_month or "").strip() or None
+        try:
+            country = normalize_country(getattr(payload, "country", None))
+            city = normalize_city(getattr(payload, "city", None))
+        except ValueError as exc:
+            raise _bad_request(str(exc))
 
         if len(full_name) < 2:
             raise _bad_request("Please enter your full name.")
@@ -250,6 +257,8 @@ class MemberActivationService:
         item.email = email
         item.whatsapp_phone = whatsapp
         item.last_paid_month = last_paid
+        item.country = country
+        item.city = city
         item.source_ip = (source_ip or "")[:64] or None
         if is_new:
             db.add(item)
@@ -405,6 +414,8 @@ class MemberActivationService:
             "email": item.email,
             "whatsapp_phone": item.whatsapp_phone,
             "last_paid_month": item.last_paid_month,
+            "country": item.country,
+            "city": item.city,
             "rejection_reason": item.rejection_reason,
             "admin_notes": item.admin_notes,
             "reviewed_by_name": (item.reviewed_by.full_name or item.reviewed_by.username) if item.reviewed_by else None,
@@ -486,6 +497,10 @@ class MemberActivationService:
             user.whatsapp_phone = item.whatsapp_phone
         if not user.full_name:
             user.full_name = item.full_name
+        if item.country:
+            member.country = item.country
+        if item.city:
+            member.city = item.city
         user.is_active = True
         user.welcome_pending = True
 

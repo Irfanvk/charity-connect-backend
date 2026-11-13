@@ -257,6 +257,8 @@ class AuthService:
             member_code=next_member_code,
             monthly_amount=registration.monthly_amount or 0.0,
             address=registration.address,
+            country=registration.country,
+            city=registration.city,
             full_name=registration.full_name or normalized_username,
         )
         
