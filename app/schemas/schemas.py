@@ -874,13 +874,25 @@ class BulkChallanListItem(BaseModel):
     created_at: datetime
     created_by_email: Optional[str] = None
     notes: Optional[str] = None
+    member_code: Optional[str] = None
+    created_by_user_id: Optional[int] = None
+    created_by_name: Optional[str] = None
+    entered_by_admin: bool = False
+    has_proof: bool = True
+    rejected_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    reversal_reason: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    approved_by_name: Optional[str] = None
+    challans_missing: bool = False
 
     class Config:
         from_attributes = True
 
 
 class BulkChallanListResponse(BaseModel):
-    pending: int
+    pending: int  # always the number waiting for review
+    total: Optional[int] = None  # number matching the requested status
     bulk_operations: list[BulkChallanListItem]
 
     class Config:
@@ -909,7 +921,7 @@ class BulkChallanApproveResponse(BaseModel):
 
 class BulkChallanReject(BaseModel):
     reason: str
-    action: str  # "delete" removes challan records; "reject" marks them rejected and keeps them
+    action: str = "reject"  # "reject" keeps the records; "delete" (older apps) is treated the same
 
 
 class BulkChallanRejectResponse(BaseModel):
@@ -929,7 +941,16 @@ class BulkChallanDetails(BaseModel):
     bulk_group_id: str
     member_id: int
     member_name: Optional[str] = None
+    member_code: Optional[str] = None
+    member_user_id: Optional[int] = None
     member_email: Optional[str] = None
+    created_by_user_id: Optional[int] = None
+    created_by_name: Optional[str] = None
+    entered_by_admin: bool = False
+    has_proof: bool = True
+    rejected_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
+    reversal_reason: Optional[str] = None
     months: list[str]
     total_amount: float
     amount_per_month: float

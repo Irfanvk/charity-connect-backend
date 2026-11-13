@@ -23,6 +23,8 @@ from app.models.models import (
 from app.utils.auth import get_current_user
 from app.services.challan_service import ChallanService
 from app.services.notification_service import NotificationService
+from app.services.bulk_rules import internal_error, monthly_amount_for, taken_months
+from app.utils.permissions import is_own_member_record, require_reason
 
 
 router = APIRouter(prefix="/challans", tags=["bulk-challans"])
@@ -52,13 +54,6 @@ def bulk_create_challans(
         raise HTTPException(
             status_code=422,
             detail=[{"loc": ["body", "months"], "msg": "Months list cannot be empty", "type": "value_error"}]
-        )
-    
-    # Validate amount
-    if request.amount_per_month <= 0:
-        raise HTTPException(
-            status_code=422,
-            detail=[{"loc": ["body", "amount_per_month"], "msg": "Amount must be greater than 0", "type": "value_error"}]
         )
     
     # Validate months format and check for duplicates
@@ -111,6 +106,15 @@ def bulk_create_challans(
             raise HTTPException(status_code=404, detail="Member not found")
         member_id = int(request.member_id)
     
+    # Who entered it decides the rules: a member pays their own fee and must attach proof;
+    # an admin entering it for someone else is "admin" (a second admin must approve it).
+    entry_source = (
+        "admin"
+        if current_role != UserRole.MEMBER.value and not is_own_member_record(db, current_user, member_id)
+        else "self"
+    )
+    amount_per_month = monthly_amount_for(member, request.amount_per_month, entry_source)
+
     # Check member is active
     if str(member.status) != "active":
         raise HTTPException(
@@ -138,18 +142,8 @@ def bulk_create_challans(
             },
         )
 
-    existing_monthly = (
-        db.query(Challan.month)
-        .filter(
-            Challan.member_id == member_id,
-            Challan.type == ChallanType.MONTHLY,
-            Challan.month.in_(list(months_set)),
-            Challan.status != ChallanStatus.REJECTED,
-        )
-        .all()
-    )
-    if existing_monthly:
-        duplicated_months = sorted({row[0] for row in existing_monthly if row[0]})
+    duplicated_months = taken_months(db, member_id, months_set)
+    if duplicated_months:
         raise HTTPException(
             status_code=409,
             detail={
@@ -157,31 +151,36 @@ def bulk_create_challans(
                 "duplicate_months": duplicated_months,
             },
         )
-    
+
     proof_file_id = (request.proof_file_id or "").strip()
+    notes = request.notes
     if not proof_file_id:
-        # Keep DB compatibility (column is non-nullable) while allowing proof-optional bulk creation.
+        if entry_source != "admin":
+            raise HTTPException(status_code=400, detail="Please attach the payment screenshot or receipt.")
+        # Admin entering e.g. cash with no receipt: the reason is required and shown to the reviewer.
+        notes = require_reason(request.notes, "Reason for no proof", db)
+        # The column is non-nullable; this placeholder is never shown as a proof link.
         proof_file_id = f"no-proof:{uuid.uuid4()}"
 
     # Create parent bulk group first so challans can safely reference it.
     # Use a temporary unique placeholder so we can flush and get the auto-increment id,
     # then replace it with the human-readable BCH-XXXX format.
     challan_ids = []
-    total_amount = request.amount_per_month * len(request.months)
+    total_amount = amount_per_month * len(request.months)
 
     try:
         temp_id = f"tmp-{uuid.uuid4()}"
         bulk_group = BulkChallanGroup(
             bulk_group_id=temp_id,
             member_id=member_id,
-            amount_per_month=request.amount_per_month,
+            amount_per_month=amount_per_month,
             total_amount=total_amount,
             proof_file_id=proof_file_id,
             status="pending_approval",
             months_list=json.dumps(request.months),
             challan_ids_list=json.dumps(challan_ids),
             created_by_user_id=current_user_id,
-            notes=request.notes,
+            notes=notes,
             created_at=datetime.utcnow(),
         )
         db.add(bulk_group)
@@ -197,10 +196,10 @@ def bulk_create_challans(
                 member_id=member_id,
                 type=ChallanType.MONTHLY,
                 month=month,
-                amount=request.amount_per_month,
+                amount=amount_per_month,
                 status=ChallanStatus.PENDING,
                 bulk_group_id=bulk_group_id,
-                entry_source="self",
+                entry_source=entry_source,
                 created_by_user_id=current_user_id,
                 proof_path=None,  # Will be set when proof is provided
                 created_at=datetime.utcnow(),
@@ -221,6 +220,8 @@ def bulk_create_challans(
                 "bulk_group_id": bulk_group_id,
                 "months": request.months,
                 "total_amount": total_amount,
+                "amount_per_month": amount_per_month,
+                "entry_source": entry_source,
                 "challan_ids": challan_ids
             })
         )
@@ -244,8 +245,11 @@ def bulk_create_challans(
             proof_file_id=proof_file_id,
             status="pending_approval",
             created_at=created_at,
-            notes=request.notes,
+            notes=notes,
         )
+    except HTTPException:
+        db.rollback()
+        raise
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=str(e)) from e
+        raise internal_error(e, "Bulk challan create") from e
