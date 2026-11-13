@@ -2,6 +2,9 @@
 
 ## 2026-11-13
 
+### Payable months: start month without a join date
+- `GET /challans/payable-months` (and the checks that use it): a member with no `join_date` now starts from the platform start, Aug 2024, instead of 12 months ago. Members with a join date are unchanged: their join month (never before Aug 2024).
+
 ### Bulk (multi-month) payments: amount, proof, review rules
 - **Amount:** for a member's own monthly payment the server always uses `members.monthly_amount`. `amount_per_month` (`POST /challans/bulk-create`) and `amount` (`POST /challans/`, `POST /challans/multi`) are ignored for those; a member with no fee gets 400 "Your monthly amount is not set yet". An admin entering a payment for someone else may still send a different amount (> 0).
 - **Who entered it:** a bulk payment an admin enters for another member is stored with `entry_source = "admin"`, so a different admin must approve it (403 otherwise). Approval is also refused to the admin who created the group, which covers groups saved before this change.

@@ -104,10 +104,8 @@ class ChallanService:
         # --- Determine start month ---
         # Priority:
         #   1. Explicit from_month query param (frontend picker, e.g. "2026-01")
-        #   2. member.join_date — only trustworthy when it is strictly in the past
-        #      (if join_date == today the member was just created with the default,
-        #       so we fall back to 12 months ago to avoid an empty list)
-        #   3. Default: 12 months ago
+        #   2. member.join_date month (a join date in the future counts as this month)
+        #   3. No join date: the platform start (Aug 2024)
         if from_month:
             try:
                 parsed = datetime.strptime(from_month, "%Y-%m").date().replace(day=1)
@@ -119,8 +117,8 @@ class ChallanService:
             # Trust join_date only when it pre-dates today
             start_month = jd if jd < today else today
         else:
-            # No join_date at all — fall back to 12 months ago
-            start_month = ChallanService._add_months(today, -12)
+            # No join date known: membership counts from the platform start.
+            start_month = ChallanService.PLATFORM_START_MONTH
 
         if start_month < ChallanService.PLATFORM_START_MONTH:
             start_month = ChallanService.PLATFORM_START_MONTH
