@@ -149,21 +149,14 @@ _ENTRIES = [
            public=True, max_len=20, fmt="phone"),
     _entry("support_email", "string", "", "Support email", "", "Organisation & payment details",
            public=True, max_len=120, fmt="email"),
-    _entry("payment_upi_id", "string", "", "UPI ID", "", "Organisation & payment details",
-           public=True, max_len=80),
-    _entry("payment_upi_qr_image_url", "image", "", "UPI QR image", "Image upload, up to 1 MB.",
-           "Organisation & payment details", public=True),
-    _entry("payment_bank_name", "string", "", "Bank name", "", "Organisation & payment details",
-           public=True, max_len=80),
-    _entry("payment_account_name", "string", "", "Account name", "", "Organisation & payment details",
-           public=True, max_len=80),
-    _entry("payment_account_number_masked_display", "string", "", "Account number (masked)",
-           "Type it as it should appear, e.g. XXXX XXXX 4417.", "Organisation & payment details",
-           public=True, max_len=40),
-    _entry("payment_ifsc_or_iban", "string", "", "IFSC / IBAN", "", "Organisation & payment details",
-           public=True, max_len=40),
+    # The bank account, UPI ID and QR are fixed in the web app code (src/config/bankDetails.js)
+    # on purpose: they must never be editable here, or a stolen admin login could redirect payments.
+    _entry("bank_details_enabled", "bool", True, "Show bank details",
+           "Show the official bank account and UPI QR to signed-in users. The details themselves "
+           "are fixed in the app and cannot be edited here.", "Organisation & payment details",
+           public=True),
     _entry("payment_instructions_text", "string", "", "Payment instructions",
-           "Plain text with line breaks, up to 500 characters.", "Organisation & payment details",
+           "Shown under the official bank details as a note from the admins. Plain text, up to 500 characters.", "Organisation & payment details",
            public=True, max_len=500, multiline=True),
     # Message wording (in-app notifications and share links only)
     _entry("msg_monthly_reminder", "template",
