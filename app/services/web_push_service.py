@@ -14,6 +14,11 @@ except Exception:
     webpush = None
     WebPushException = Exception
 
+try:
+    from py_vapid import Vapid01
+except Exception:
+    Vapid01 = None
+
 logger = logging.getLogger(__name__)
 
 # Push services answer these when the subscription is gone or was made for another key.
@@ -59,6 +64,33 @@ def device_type_from_user_agent(user_agent: str | None) -> str:
     if "android" in ua:
         return "android"
     return "desktop"
+
+
+_vapid_cache: dict = {}
+
+
+def load_vapid_key(value: str):
+    """Turn the configured private key into a key object pywebpush can sign with.
+
+    pywebpush only reads a raw/DER base64url string or a file path. Our setting resolves
+    to PEM text, which pywebpush rejects ("Could not deserialize key data"), so PEM is
+    loaded here. Returns None when the value cannot be read as a key.
+    """
+    if not value or Vapid01 is None:
+        return None
+    if value in _vapid_cache:
+        return _vapid_cache[value]
+    key = None
+    try:
+        if value.lstrip().startswith("-----BEGIN"):
+            key = Vapid01.from_pem(value.strip().encode("utf-8"))
+        else:
+            key = Vapid01.from_string(value.strip())
+    except Exception as exc:
+        logger.error("VAPID private key could not be read: %s", exc.__class__.__name__)
+        key = None
+    _vapid_cache[value] = key
+    return key
 
 
 class WebPushService:
@@ -172,7 +204,8 @@ class WebPushService:
                     "keys": {"p256dh": sub.p256dh, "auth": sub.auth},
                 },
                 data=payload,
-                vapid_private_key=settings.web_push_private_key_value,
+                vapid_private_key=load_vapid_key(settings.web_push_private_key_value)
+                or settings.web_push_private_key_value,
                 vapid_claims={"sub": settings.WEB_PUSH_SUBJECT},
                 ttl=120,
             )
