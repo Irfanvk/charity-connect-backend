@@ -2,6 +2,9 @@
 
 ## 2026-11-13
 
+### Push notifications: PEM private key now works
+- Phone/browser pop-ups failed for every device with "Could not deserialize key data": the VAPID private key setting resolves to PEM text, which pywebpush does not read. The backend now loads PEM (raw, base64-encoded or from a file) and raw base64url keys itself before sending. No API or setting change; existing subscriptions keep working, nobody needs to re-subscribe.
+
 ### Payable months: start month without a join date
 - `GET /challans/payable-months` (and the checks that use it): a member with no `join_date` now starts from the platform start, Aug 2024, instead of 12 months ago. Members with a join date are unchanged: their join month (never before Aug 2024).
 
