@@ -487,6 +487,67 @@ class AuditLog(Base):
         return None
 
 
+class ReliefClaim(Base):
+    """Relief fund claim for a GCC member: death, serious illness or retirement (see relief_service)."""
+    __tablename__ = "relief_claims"
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id"), nullable=False, index=True)
+    reason = Column(String(20), nullable=False)               # death | illness | retirement
+    illness_type = Column(String(30), nullable=True)          # heart_attack | kidney_failure | cancer | stroke
+    details = Column(Text, nullable=True)
+    amount = Column(Float, nullable=False)
+    status = Column(String(20), nullable=False, default="pending", index=True)  # pending | approved | rejected | paid | cancelled
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+
+    receiver_name = Column(String(255), nullable=False)
+    receiver_relation = Column(String(50), nullable=True)     # self | wife | son | ...
+    receiver_phone = Column(String(30), nullable=True)
+    receiver_bank_account = Column(String(40), nullable=True)
+    receiver_ifsc = Column(String(20), nullable=True)
+    receiver_bank_name = Column(String(120), nullable=True)
+    receiver_upi = Column(String(120), nullable=True)
+
+    gulf_from_year = Column(Integer, nullable=True)
+    gulf_to_year = Column(Integer, nullable=True)
+    documents = Column(Text, nullable=False, default="[]")      # JSON [{kind, url, name}]
+    eligibility = Column(Text, nullable=True)                  # JSON snapshot of the checks when created
+
+    rejected_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+    fund_utilization_id = Column(Integer, ForeignKey("fund_utilizations.id"), nullable=True)
+    paid_on = Column(DateTime, nullable=True)
+    paid_method = Column(String(30), nullable=True)
+    paid_reference = Column(String(120), nullable=True)
+    paid_receipt_url = Column(String(500), nullable=True)
+    paid_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    cancelled_reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    member = relationship("Member", foreign_keys=[member_id])
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    approvals = relationship("ReliefApproval", back_populates="claim", cascade="all, delete-orphan",
+                             order_by="ReliefApproval.created_at")
+
+
+class ReliefApproval(Base):
+    """One admin's decision on a relief claim; one per admin per claim."""
+    __tablename__ = "relief_approvals"
+    __table_args__ = (UniqueConstraint("claim_id", "admin_user_id", name="uq_relief_approval_admin"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    claim_id = Column(Integer, ForeignKey("relief_claims.id"), nullable=False, index=True)
+    admin_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    decision = Column(String(10), nullable=False)               # approve | reject
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    claim = relationship("ReliefClaim", back_populates="approvals")
+    admin = relationship("User", foreign_keys=[admin_user_id])
+
+
 class AppSetting(Base):
     """Key-value store for application-level settings managed by admins."""
     __tablename__ = "app_settings"

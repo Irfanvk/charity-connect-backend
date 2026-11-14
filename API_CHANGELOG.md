@@ -2,6 +2,23 @@
 
 ## 2026-11-14
 
+### Relief fund (new tables `relief_claims`, `relief_approvals`, created at startup)
+- Settings (category "Relief fund"): `relief_amount_death` 50000, `relief_amount_illness` 40000, `relief_amount_retirement` 40000, `relief_required_approvals` 3, `relief_max_unpaid_months` 3, `relief_min_membership_months` 6, `relief_min_gulf_years` 10.
+- `GET /relief/me` (any signed-in user): `{scheme, eligibility, claims}`; claims without receiver or bank details.
+- Admins: `GET /relief/eligibility/{member_id}?reason&gulf_from_year&gulf_to_year`, `GET /relief/claims?status=pending|approved|rejected|paid|cancelled|to_decide&search`, `GET /relief/claims/{id}`, `POST /relief/claims`, `POST /relief/claims/{id}/approve {note}`, `/reject {reason}`, `/paid {paid_on, method, reference, receipt_url}`, `/cancel {reason}` (creator or superadmin, pending only).
+- Eligibility checks are warnings stored on the claim (`eligibility.checks`, `warnings`): unpaid months (overdue, not this month) at most the limit, months as member (death and illness), Aug 2024 – Mar 2025 paid, lives abroad (not for retirement), Gulf service years (retirement).
+- Hard rules: required documents per reason (`application` + `death_certificate` / `medical_report` / `gulf_proof`), amount not below the default, one active (pending, approved or paid) claim per member and reason (409), N approvals from admins or superadmins other than the creator, one per admin; any rejection rejects. The last approval creates an approved `FundUtilization` (category "Relief") linked by `fund_utilization_id`. Every step is in Audit Logs (`relief_claim_*`) and notifies the other admins / creator ("Fund approvals") and the member ("Payment updates").
+
+### Paying ahead: up to 12 months
+- Setting `upcoming_months_payable` ("Advance months payable") now defaults to **12** (was 3; still 0–12). A value a superadmin saved before is kept. `GET /challans/payable-months?include_upcoming=true&upcoming_count=N` returns N future months, capped by the setting.
+
+### Reports API (admins and superadmins)
+Month states everywhere: `paid` (approved), `waiting` (handed in: proof, bulk payment or recorded by an admin, not yet approved), `not_paid` (nothing handed in, a generated or imported "pending" challan, or only rejected ones). Months count from the join month (Aug 2024 when no join date) through this month.
+- `GET /reports/member-statement/{member_id}?from_month&to_month`: `{organisation, generated_on, member{...}, from_month, to_month, current_month, months: [{month, state, amount, paid_on, handed_in_on, method, note, challan_id, ahead}], totals: {months_paid, amount_paid, months_waiting, amount_waiting, months_due, amount_due, months_overdue, this_month_due, paid_up_to, last_paid_month, last_payment_on, due_months}, donations, donations_total}`. Months paid ahead of `to_month` are included with `ahead: true`.
+- `GET /reports/dues?country&min_months&search&status=active|inactive|all&sort=amount_desc|months_desc|name|code`: members with unpaid months plus `members_with_dues`, `total_amount_due`, `total_months_due`, `fee_missing`, `organisation`.
+- `GET /reports/payments?type=monthly|campaign&state&month_from&month_to&campaign_id&country&member_id&search&method&sort&skip&limit` (limit up to 500): `{items, total, has_more, totals: {paid|waiting|not_paid|rejected: {count, amount}}, organisation}`. Monthly fees filter by the month they are for, donations by the India-time day they were given.
+- `GET /reports/year-grid?year&status&country`: one row per member with 12 month states (`before_join` and `future` too), `paid` and `due` counts.
+
 ### Audit logs: feed for the Audit Logs page
 - New `GET /audit-logs/feed` (admins): `{items, total, skip, limit, has_more, counts: {admin, superadmin, actors}}`, newest first, `limit` up to 100 (default 50). Filters: `user_id`, `role` (`admin|superadmin|member|system`), `area` (`members|payments|bulk|requests|campaigns|funds|notifications|reports|settings|other`; mixed entity spellings such as `Challan`/`challan` are grouped), `action`, `start_date`/`end_date` (inclusive, India-time days), `search` (action, entity, recorded values, who did it). Items carry `area`, `target_name` (member name, "Member · Oct 2026", campaign title, ...; taken from the recorded values when the item was deleted), `old_values`/`new_values` as objects, `changes: [{field, before, after}]` (unchanged fields left out) and `created_at` marked as UTC. Fields whose name contains password, token, secret or hash read "(hidden)".
 - New `GET /audit-logs/filters` (admins): `{actors: [{user_id, name, role, count}], actions: [{action, count}], areas: [{area, label, count}], system_count}`.

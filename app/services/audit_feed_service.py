@@ -24,7 +24,7 @@ AREAS: dict[str, tuple[str, set[str]]] = {
     "bulk": ("Bulk payments", {"bulkchallangroup", "bulkchallan"}),
     "requests": ("Requests", {"memberrequest", "passwordresetrequest", "passwordreset"}),
     "campaigns": ("Campaigns", {"campaign"}),
-    "funds": ("Fund use", {"fundutilization"}),
+    "funds": ("Fund use", {"fundutilization", "reliefclaim"}),
     "notifications": ("Notifications", {"notification"}),
     "reports": ("Reports", {"report"}),
     "settings": ("Settings & system", {"appsetting", "system"}),
@@ -203,6 +203,10 @@ def _target_names(db: Session, logs: list[AuditLog]) -> dict[int, str]:
         names[("notification", nid)] = title
     for iid, code in rows(m.Invite, by_type.get("invite", set()), m.Invite.invite_code):
         names[("invite", iid)] = f"Invite {code}"
+    relief = rows(m.ReliefClaim, by_type.get("reliefclaim", set()), m.ReliefClaim.member_id, m.ReliefClaim.reason)
+    relief_members = _member_names(db, [r[1] for r in relief])
+    for rid, mid, reason in relief:
+        names[("reliefclaim", rid)] = " · ".join(x for x in [relief_members.get(mid), f"Relief ({reason})"] if x)
     for aid, full in rows(m.MemberActivation, by_type.get("memberactivation", set()), m.MemberActivation.full_name):
         names[("memberactivation", aid)] = full
 
