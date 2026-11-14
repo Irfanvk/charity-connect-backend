@@ -1,5 +1,5 @@
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import HTTPException, status
 from sqlalchemy import func
@@ -16,7 +16,40 @@ from app.utils.file_handler import (
 from app.utils.permissions import assert_not_own_user
 
 
+# Admins may delete a pending or rejected request once it is this old.
+ADMIN_DELETE_AFTER_DAYS = 7
+ACCOUNT_CLOSURE_SUBJECT = "Account closure request"
+
+
 class RequestService:
+    @staticmethod
+    def is_critical(item: MemberRequest) -> bool:
+        """Requests that must be decided, never deleted: monthly amount changes and account closures."""
+        request_type = item.request_type.value if hasattr(item.request_type, "value") else str(item.request_type)
+        if request_type == RequestType.MONTHLY_AMOUNT_CHANGE.value:
+            return True
+        return (item.subject or "").strip().lower() == ACCOUNT_CLOSURE_SUBJECT.lower()
+
+    @staticmethod
+    def admin_deletable_from(item: MemberRequest) -> datetime | None:
+        """When an admin may delete this request; None if it can never be deleted by an admin."""
+        if RequestService._status_value(item) not in ("pending", "rejected") or RequestService.is_critical(item):
+            return None
+        if item.created_at is None:
+            return None
+        return item.created_at + timedelta(days=ADMIN_DELETE_AFTER_DAYS)
+
+    @staticmethod
+    def _admin_delete_error(item: MemberRequest, now: datetime) -> str | None:
+        if RequestService._status_value(item) not in ("pending", "rejected"):
+            return "Only pending or rejected requests can be deleted."
+        if RequestService.is_critical(item):
+            return "Amount change and account closure requests cannot be deleted; please approve or reject them."
+        allowed_from = RequestService.admin_deletable_from(item)
+        if allowed_from is None or now < allowed_from:
+            return f"Requests can be deleted {ADMIN_DELETE_AFTER_DAYS} days after they were sent."
+        return None
+
     @staticmethod
     def _member_for_user(db: Session, user_id: int) -> Member:
         member = db.query(Member).filter(Member.user_id == user_id).first()
@@ -56,6 +89,8 @@ class RequestService:
             "resolved_at": item.resolved_at,
             "member_name": member_name,
             "member_code": member_code,
+            "admin_deletable_from": RequestService.admin_deletable_from(item),
+            "admin_can_delete": RequestService._admin_delete_error(item, datetime.utcnow()) is None,
         }
 
     @staticmethod
@@ -326,16 +361,56 @@ class RequestService:
         if not item:
             raise HTTPException(status_code=404, detail="Request not found")
 
-        if item.user_id != int(current_user.get("user_id")):
+        closed_notification = None
+        is_owner = item.user_id == int(current_user.get("user_id"))
+        role = str(current_user.get("role", "")).lower()
+        if is_owner:
+            if RequestService._status_value(item) != "pending":
+                raise HTTPException(status_code=400, detail="Only pending requests can be cancelled")
+        elif role in ("admin", "superadmin"):
+            error = RequestService._admin_delete_error(item, datetime.utcnow())
+            if error:
+                raise HTTPException(status_code=400, detail=error)
+            closed_notification = RequestService._record_admin_delete(db, current_user, item)
+        else:
             raise HTTPException(status_code=403, detail="You are not allowed to cancel this request")
-
-        if RequestService._status_value(item) != "pending":
-            raise HTTPException(status_code=400, detail="Only pending requests can be cancelled")
 
         _, pending_avatar_url = RequestService._avatar_url_in(item)
         db.delete(item)
         db.commit()
         discard_pending_avatar(pending_avatar_url)
+        if closed_notification is not None:
+            db.refresh(closed_notification)
+            NotificationService.dispatch_notification(db, closed_notification)
+
+    @staticmethod
+    def _record_admin_delete(db: Session, current_admin: dict, item: MemberRequest) -> Notification | None:
+        """Audit the delete and, for a request still waiting, tell the member it was closed."""
+        old_status = RequestService._status_value(item)
+        db.add(
+            AuditLog(
+                user_id=int(current_admin.get("user_id")),
+                action="request_deleted",
+                entity_type="MemberRequest",
+                entity_id=item.id,
+                old_values=json.dumps({
+                    "status": old_status,
+                    "request_type": item.request_type.value if hasattr(item.request_type, "value") else str(item.request_type),
+                    "subject": item.subject,
+                    "member_id": item.member_id,
+                }),
+            )
+        )
+        if old_status == "pending":
+            subject = (item.subject or "Your request").strip()
+            notification = RequestService._notify_member(
+                db,
+                user_id=item.user_id,
+                title="Request closed",
+                message=f"\"{subject}\" was closed by an admin without a change. You can send a new request if you still need it.",
+            )
+            return notification
+        return None
 
     @staticmethod
     def _apply_approval_changes(db: Session, item: MemberRequest) -> list[str]:

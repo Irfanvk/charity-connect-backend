@@ -5,7 +5,7 @@ import logging
 from app.models import Notification, User
 from app.models.models import UserRole
 from app.schemas import NotificationCreate, NotificationAdminUpdate
-from app.services.notification_prefs import push_allowed, quiet_hours_resume_at
+from app.services.notification_prefs import push_allowed, quiet_hours_resume_at, uses_simple_settings
 from app.services.realtime_notification_service import publish_realtime_event
 from app.services.settings_service import render_message
 from app.services.web_push_service import WebPushService
@@ -61,10 +61,10 @@ class NotificationService:
     @staticmethod
     def _deliver_push(db: Session, notification: Notification) -> None:
         """Apply preferences and quiet hours (IST), then send now or schedule via Celery."""
-        if not notification.is_urgent:
+        user = None if notification.is_urgent else db.query(User).filter(User.id == notification.user_id).first()
+        if user is not None and not uses_simple_settings(user):
             if not push_allowed(db, notification.user_id, notification.category):
                 return
-            user = db.query(User).filter(User.id == notification.user_id).first()
             resume_at = quiet_hours_resume_at(user)
             if resume_at is not None:
                 # Deferred pushes need Celery (eta); without it the push is skipped, the record stays.

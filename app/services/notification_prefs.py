@@ -19,6 +19,13 @@ DEFAULT_QUIET_START = "22:00"
 DEFAULT_QUIET_END = "07:00"
 
 
+def uses_simple_settings(user_or_role) -> bool:
+    """Admins (not superadmins) only switch push on or off per device: they get every
+    notification, with no category switches, quiet hours or reminder choices."""
+    role = getattr(user_or_role, "role", user_or_role)
+    return str(getattr(role, "value", role) or "").lower() == "admin"
+
+
 def categories_for_role(role) -> list[str]:
     value = getattr(role, "value", role)
     if str(value).lower() in ("admin", "superadmin"):

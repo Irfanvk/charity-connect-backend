@@ -817,6 +817,9 @@ class MemberRequestResponse(BaseModel):
     resolved_at: Optional[datetime]
     member_name: Optional[str] = None
     member_code: Optional[str] = None
+    # Admins may delete pending/rejected, non-critical requests 7 days after they were sent.
+    admin_deletable_from: Optional[datetime] = None
+    admin_can_delete: bool = False
 
     class Config:
         from_attributes = True

@@ -1,5 +1,21 @@
 # API Changelog
 
+## 2026-11-14
+
+### Audit logs: feed for the Audit Logs page
+- New `GET /audit-logs/feed` (admins): `{items, total, skip, limit, has_more, counts: {admin, superadmin, actors}}`, newest first, `limit` up to 100 (default 50). Filters: `user_id`, `role` (`admin|superadmin|member|system`), `area` (`members|payments|bulk|requests|campaigns|funds|notifications|reports|settings|other`; mixed entity spellings such as `Challan`/`challan` are grouped), `action`, `start_date`/`end_date` (inclusive, India-time days), `search` (action, entity, recorded values, who did it). Items carry `area`, `target_name` (member name, "Member · Oct 2026", campaign title, ...; taken from the recorded values when the item was deleted), `old_values`/`new_values` as objects, `changes: [{field, before, after}]` (unchanged fields left out) and `created_at` marked as UTC. Fields whose name contains password, token, secret or hash read "(hidden)".
+- New `GET /audit-logs/filters` (admins): `{actors: [{user_id, name, role, count}], actions: [{action, count}], areas: [{area, label, count}], system_count}`.
+- New `GET /audit-logs/export` (admins): CSV of every entry matching the same filters (max 5000), times in India time.
+- `GET /audit-logs/` is unchanged.
+
+### Notifications: admins get everything
+- Admins (not superadmins) no longer filter pushes: category switches, quiet hours and payment-reminder choices are ignored for them (reminders go on the organisation's default day). `GET /notifications/preferences` adds `simple_settings` (true for admins); `PUT /notifications/preferences` with any field returns 403 for them. Members and superadmins are unchanged.
+- Push payloads already carry `data.notification_id`; the app now marks it read when the push is tapped.
+
+### Requests: admins may delete old ones
+- `DELETE /requests/{id}` by an admin or superadmin (not their own request): allowed for **pending** or **rejected** requests at least 7 days old, except monthly amount changes and account closure requests (400 with the reason otherwise). It is audited (`request_deleted`), and for a pending request the member gets a "Request closed" notification. Members still cancel their own pending requests at any time.
+- Request items add `admin_can_delete` (bool) and `admin_deletable_from` (when an admin may delete it; null if never).
+
 ## 2026-11-13
 
 ### Members: country and city

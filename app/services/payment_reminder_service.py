@@ -19,6 +19,7 @@ from datetime import date
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.services.notification_prefs import uses_simple_settings
 from app.models import Challan, Member, Notification, PaymentReminderLog, User
 from app.models.models import ChallanStatus, ChallanType
 from app.services.notification_service import NotificationService
@@ -48,11 +49,13 @@ def clamp_day(value) -> int:
 
 
 def reminder_enabled(user: User) -> bool:
+    if uses_simple_settings(user):
+        return True  # admins have no reminder choices; they always get them
     return user.payment_reminder_enabled is not False  # NULL = on by default
 
 
 def reminder_day(db: Session, user: User) -> int:
-    if user.payment_reminder_day:
+    if user.payment_reminder_day and not uses_simple_settings(user):
         return clamp_day(user.payment_reminder_day)
     return clamp_day(get_setting(db, "monthly_reminder_day"))
 

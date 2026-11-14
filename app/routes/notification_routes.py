@@ -243,6 +243,8 @@ def _preferences_payload(db: Session, user: User) -> dict:
             "timezone": settings.BUSINESS_TIMEZONE,
         },
         "urgent_always_delivered": True,
+        # Admins only turn push on or off per device; they always get every notification.
+        "simple_settings": notification_prefs.uses_simple_settings(user),
         "payment_reminder": payment_reminder_service.preferences_for(db, user),
     }
 
@@ -267,6 +269,11 @@ def update_notification_preferences(
     user = db.query(User).filter(User.id == int(current_user["user_id"])).first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    if notification_prefs.uses_simple_settings(user) and payload.model_dump(exclude_none=True):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admins receive every notification; only this device's on/off can be changed.",
+        )
 
     try:
         start = notification_prefs.validate_hhmm(payload.quiet_hours_start) if payload.quiet_hours_start else None
