@@ -533,6 +533,7 @@ class ChallanCreate(BaseModel):
     campaign_id: Optional[int] = None
     amount: float
     payment_method: Optional[str] = None
+    notes: Optional[str] = Field(default=None, max_length=500)  # shown on the challan in the list
 
     @field_validator("month")
     @classmethod
@@ -556,7 +557,7 @@ class MultiChallanCreate(BaseModel):
     payment_method: Optional[str] = None
     proof_type: str = "individual"  # 'individual' or 'bulk'
     member_id: Optional[int] = None  # Optional for members (uses current user), required for admins
-    notes: Optional[str] = None  # Notes if using bulk proof
+    notes: Optional[str] = Field(default=None, max_length=500)  # saved on every challan created
 
     @field_validator("months")
     @classmethod
@@ -613,6 +614,7 @@ class ChallanRevert(BaseModel):
 class ChallanResponse(BaseModel):
     id: int
     member_id: int
+    member_code: Optional[str] = None
     member_name: Optional[str] = None
     type: ChallanType
     month: Optional[str]

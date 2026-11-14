@@ -260,3 +260,21 @@ def test_month_errors_read_as_sentences():
     # details that already carry their own input (activation login) are unchanged
     kept = _ensure_detail_list({"type": "activation_pending", "msg": "Waiting", "input": {"member_code": "M1"}})
     assert kept[0]["input"] == {"member_code": "M1"} and kept[0]["type"] == "activation_pending"
+
+
+# ── Notes ─────────────────────────────────────────────────────────────────
+
+def test_member_notes_are_saved_on_every_kind_of_challan(db, world):
+    user = world["regular"]
+    single = challan_routes.create_challan(
+        ChallanCreate(type=ChallanType.MONTHLY, month="2026-08", amount=500, notes="  Paid   by my brother "), _ctx(user), db,
+    )
+    assert single.entry_notes == "Paid by my brother"
+    challan_routes.create_multi_challans(
+        MultiChallanCreate(months=["2026-09", "2026-10"], amount=500, proof_type="individual", notes="Two months together"),
+        _ctx(user), db,
+    )
+    multi = db.query(Challan).filter(Challan.month.in_(["2026-09", "2026-10"])).all()
+    assert {c.entry_notes for c in multi} == {"Two months together"}
+    r = _create(db, user, ["2026-11", "2026-12"], notes="One transfer for both")
+    assert {c.entry_notes for c in db.query(Challan).filter_by(bulk_group_id=r.bulk_group_id)} == {"One transfer for both"}

@@ -37,7 +37,7 @@ def db():
 def stubs(monkeypatch):
     monkeypatch.setattr(NotificationService, "dispatch_notification", lambda db, n: None)
     monkeypatch.setattr(
-        ChallanService, "get_payable_months", staticmethod(lambda db, member_id, include_upcoming=True: {"all_months": MONTHS + ["2026-10"]})
+        ChallanService, "get_payable_months", staticmethod(lambda db, member_id, include_upcoming=True, **kw: {"all_months": MONTHS + ["2026-10"]})
     )
 
 
@@ -200,3 +200,55 @@ def test_cash_report_totals_by_collector(db, world):
     assert by[world["admin1"].id]["approved_amount"] == 500
     assert by[world["admin2"].id]["pending_amount"] == 500
     assert report["total_approved_amount"] == 500 and report["total_pending_amount"] == 500
+
+
+# ── One entry for many months (admins) ────────────────────────────────────
+
+def _forty_months():
+    from app.services import report_service as rs
+    from datetime import date
+    return rs._months(date(2024, 8, 1), date(2027, 11, 1))
+
+
+def test_admin_records_forty_months_in_one_entry_and_one_approval(db, world, monkeypatch):
+    from app.models.models import BulkChallanGroup
+    from app.schemas.schemas import BulkChallanApprove
+
+    admin_router = importlib.import_module("app.routes.admin_router")
+    months = _forty_months()
+    monkeypatch.setattr(ChallanService, "get_payable_months",
+                        staticmethod(lambda db, member_id, include_upcoming=True, **kw: {"all_months": months}))
+    monkeypatch.setattr(admin_router.NotificationService, "notify_bulk_status_change", lambda *a, **k: None)
+    monkeypatch.setattr(admin_router.NotificationService, "send_payment_receipt_whatsapp", lambda *a, **k: None)
+    member = world["members"]["regular"]
+    # Imported "not paid yet" placeholders for the first two months: filled in, not duplicated
+    for m in months[:2]:
+        db.add(Challan(member_id=member.id, type=ChallanType.MONTHLY, month=m, amount=300,
+                       status=ChallanStatus.PENDING, payment_method="cash", entry_source="import"))
+    db.commit()
+    created = _record(db, world["admin1"], member, months=months, payment_method="bank_transfer",
+                      transaction_ref="UTR-50000", entry_notes="₹40,000 of ₹50,000 received at once")
+    assert len(created) == 40 > 12
+    assert db.query(Challan).filter(Challan.member_id == member.id).count() == 40
+    assert {c.amount for c in created} == {500} and {c.entry_source for c in created} == {"admin"}
+    group = db.query(BulkChallanGroup).one()
+    assert group.total_amount == 20000 and {c.bulk_group_id for c in created} == {group.bulk_group_id}
+    # The admin who entered it cannot approve; another admin approves all 40 at once
+    _err(403, admin_router.approve_bulk_challans, group.bulk_group_id, BulkChallanApprove(approved=True),
+         db=db, current_user=_ctx(world["admin1"]))
+    admin_router.approve_bulk_challans(group.bulk_group_id, BulkChallanApprove(approved=True),
+                                       db=db, current_user=_ctx(world["admin2"]))
+    assert {c.status for c in db.query(Challan).filter(Challan.member_id == member.id)} == {ChallanStatus.APPROVED}
+
+
+def test_month_already_handed_in_still_blocks(db, world):
+    member = world["members"]["regular"]
+    db.add(Challan(member_id=member.id, type=ChallanType.MONTHLY, month=MONTHS[0], amount=500,
+                   status=ChallanStatus.PENDING, payment_method="upi", proof_path="/p.jpg"))
+    db.commit()
+    _err(400, _record, db, world["admin1"], member, months=MONTHS)
+
+
+def test_single_month_entry_is_not_grouped(db, world):
+    created = _record(db, world["admin1"], world["members"]["regular"], months=["2026-08"])
+    assert created[0].bulk_group_id is None
