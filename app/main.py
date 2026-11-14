@@ -30,6 +30,8 @@ from app.routes import (
 import logging
 from app.services.realtime_notification_service import redis_bridge_url, run_redis_subscriber
 from app.routes.settings_routes import router as settings_router
+from app.routes.report_routes import router as report_router
+from app.routes.relief_routes import router as relief_router
 import app.models as _models
 
 try:
@@ -107,6 +109,8 @@ app.include_router(fund_utilization_router)
 app.include_router(password_reset_router)
 app.include_router(activation_router)
 app.include_router(settings_router)
+app.include_router(report_router)
+app.include_router(relief_router)
 
 # Serve locally uploaded files (avatars, challan proofs, campaign images).
 # Cloud storage (R2) bypasses this path entirely via full URLs.
