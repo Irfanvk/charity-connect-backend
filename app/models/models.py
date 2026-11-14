@@ -262,6 +262,11 @@ class Challan(Base):
     entry_notes = Column(Text, nullable=True)
 
     @property
+    def member_code(self) -> str | None:
+        """The member's ID as people know it (e.g. MEM-0042), not the database number."""
+        return self.member.member_code if self.member else None
+
+    @property
     def submitted(self) -> bool:
         """False for a 'not paid yet' challan (generated, or imported pending without proof)."""
         from app.services.challan_state import is_submitted

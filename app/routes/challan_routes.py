@@ -414,6 +414,7 @@ def get_payable_months(
     include_upcoming: bool = Query(default=False),
     upcoming_count: Optional[int] = Query(default=None, ge=0, le=12),
     from_month: Optional[str] = Query(default=None, description="Start month override yyyy-MM"),
+    include_unpaid_placeholders: bool = Query(default=False, description="Admins: list 'not paid yet' months too"),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -435,6 +436,7 @@ def get_payable_months(
         include_upcoming=include_upcoming,
         upcoming_count=upcoming_count,
         from_month=from_month,
+        include_unpaid_placeholders=include_unpaid_placeholders and _is_admin(current_user),
     )
 
 

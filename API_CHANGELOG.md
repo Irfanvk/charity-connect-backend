@@ -1,5 +1,15 @@
 # API Changelog
 
+## 2026-11-15
+
+### Admin-recorded payments: any number of months
+- `POST /challans/admin-record`: no `max_months_per_payment` limit. Months with a "not paid yet" challan (generated, or pending with nothing handed in) are filled in instead of refused; months paid or waiting for approval still return 400. Two or more months are grouped as one bulk payment (`bulk_group_id` BCH-xxxx), approved with `PATCH /admin/bulk/{id}/approve` by a different admin.
+- `GET /challans/payable-months?include_unpaid_placeholders=true` (admins only; ignored for members) lists those "not paid yet" months as payable.
+
+### Challans: notes and member ID
+- `POST /challans/` takes `notes` (max 500); `POST /challans/multi` and `POST /challans/bulk-create` save their `notes` on every challan created. All are returned as `entry_notes`.
+- Challan responses add `member_code` (e.g. `MEM-0042`). `member_id` is the database id.
+
 ## 2026-11-14
 
 ### Relief fund (new tables `relief_claims`, `relief_approvals`, created at startup)

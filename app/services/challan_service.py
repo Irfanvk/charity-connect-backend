@@ -23,6 +23,12 @@ from app.utils.timezone import (
     today_business,
 )
 
+def clean_note(value) -> str | None:
+    """A member's or admin's note on a challan: trimmed, single-spaced, at most 500 characters."""
+    text = " ".join(str(value or "").split())
+    return text[:500] or None
+
+
 class ChallanService:
     """Challan management service."""
 
@@ -94,6 +100,7 @@ class ChallanService:
         include_upcoming: bool = False,
         upcoming_count: Optional[int] = None,
         from_month: Optional[str] = None,          # "yyyy-MM" override supplied by the frontend
+        include_unpaid_placeholders: bool = False,  # admins: months with a "not paid yet" challan are payable
     ) -> dict:
         member = db.query(Member).filter(Member.id == member_id).first()
         if not member:
@@ -123,16 +130,18 @@ class ChallanService:
         if start_month < ChallanService.PLATFORM_START_MONTH:
             start_month = ChallanService.PLATFORM_START_MONTH
 
-        existing_monthly = (
-            db.query(Challan.month)
-            .filter(
-                Challan.member_id == member_id,
-                Challan.type == ChallanType.MONTHLY,
-                Challan.status != ChallanStatus.REJECTED,
-                Challan.month.isnot(None),
-            )
-            .all()
+        existing_query = db.query(Challan.month).filter(
+            Challan.member_id == member_id,
+            Challan.type == ChallanType.MONTHLY,
+            Challan.status != ChallanStatus.REJECTED,
+            Challan.month.isnot(None),
         )
+        if include_unpaid_placeholders:
+            # Only paid or handed-in months block; "not paid yet" rows can be filled in.
+            from app.services.challan_state import submitted_clause
+
+            existing_query = existing_query.filter(submitted_clause())
+        existing_monthly = existing_query.all()
         paid_or_existing_months = {row[0] for row in existing_monthly if row and row[0]}
 
         due_through_current = ChallanService._month_sequence(start_month, today)
@@ -233,6 +242,7 @@ class ChallanService:
             payment_method=normalize_payment_method(challan_data.payment_method),
             created_by_user_id=created_by_user_id,
             entry_source=entry_source,
+            entry_notes=clean_note(getattr(challan_data, "notes", None)),
         )
         
         db.add(new_challan)
@@ -354,6 +364,7 @@ class ChallanService:
                     payment_method=normalize_payment_method(payment_method),
                     created_by_user_id=created_by_user_id,
                     entry_source=entry_source,
+                    entry_notes=clean_note(notes),
                 )
                 db.add(new_challan)
                 db.flush()

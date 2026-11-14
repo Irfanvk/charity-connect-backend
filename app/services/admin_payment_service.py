@@ -1,14 +1,17 @@
 """Admin-recorded payments (maker-checker): an admin enters a payment for a member, a different admin verifies it."""
+import json
 import re
+import uuid
 from datetime import date, datetime
 from typing import Optional
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.orm import Session
 
-from app.models import Campaign, Challan, Member, User
+from app.models import BulkChallanGroup, Campaign, Challan, Member, User
 from app.models.models import ChallanStatus, ChallanType, UserRole
 from app.services.challan_service import ChallanService
+from app.services.challan_state import is_submitted
 from app.services.settings_service import get_setting
 from app.utils.file_handler import save_file, validate_file
 from app.utils.payment_methods import (
@@ -21,6 +24,33 @@ from app.utils.timezone import today_business
 
 MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 PROOF_REFERENCE_PREFIXES = ("uploads/", "/uploads/", "https://")
+
+
+def _group_months(db: Session, member_id: int, challans: list[Challan], *, per_month: float,
+                  proof_path: Optional[str], notes: Optional[str], actor_id: int) -> BulkChallanGroup:
+    """Several months recorded in one entry become one bulk payment, so another admin
+    approves (or rejects) them in one step, like a multi-month payment with one proof."""
+    db.flush()
+    group = BulkChallanGroup(
+        bulk_group_id=f"tmp-{uuid.uuid4()}",
+        member_id=member_id,
+        amount_per_month=per_month,
+        total_amount=round(sum(float(c.amount or 0) for c in challans), 2),
+        proof_file_id=proof_path or f"no-proof:{uuid.uuid4()}",
+        status="pending_approval",
+        months_list=json.dumps(sorted(c.month for c in challans)),
+        challan_ids_list=json.dumps([c.id for c in challans]),
+        created_by_user_id=actor_id,
+        notes=notes,
+        created_at=datetime.utcnow(),
+    )
+    db.add(group)
+    db.flush()
+    group.bulk_group_id = f"BCH-{group.id:04d}"
+    db.flush()
+    for challan in challans:
+        challan.bulk_group_id = group.bulk_group_id
+    return group
 
 
 def _clean(value: Optional[str]) -> Optional[str]:
@@ -151,17 +181,17 @@ def record_payment(
             raise HTTPException(status_code=400, detail="Duplicate months selected")
         if any(not MONTH_RE.match(m) for m in unique_months):
             raise HTTPException(status_code=422, detail="Months must use the YYYY-MM format")
-        max_months = int(get_setting(db, "max_months_per_payment"))
-        if len(unique_months) > max_months:
-            raise HTTPException(status_code=400, detail=f"At most {max_months} months can be recorded in one entry")
+        # Admins recording money already received: no limit on months in one entry
+        # (members' own payments keep the "max months per payment" setting).
         for m in unique_months:
             ChallanService._ensure_month_not_before_platform(m)
 
-        payable = ChallanService.get_payable_months(db, member_id, include_upcoming=True)
+        payable = ChallanService.get_payable_months(db, member_id, include_upcoming=True,
+                                                    include_unpaid_placeholders=True)
         invalid = [m for m in unique_months if m not in set(payable["all_months"])]
         if invalid:
             raise HTTPException(status_code=422, detail=f"The following months are not available for this member: {invalid}")
-        clash = (
+        open_rows = (
             db.query(Challan)
             .filter(
                 Challan.member_id == member_id,
@@ -171,6 +201,10 @@ def record_payment(
             )
             .all()
         )
+        # A "not paid yet" row (generated, or imported pending with nothing handed in) is filled in
+        # by this entry; a row with something handed in is a real clash.
+        placeholders = {c.month: c for c in open_rows if not is_submitted(c)}
+        clash = [c for c in open_rows if is_submitted(c)]
         if clash:
             raise HTTPException(status_code=400, detail=f"Challans already exist for months: {sorted(c.month for c in clash)}")
 
@@ -198,12 +232,9 @@ def record_payment(
     proof_path = _store_proof(db, proof_file, proof_file_id)
 
     created: list[Challan] = []
+    fill = placeholders if kind == "monthly" else {}
     for month, value in targets:
-        challan = Challan(
-            member_id=member_id,
-            type=ChallanType.MONTHLY if kind == "monthly" else ChallanType.CAMPAIGN,
-            month=month,
-            campaign_id=campaign.id if campaign else None,
+        fields = dict(
             amount=value,
             payment_method=method,
             status=ChallanStatus.PENDING,
@@ -216,8 +247,23 @@ def record_payment(
             collected_by_user_id=collector_id,
             entry_notes=notes,
         )
-        db.add(challan)
+        challan = fill.get(month)
+        if challan is not None:
+            for key, val in fields.items():
+                setattr(challan, key, val)
+        else:
+            challan = Challan(
+                member_id=member_id,
+                type=ChallanType.MONTHLY if kind == "monthly" else ChallanType.CAMPAIGN,
+                month=month,
+                campaign_id=campaign.id if campaign else None,
+                **fields,
+            )
+            db.add(challan)
         created.append(challan)
+    if kind == "monthly" and len(created) > 1:
+        _group_months(db, member_id, created, per_month=targets[0][1], proof_path=proof_path,
+                      notes=notes, actor_id=actor_id)
     db.commit()
     for challan in created:
         db.refresh(challan)

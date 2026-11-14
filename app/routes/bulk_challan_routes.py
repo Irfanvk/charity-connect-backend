@@ -5,6 +5,7 @@ import json
 from datetime import datetime
 from typing import cast
 
+from app.services.challan_service import clean_note
 from app.database import get_db
 from app.schemas.schemas import (
     BulkChallanCreate,
@@ -201,6 +202,7 @@ def bulk_create_challans(
                 bulk_group_id=bulk_group_id,
                 entry_source=entry_source,
                 created_by_user_id=current_user_id,
+                entry_notes=clean_note(notes),
                 proof_path=None,  # Will be set when proof is provided
                 created_at=datetime.utcnow(),
             )
