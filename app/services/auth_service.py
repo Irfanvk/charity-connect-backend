@@ -247,9 +247,9 @@ class AuthService:
         db.flush()
         
         # Get last member code to generate next sequential code
-        last_member = db.query(Member).order_by(Member.id.desc()).first()
-        last_code = last_member.member_code if last_member else None
-        next_member_code = generate_member_code(last_code)
+        from app.utils.member_codes import next_member_code as _next_code
+
+        next_member_code = _next_code(db)
         
         # Create member
         new_member = Member(

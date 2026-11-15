@@ -68,9 +68,9 @@ class MemberService:
 
     @staticmethod
     def _next_member_code(db: Session) -> str:
-        last_member = db.query(Member).order_by(Member.id.desc()).first()
-        last_code = last_member.member_code if last_member else None
-        return generate_member_code(last_code)
+        from app.utils.member_codes import next_member_code
+
+        return next_member_code(db)
 
     @staticmethod
     def _get_or_create_user_for_admin_member(
@@ -681,12 +681,25 @@ class MemberService:
 
     @staticmethod
     def delete_member(db: Session, member_id: int):
-        """Delete a member profile and all related records (superadmin only)."""
+        """Delete a member profile and all related records (superadmin only).
+
+        Everything that points at the member goes too (payments, bulk payments, requests,
+        relief claims, reminder log, activation requests), and their login is switched off,
+        so a deleted member (e.g. a temporary test member) can no longer sign in.
+        """
+        from app.models import MemberActivation, MemberRequest, PaymentReminderLog, ReliefApproval, ReliefClaim
+
         member = MemberService.get_member(db, member_id)
-        # Delete related challans and bulk groups first to satisfy FK constraints
-        db.query(Challan).filter(Challan.member_id == member.id).delete(synchronize_session=False)
-        db.query(BulkChallanGroup).filter(BulkChallanGroup.member_id == member.id).delete(synchronize_session=False)
+        relief_ids = [rid for (rid,) in db.query(ReliefClaim.id).filter(ReliefClaim.member_id == member.id).all()]
+        if relief_ids:
+            db.query(ReliefApproval).filter(ReliefApproval.claim_id.in_(relief_ids)).delete(synchronize_session=False)
+            db.query(ReliefClaim).filter(ReliefClaim.id.in_(relief_ids)).delete(synchronize_session=False)
+        for model in (Challan, BulkChallanGroup, MemberRequest, PaymentReminderLog, MemberActivation):
+            db.query(model).filter(model.member_id == member.id).delete(synchronize_session=False)
         db.flush()
+        user = member.user
+        if user is not None and str(getattr(user.role, "value", user.role)).lower() == "member":
+            user.is_active = False  # admins keep their admin login; only the member side is removed
         db.delete(member)
         db.commit()
         return None
