@@ -1,12 +1,13 @@
 """Service layer for admin-mediated password reset requests."""
 
+import re
 import secrets
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional, cast
 
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from fastapi import HTTPException
 
 from app.config import settings
@@ -63,8 +64,52 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+PHONE_LIKE = re.compile(r"^\+?[\d\s().-]{7,}$")
+
+
+def _phone_digits(value: Optional[str]) -> str:
+    """'+971 050-123 4567' -> '971501234567': digits only, without a leading 0
+    (local format) or a 0 typed right after the country code."""
+    from app.utils.countries import COUNTRIES
+
+    digits = re.sub(r"\D", "", value or "").lstrip("0")
+    for code in sorted({c for _, c in COUNTRIES.values()}, key=len, reverse=True):
+        if digits.startswith(code + "0") and len(digits) > len(code) + 7:
+            return code + digits[len(code):].lstrip("0")
+    return digits
+
+
+def _same_phone(typed: str, stored: str) -> bool:
+    """Equal digits, or one is the other without its country code (at least 8 digits)."""
+    if not typed or not stored:
+        return False
+    if typed == stored:
+        return True
+    shorter, longer = sorted((typed, stored), key=len)
+    return len(shorter) >= 8 and longer.endswith(shorter)
+
+
+def _find_user_by_phone(db: Session, raw: str) -> Optional[User]:
+    """Match the phone or WhatsApp number however it was typed or saved; only a single match counts."""
+    typed = _phone_digits(raw)
+    if len(typed) < 7:
+        return None
+    tail = typed[-7:]
+    candidates = (
+        db.query(User)
+        .filter(or_(User.phone.isnot(None), User.whatsapp_phone.isnot(None)))
+        .all()
+    )
+    matches = {
+        u.id: u for u in candidates
+        if tail in re.sub(r"\D", "", f"{u.phone or ''} {u.whatsapp_phone or ''}")
+        and (_same_phone(typed, _phone_digits(u.phone)) or _same_phone(typed, _phone_digits(u.whatsapp_phone)))
+    }
+    return next(iter(matches.values())) if len(matches) == 1 else None
+
+
 def _find_user_by_identifier(db: Session, identifier: str) -> Optional[User]:
-    """Look up a user by email, username, or phone number."""
+    """Look up a user by email, username, or phone number (phone in any format)."""
     clean = identifier.strip()
     clean_lower = clean.lower()
     user = (
@@ -76,6 +121,8 @@ def _find_user_by_identifier(db: Session, identifier: str) -> Optional[User]:
         )
         .first()
     )
+    if user is None and PHONE_LIKE.match(clean):
+        user = _find_user_by_phone(db, clean)
     return user
 
 

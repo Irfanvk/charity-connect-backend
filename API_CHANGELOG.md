@@ -2,6 +2,13 @@
 
 ## 2026-11-15
 
+### Member IDs and deleting members
+- New member IDs are the highest `MEM-####` number in use plus one (was: the last-added member's number plus one). Codes outside the sequence, such as `TEST-0001` for a temporary test member, are ignored. Used by admin-created members, imports and invite registration.
+- `DELETE /members/{id}` (superadmin) also removes the member's requests, relief claims (and their approvals), payment reminder log and activation requests, which used to make the delete fail, and switches off the member's login (`is_active = false`; admins keep their admin login).
+
+### Forgot password: phone in any format
+- `POST /auth/forgot-password`: when the identifier looks like a phone number and is not an exact email, username or phone, it is matched by digits against the phone and WhatsApp numbers, ignoring spaces, dashes, brackets, a leading 0, a 0 right after the country code, and a missing country code (8+ digits). Only a single match is linked; otherwise the request is saved unmatched as before. The response is unchanged (202 either way).
+
 ### Admin-recorded payments: any number of months
 - `POST /challans/admin-record`: no `max_months_per_payment` limit. Months with a "not paid yet" challan (generated, or pending with nothing handed in) are filled in instead of refused; months paid or waiting for approval still return 400. Two or more months are grouped as one bulk payment (`bulk_group_id` BCH-xxxx), approved with `PATCH /admin/bulk/{id}/approve` by a different admin.
 - `GET /challans/payable-months?include_unpaid_placeholders=true` (admins only; ignored for members) lists those "not paid yet" months as payable.
