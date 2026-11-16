@@ -197,7 +197,7 @@ def test_upcoming_months_setting_caps_payable_months(db, world):
     db.commit()
 
     default = ChallanService.get_payable_months(db, member.id, include_upcoming=True)
-    assert len(default["upcoming_months"]) == 12  # up to a year ahead by default
+    assert len(default["upcoming_months"]) == 36  # up to three years ahead by default
     chosen = ChallanService.get_payable_months(db, member.id, include_upcoming=True, upcoming_count=6)
     assert len(chosen["upcoming_months"]) == 6  # the form's "Pay ahead: 6 months"
 

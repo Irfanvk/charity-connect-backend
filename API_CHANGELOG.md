@@ -2,6 +2,12 @@
 
 ## 2026-11-16
 
+### Yearly paid list
+- `GET /reports/paid-list?year=2025` (admins): the Aug 2025 – Jul 2026 list. `{organisation, year, label, months, current_month, campaigns: [{id, title, total}], rows: [{si, member_number, pending_months, member_code, name, place, status, monthly_amount, months: ["P"|"W"|"-"|""] x12, campaigns: {campaign_id: amount}}]}`. All members (inactive too) in member-ID order; P = approved, W = handed in and waiting, - = before joining; campaigns are those with approved donations received in that year. `member_number` is the number in a MEM-#### code (null otherwise); `pending_months` counts months up to the current one that are not paid (blank or W).
+
+### Month limits up to 36
+- Settings `upcoming_months_payable` (Advance months payable) and `max_months_per_payment` (Max months per payment) now default to 36 and accept up to 36 (were 12 and 12, max 12 and 24). `GET /challans/payable-months?upcoming_count=` accepts up to 36 (was 12). A value already saved in Settings stays until a superadmin changes it.
+
 ### Occasion banners (new table `banners`, created at startup)
 - Public `GET /banners/login`; signed in `GET /banners/for-me` (members' or admins' banners by role). Both return banners showing now (active, started, not ended), newest first, at most 5: `{items: [{id, title, message, image_url, button_label, button_link, ends_at, updated_at}]}`.
 - Admins: `GET /banners` (all, with `status` active / scheduled / paused / past and counts), `POST /banners`, `PUT /banners/{id}` (partial; `is_active` pauses), `DELETE /banners/{id}`, `POST /banners/image` (JPG/PNG, max 3 MB) -> `{image_url}`. Rules: title required; message <= 300; button needs text and an app path or https link; at least one place; end after start, at most a year. Changes are audited (`banner_create/update/delete`).

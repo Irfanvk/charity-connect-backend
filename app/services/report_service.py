@@ -441,3 +441,84 @@ def year_grid(db: Session, year: int, status: str = "active", country: str | Non
                      "monthly_amount": float(m.monthly_amount or 0), "months": states,
                      "paid": states.count("paid"), "due": states.count("not_paid")})
     return {"organisation": org_name(db), "year": int(year), "months": months, "rows": rows}
+
+
+# ----------------------------------------------------------------- yearly paid list (Aug-Jul)
+def _code_order(code: str | None):
+    import re
+    m = re.match(r"^MEM-?(\d+)$", str(code or ""), re.IGNORECASE)
+    return (0, int(m.group(1)), "") if m else (1, 0, str(code or ""))
+
+
+def paid_list(db: Session, year: int) -> dict:
+    """The committee's yearly paid list for Aug `year` - Jul `year+1`.
+
+    One row per member (inactive too), in member-ID order: month marks P (paid, approved),
+    W (proof sent, waiting), - (before the member joined), '' (not paid); and the amount each
+    member gave to each campaign in that year (approved donations, by the day received).
+    """
+    today = today_business()
+    current_fy = today.year if today.month >= 8 else today.year - 1
+    if not 2024 <= int(year) <= current_fy:
+        raise HTTPException(status_code=400, detail="Pick a year from 2024-2025 onwards")
+    year = int(year)
+    months = [f"{year}-{m:02d}" for m in range(8, 13)] + [f"{year + 1}-{m:02d}" for m in range(1, 8)]
+    this_month = _month(today.replace(day=1))
+    fy_start, fy_end = date(year, 8, 1), date(year + 1, 7, 1)
+
+    members = sorted(_members_query(db).all(), key=lambda m: _code_order(m.member_code))
+    ids = [m.id for m in members]
+    monthly: dict[int, list[Challan]] = defaultdict(list)
+    donations: dict[int, dict[int, float]] = defaultdict(lambda: defaultdict(float))
+    campaign_totals: dict[int, float] = defaultdict(float)
+    if ids:
+        for c in db.query(Challan).filter(Challan.member_id.in_(ids), Challan.type == ChallanType.MONTHLY,
+                                          Challan.month.in_(months)).all():
+            monthly[c.member_id].append(c)
+        start_utc, end_utc = _month_start_utc(fy_start), _month_start_utc(_add_months(fy_end, 1))
+        for c in db.query(Challan).filter(Challan.member_id.in_(ids), Challan.type == ChallanType.CAMPAIGN,
+                                          Challan.status == ChallanStatus.APPROVED).all():
+            if c.received_on:
+                inside = fy_start <= c.received_on < _add_months(fy_end, 1)
+            else:
+                when = c.approved_at or c.created_at
+                inside = bool(when) and start_utc <= when < end_utc
+            if inside and c.campaign_id:
+                donations[c.member_id][c.campaign_id] += float(c.amount or 0)
+                campaign_totals[c.campaign_id] += float(c.amount or 0)
+
+    titles = dict(db.query(Campaign.id, Campaign.title).filter(Campaign.id.in_(list(campaign_totals))).all()) if campaign_totals else {}
+    campaigns = [{"id": cid, "title": titles.get(cid) or f"Campaign {cid}", "total": round(total, 2)}
+                 for cid, total in sorted(campaign_totals.items(), key=lambda kv: (titles.get(kv[0]) or "").lower())]
+
+    rows = []
+    for si, m in enumerate(members, start=1):
+        start = _month(_start_month(m))
+        cells = {r["month"]: r for r in _month_rows(m, monthly.get(m.id, []), fy_start, fy_end)}
+        marks = []
+        for month in months:
+            state = cells[month]["state"]
+            if month < start and state not in ("paid", "waiting"):
+                marks.append("-")
+            elif state == "paid":
+                marks.append("P")
+            elif state == "waiting":
+                marks.append("W")
+            else:
+                marks.append("")
+        place = ", ".join(x for x in [m.city] if x)
+        order = _code_order(m.member_code)
+        # Pending: months of this year from joining up to this month that are not approved
+        # (proof sent but waiting still counts as pending).
+        pending = sum(1 for month, mark in zip(months, marks) if month <= this_month and mark in ("", "W"))
+        rows.append({
+            "si": si, "member_number": order[1] if order[0] == 0 else None,
+            "pending_months": pending,
+            "member_code": m.member_code, "name": _member_name(m), "place": place,
+            "status": m.status or "active", "monthly_amount": float(m.monthly_amount or 0), "months": marks,
+            "campaigns": {str(cid): round(amount, 2) for cid, amount in donations.get(m.id, {}).items()},
+        })
+    return {
+        "organisation": org_name(db), "year": year, "label": f"{year}-{year + 1}",
+        "months": months, "current_month": this_month, "campaigns": campaigns, "rows": rows,
+    }

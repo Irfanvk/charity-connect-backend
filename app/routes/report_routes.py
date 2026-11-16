@@ -72,3 +72,13 @@ def year_grid(
 ):
     """One row per member, one cell per month of the year: paid / waiting / not paid."""
     return report_service.year_grid(db, year, status=status, country=country)
+
+
+@router.get("/paid-list")
+def paid_list(
+    year: int = Query(..., description="Start year of the Aug-Jul year, e.g. 2025 for 2025-2026"),
+    _admin: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """The yearly paid list (Aug-Jul): month marks per member and campaign amounts in that year."""
+    return report_service.paid_list(db, year)
