@@ -553,6 +553,28 @@ class ReliefApproval(Base):
     admin = relationship("User", foreign_keys=[admin_user_id])
 
 
+class Banner(Base):
+    """An image banner for occasions, shown on the login page and/or dashboards between two times."""
+    __tablename__ = "banners"
+
+    id = Column(Integer, primary_key=True, index=True)
+    title = Column(String(120), nullable=False)           # admins' name for it; shown as the image's alt text
+    message = Column(String(300), nullable=True)
+    image_url = Column(String(500), nullable=False)
+    button_label = Column(String(40), nullable=True)
+    button_link = Column(String(300), nullable=True)       # app path (/Campaigns) or https link
+    show_on_login = Column(Boolean, nullable=False, default=False)
+    show_to_members = Column(Boolean, nullable=False, default=True)
+    show_to_admins = Column(Boolean, nullable=False, default=True)
+    starts_at = Column(DateTime, nullable=False)           # naive UTC
+    ends_at = Column(DateTime, nullable=False)             # naive UTC
+    is_active = Column(Boolean, nullable=False, default=True)  # False = paused
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    updated_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 class AppSetting(Base):
     """Key-value store for application-level settings managed by admins."""
     __tablename__ = "app_settings"

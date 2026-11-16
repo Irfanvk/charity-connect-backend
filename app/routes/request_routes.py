@@ -38,10 +38,11 @@ def list_requests(
     request_type: str | None = Query(default=None),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
+    mine: bool = Query(default=False, description="Only the signed-in user's own requests (also for admins)"),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """List requests for the current user (members see their own; admins see all)."""
+    """List requests (members see their own; admins see all unless mine=true)."""
     return RequestService.list_requests(
         db,
         current_user=current_user,
@@ -49,6 +50,7 @@ def list_requests(
         limit=limit,
         status_filter=status,
         request_type=request_type,
+        mine=mine,
     )
 
 

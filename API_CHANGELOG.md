@@ -1,5 +1,15 @@
 # API Changelog
 
+## 2026-11-16
+
+### Occasion banners (new table `banners`, created at startup)
+- Public `GET /banners/login`; signed in `GET /banners/for-me` (members' or admins' banners by role). Both return banners showing now (active, started, not ended), newest first, at most 5: `{items: [{id, title, message, image_url, button_label, button_link, ends_at, updated_at}]}`.
+- Admins: `GET /banners` (all, with `status` active / scheduled / paused / past and counts), `POST /banners`, `PUT /banners/{id}` (partial; `is_active` pauses), `DELETE /banners/{id}`, `POST /banners/image` (JPG/PNG, max 3 MB) -> `{image_url}`. Rules: title required; message <= 300; button needs text and an app path or https link; at least one place; end after start, at most a year. Changes are audited (`banner_create/update/delete`).
+
+### Profile photos and own requests
+- `POST/DELETE /auth/me/avatar` now return 403 for anyone with a member record (admins too): photo changes go through a profile update request and an admin's approval. Accounts without a member record still change it directly.
+- `GET /requests/?mine=true` lists only the signed-in user's own requests, also for admins.
+
 ## 2026-11-15
 
 ### Member IDs and deleting members
