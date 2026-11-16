@@ -327,11 +327,12 @@ class RequestService:
         limit: int = 50,
         status_filter: str | None = None,
         request_type: str | None = None,
+        mine: bool = False,
     ) -> list[dict]:
         role = str(current_user.get("role", "")).lower()
         query = db.query(MemberRequest)
 
-        if role not in ["admin", "superadmin"]:
+        if mine or role not in ["admin", "superadmin"]:
             query = query.filter(MemberRequest.user_id == int(current_user.get("user_id")))
 
         # Coerce to enum so PostgreSQL receives the exact enum value.

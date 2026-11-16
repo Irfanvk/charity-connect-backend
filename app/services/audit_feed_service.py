@@ -27,7 +27,7 @@ AREAS: dict[str, tuple[str, set[str]]] = {
     "funds": ("Fund use", {"fundutilization", "reliefclaim"}),
     "notifications": ("Notifications", {"notification"}),
     "reports": ("Reports", {"report"}),
-    "settings": ("Settings & system", {"appsetting", "system"}),
+    "settings": ("Settings & system", {"appsetting", "system", "banner"}),
 }
 ROLES = ("admin", "superadmin", "member", "system")
 SENSITIVE_HINTS = ("password", "token", "secret", "hash")

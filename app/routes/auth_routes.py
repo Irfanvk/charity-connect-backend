@@ -169,18 +169,30 @@ def change_password(
     return {"message": "Password updated successfully.", "username": user.username}
 
 
+def _require_photo_request(db: Session, current_user: dict) -> None:
+    from app.models import Member
+
+    has_member = db.query(Member.id).filter(Member.user_id == int(current_user["user_id"])).first() is not None
+    if str(current_user.get("role", "")).lower() == "member" or has_member:
+        raise HTTPException(
+            status_code=403,
+            detail="Photo changes are approved by an admin: please send a profile update request",
+        )
+
+
 @router.post("/me/avatar", response_model=UserResponse)
 async def upload_avatar(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Upload or update the current user's profile avatar."""
-    if str(current_user.get("role", "")).lower() == "member":
-        raise HTTPException(
-            status_code=403,
-            detail="Members must submit a profile update request for avatar changes",
-        )
+    """Upload or update the current user's profile avatar.
+
+    Every photo change is approved by an admin: anyone with a member record (admins too)
+    sends a profile update request instead. Only accounts without a member record
+    (e.g. a superadmin who is not a member) change their photo directly.
+    """
+    _require_photo_request(db, current_user)
 
     content = await file.read()
 
@@ -211,12 +223,8 @@ def remove_avatar(
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Remove the current user's profile avatar."""
-    if str(current_user.get("role", "")).lower() == "member":
-        raise HTTPException(
-            status_code=403,
-            detail="Members must submit a profile update request for avatar changes",
-        )
+    """Remove the current user's profile avatar (same approval rule as uploading)."""
+    _require_photo_request(db, current_user)
 
     user = db.query(User).filter(User.id == current_user["user_id"]).first()
     if not user:
