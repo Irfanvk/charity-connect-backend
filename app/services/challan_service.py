@@ -153,7 +153,7 @@ class ChallanService:
         # upcoming_months_payable is the platform-wide ceiling for advance months
         max_upcoming = int(get_setting(db, "upcoming_months_payable"))
         requested_upcoming = max_upcoming if upcoming_count is None else int(upcoming_count or 0)
-        safe_upcoming_count = max(0, min(requested_upcoming, max_upcoming, 12))
+        safe_upcoming_count = max(0, min(requested_upcoming, max_upcoming, 36))
         if include_upcoming and safe_upcoming_count > 0:
             for i in range(1, safe_upcoming_count + 1):
                 month_value = ChallanService._format_month(ChallanService._add_months(today, i))

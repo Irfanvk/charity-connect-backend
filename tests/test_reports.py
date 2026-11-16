@@ -141,3 +141,28 @@ def test_year_grid(db, world):
     assert "MEM-0003" not in rows  # inactive
     with pytest.raises(HTTPException):
         rs.year_grid(db, 2020)
+
+
+def test_paid_list_year(db, world):
+    # Aug 2026 - Jul 2027; Aisha joined Jul 2026 (paid Jul, waiting Aug, Sep generated, Oct rejected, Dec paid)
+    out = rs.paid_list(db, 2026)
+    assert out["label"] == "2026-2027" and out["months"][0] == "2026-08" and out["months"][-1] == "2027-07"
+    rows = {r["member_code"]: r for r in out["rows"]}
+    assert [r["member_code"] for r in out["rows"]] == ["MEM-0001", "MEM-0002", "MEM-0003"]  # inactive included
+    assert rows["MEM-0001"]["months"][:5] == ["W", "", "", "", "P"]
+    assert rows["MEM-0001"]["member_number"] == 1
+    # Aug (waiting), Sep, Oct, Nov are due by 14 Nov 2026 and not approved -> 4 pending
+    assert rows["MEM-0001"]["pending_months"] == 4
+    assert rows["MEM-0002"]["pending_months"] == 0          # paid Oct and Nov, joined Oct
+    rahul = rows["MEM-0002"]["months"]                     # joined Oct 2026, paid Oct and Nov
+    assert rahul[:4] == ["-", "-", "P", "P"]
+    # Flood relief donation was Sep 2026 -> inside 2026-27
+    camp_id = str(world["campaign"].id)
+    assert out["campaigns"] == [{"id": world["campaign"].id, "title": "Flood relief", "total": 250.0}]
+    assert rows["MEM-0001"]["campaigns"] == {camp_id: 250.0}
+    # The year before has no campaign columns
+    assert rs.paid_list(db, 2025)["campaigns"] == []
+    with pytest.raises(HTTPException):
+        rs.paid_list(db, 2023)
+    with pytest.raises(HTTPException):
+        rs.paid_list(db, 2027)

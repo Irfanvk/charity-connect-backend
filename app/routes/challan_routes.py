@@ -412,7 +412,7 @@ def admin_record_payment(
 def get_payable_months(
     member_id: Optional[int] = Query(default=None),
     include_upcoming: bool = Query(default=False),
-    upcoming_count: Optional[int] = Query(default=None, ge=0, le=12),
+    upcoming_count: Optional[int] = Query(default=None, ge=0, le=36),
     from_month: Optional[str] = Query(default=None, description="Start month override yyyy-MM"),
     include_unpaid_placeholders: bool = Query(default=False, description="Admins: list 'not paid yet' months too"),
     current_user: dict = Depends(get_current_user),
