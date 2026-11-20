@@ -408,6 +408,36 @@ def admin_record_payment(
     return created
 
 
+@router.get("/unfinished", response_model=dict)
+def get_unfinished_payments(
+    min_hours: int = Query(default=48, ge=0, le=24 * 365),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Payments members started without handing in proof. Admins: everyone's, open at least
+    ``min_hours``. Members: their own, any age."""
+    from app.services import unfinished_service
+
+    if _is_admin(current_user):
+        return unfinished_service.list_unfinished(db, min_hours=min_hours)
+    member = MemberService.get_member_for_user(db, current_user["user_id"])
+    if member is None:
+        return {"items": [], "count": 0, "min_hours": 0}
+    return unfinished_service.list_unfinished(db, min_hours=0, member_id=member.id)
+
+
+@router.post("/{challan_id}/remind", response_model=dict)
+def remind_unfinished_payment(
+    challan_id: int,
+    current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin: send the member a reminder for this unfinished payment now (once a day)."""
+    from app.services import unfinished_service
+
+    return unfinished_service.remind_now(db, current_user, challan_id)
+
+
 @router.get("/payable-months", response_model=ChallanPayableMonthsResponse)
 def get_payable_months(
     member_id: Optional[int] = Query(default=None),
@@ -765,8 +795,10 @@ def delete_challan(
     challan_id: int,
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
+    reason: Optional[str] = Query(default=None, max_length=300),
 ):
-    """Delete challan (admin or owner) before approval."""
+    """Delete challan (admin or owner) before approval. An admin cancelling a payment the
+    member started gets an optional ``reason``, sent to the member."""
     challan = ChallanService.get_challan(db, challan_id)
 
     if not _is_admin(current_user):
@@ -783,7 +815,29 @@ def delete_challan(
         "amount": float(challan.amount or 0),
         "month": challan.month,
     }
+    reason = (reason or "").strip() or None
+    # An admin cancelling a payment the member started themself: tell the member.
+    tell_member = None
+    if (
+        _is_admin(current_user) and (challan.entry_source or "") == "self"
+        and challan.created_by_user_id is not None and challan.member is not None
+    ):
+        from app.services.unfinished_service import _what
+
+        owner = challan.member.user
+        if owner is not None and owner.is_active and owner.id != current_user.get("user_id"):
+            tell_member = (owner.id, _what(challan), float(challan.amount or 0))
     result = ChallanService.delete_challan(db, challan_id)
+
+    if tell_member:
+        user_id, what, amount = tell_member
+        message = f"An admin cancelled your unfinished payment for {what} (₹{amount:,.0f})."
+        if reason:
+            message += f" Reason: {reason}"
+        message += " You can start a new payment any time from My payments."
+        NotificationService._send_status_notification(
+            db, user_id, "Payment cancelled", message, "payment", category="reminders", link_url="/Challans",
+        )
 
     if _is_admin(current_user):
         log_audit(
@@ -793,7 +847,7 @@ def delete_challan(
             entity_type="Challan",
             entity_id=challan_id,
             old_values=deleted_snapshot,
-            new_values={"deleted": True},
+            new_values={"deleted": True, "reason": reason},
             auto_commit=True,
         )
 

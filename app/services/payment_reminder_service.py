@@ -215,6 +215,11 @@ async def reminder_scheduler_loop() -> None:
                 result = await asyncio.to_thread(run_for_now)
                 if result.get("first") or result.get("follow_up"):
                     logger.info("Payment reminders sent: %s", result)
+                from app.services import unfinished_service
+
+                unfinished = await asyncio.to_thread(unfinished_service.run_for_now)
+                if unfinished.get("members", {}).get("members") or unfinished.get("admins", {}).get("status") == "sent":
+                    logger.info("Unfinished-payment reminders sent: %s", unfinished)
         except asyncio.CancelledError:
             raise
         except Exception:
