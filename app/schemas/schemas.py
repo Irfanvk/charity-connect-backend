@@ -299,6 +299,7 @@ class MemberResponse(BaseModel):
     phone: Optional[str] = None
     email: Optional[str] = None
     monthly_amount: float
+    monthly_member: bool = True
     address: Optional[str]
     country: Optional[str] = None
     city: Optional[str] = None
@@ -733,6 +734,9 @@ class ChallanPayableMonthsResponse(BaseModel):
     upcoming_months: List[str]
     all_months: List[str]
     month_fees: dict = Field(default_factory=dict)  # each listed month's fee (fee history)
+    monthly_member: bool = True                    # False: no monthly fee is owed at all
+    excused_months: List[str] = Field(default_factory=list)  # not owed, not offered
+    pledge_years: List[int] = Field(default_factory=list)    # Aug-Jul years with a yearly pledge
 
 
 # Notification Schemas

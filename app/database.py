@@ -139,6 +139,10 @@ def _ensure_member_location_columns(connection, inspector) -> None:
     })
 
 
+def _ensure_seasonal_columns(connection, inspector) -> None:
+    _add_missing_columns(connection, inspector, "members", {"monthly_member": "BOOLEAN NOT NULL DEFAULT TRUE"})
+
+
 def _ensure_challan_number_columns(connection, inspector) -> None:
     extra = {"challan_no": "VARCHAR(30)", "proof_sha256": "VARCHAR(64)", "proof_duplicate_of": "VARCHAR(255)"}
     verify = {"received_amount": "FLOAT", "verification_note": "TEXT", "bank_record_path": "VARCHAR(500)"}
@@ -190,6 +194,7 @@ def ensure_runtime_schema() -> None:
         _ensure_payment_reminder_columns(connection, inspector)
         _ensure_member_location_columns(connection, inspector)
         _ensure_challan_number_columns(connection, inspector)
+        _ensure_seasonal_columns(connection, inspector)
 
         if not inspector.has_table("campaigns"):
             return
