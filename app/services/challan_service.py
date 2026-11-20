@@ -143,6 +143,20 @@ class ChallanService:
             existing_query = existing_query.filter(submitted_clause())
         existing_monthly = existing_query.all()
         paid_or_existing_months = {row[0] for row in existing_monthly if row and row[0]}
+        # Excused months are not owed and not offered (see seasonal.py); a member who is not a
+        # monthly member has no monthly months to pay.
+        from app.services import seasonal
+
+        sbook = seasonal.Book(db, [member])
+        excused_months = sorted(sbook.excused.get(member.id, {}))
+        if not seasonal.is_monthly(member):
+            return {
+                "member_id": member_id, "current_month": today.strftime("%Y-%m"),
+                "business_timezone": settings.BUSINESS_TIMEZONE, "pending_months": [],
+                "current_month_payable": False, "upcoming_months": [], "all_months": [], "month_fees": {},
+                "monthly_member": False, "excused_months": [], "pledge_years": [],
+            }
+        paid_or_existing_months |= set(excused_months)
 
         due_through_current = ChallanService._month_sequence(start_month, today)
         pending_months = [m for m in due_through_current if m not in paid_or_existing_months and m != today.strftime("%Y-%m")]
@@ -174,6 +188,10 @@ class ChallanService:
             "upcoming_months": upcoming_months,
             "all_months": all_months,
             "month_fees": ChallanService._month_fees(db, member_id, all_months),
+            "monthly_member": True,
+            "excused_months": excused_months,
+            # Pledge years: months are not owed one by one; the member pays when able.
+            "pledge_years": sorted(sbook.pledges.get(member.id, {})),
         }
 
     @staticmethod

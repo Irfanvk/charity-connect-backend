@@ -5,6 +5,9 @@ Month states (the same words everywhere in the Reports page):
   waiting   handed in (proof, bulk payment or recorded by an admin), not yet approved
   not_paid  nothing handed in: no challan, a generated one, an imported "pending" one,
             or only rejected ones
+  excused   not paid and not owed: an admin excused the month (see seasonal.py)
+  pledge    not paid, in a year the member pledged a total instead (owed: what is left of it)
+  not_monthly  not paid, the member is not a monthly member
 A month counts from the member's join month (or the platform start, Aug 2024, when no join
 date is known) through the current month, like the payment forms.
 """
@@ -29,6 +32,7 @@ PLATFORM_START = date(2024, 8, 1)
 STATES = ("paid", "waiting", "not_paid", "rejected")
 MAX_PAGE = 500
 RANK = {"paid": 3, "waiting": 2, "rejected": 1, "not_paid": 0}
+NOT_OWED = ("excused", "pledge", "not_monthly")  # open months that are not owed
 
 
 # ----------------------------------------------------------------- helpers
@@ -113,9 +117,11 @@ def _member_info(member: Member) -> dict:
     }
 
 
-def _month_rows(member: Member, challans: Iterable[Challan], start: date, end: date, book=None) -> list[dict]:
+def _month_rows(member: Member, challans: Iterable[Challan], start: date, end: date, book=None,
+                seasonal=None) -> list[dict]:
     """One row per month start..end; months paid ahead of end are added too.
-    Unpaid months show the fee of that month (fee history), paid ones what was paid."""
+    Unpaid months show the fee of that month (fee history), paid ones what was paid.
+    With ``seasonal`` (seasonal.Book) open months that are not owed say why, with amount 0."""
     def fee_of(month: str) -> float:
         return book.fee(member, month) if book is not None else float(member.monthly_amount or 0)
     best: dict[str, Challan] = {}
@@ -135,21 +141,25 @@ def _month_rows(member: Member, challans: Iterable[Challan], start: date, end: d
         if state == "rejected":
             state = "not_paid"  # a rejected payment means the month is still owed
         paid = state in ("paid", "waiting")
+        why = seasonal.open_state(member.id, month) if seasonal is not None and not paid else None
+        if why:
+            state = why
         rows.append({
             "month": month,
             "state": state,
-            "amount": float(c.amount) if c is not None and paid else fee_of(month),
+            "amount": float(c.amount) if c is not None and paid else (0.0 if why else fee_of(month)),
             "paid_on": _iso(c.received_on or c.approved_at) if c is not None and state == "paid" else None,
             "handed_in_on": _iso(c.proof_uploaded_at or c.created_at) if c is not None and state == "waiting" else None,
             "method": c.payment_method if c is not None and paid else None,
-            "note": c.rejection_reason if c is not None and getattr(c.status, "value", c.status) == "rejected" else None,
+            "note": (seasonal.reason(member.id, month) if why == "excused" else
+                     c.rejection_reason if c is not None and getattr(c.status, "value", c.status) == "rejected" else None),
             "challan_id": c.id if c is not None else None,
             "ahead": month > _month(end),
         })
     return rows
 
 
-def _totals(rows: list[dict], current_month: str) -> dict:
+def _totals(rows: list[dict], current_month: str, pledges: list[dict] | None = None) -> dict:
     def total(state):
         picked = [r for r in rows if r["state"] == state]
         return len(picked), round(sum(r["amount"] for r in picked), 2)
@@ -160,16 +170,21 @@ def _totals(rows: list[dict], current_month: str) -> dict:
     overdue = [r for r in rows if r["state"] == "not_paid" and r["month"] < current_month]
     paid_up_to = None
     for r in rows:
-        if r["state"] in ("paid", "waiting"):
+        if r["state"] in ("paid", "waiting") or r["state"] in NOT_OWED:
             paid_up_to = r["month"]
         else:
             break
     last_paid = max((r["paid_on"] for r in rows if r["paid_on"]), default=None)
     last_paid_month = max((r["month"] for r in rows if r["state"] in ("paid", "waiting")), default=None)
+    pledges = pledges or []
+    pledge_left = round(sum(p["left"] for p in pledges), 2)
     return {
         "months_paid": paid_n, "amount_paid": paid_amt,
         "months_waiting": wait_n, "amount_waiting": wait_amt,
-        "months_due": due_n, "amount_due": due_amt,
+        "months_due": due_n, "amount_due": round(due_amt + pledge_left, 2),
+        "months_excused": sum(1 for r in rows if r["state"] == "excused"),
+        "pledges": pledges,              # pledge years: promised, paid, waiting, left
+        "pledge_left": pledge_left,      # included in amount_due
         "months_overdue": len(overdue),
         "this_month_due": any(r["month"] == current_month and r["state"] == "not_paid" for r in rows),
         "paid_up_to": paid_up_to,          # every month from the start through this one is paid
@@ -200,7 +215,11 @@ def member_statement(db: Session, member_id: int, from_month: str | None = None,
     challans = db.query(Challan).filter(Challan.member_id == member.id).all()
     from app.services.fee_history import FeeBook
 
-    rows = _month_rows(member, challans, start, end, FeeBook(db, [member]))
+    from app.services import seasonal
+
+    sbook = seasonal.Book(db, [member])
+    rows = _month_rows(member, challans, start, end, FeeBook(db, [member]), sbook)
+    pledges = seasonal.pledge_summaries(sbook, member.id, rows)
     donations = sorted(
         (c for c in challans if c.type == ChallanType.CAMPAIGN),
         key=lambda c: c.created_at or datetime.min, reverse=True,
@@ -221,7 +240,8 @@ def member_statement(db: Session, member_id: int, from_month: str | None = None,
         "to_month": _month(end),
         "current_month": _month(this_month),
         "months": rows,
-        "totals": _totals(rows, _month(this_month)),
+        "totals": _totals(rows, _month(this_month), pledges),
+        "monthly_member": seasonal.is_monthly(member),
         "donations": donation_rows,
         "donations_total": round(sum(d["amount"] for d in donation_rows if d["state"] == "paid"), 2),
     }
@@ -263,16 +283,20 @@ def dues(
     current = _month(this_month)
     from app.services.fee_history import FeeBook
 
+    from app.services import seasonal
+
     book = FeeBook(db, members)
+    sbook = seasonal.Book(db, members)
     out = []
     for member in members:
-        rows = _month_rows(member, by_member.get(member.id, []), _start_month(member), this_month, book)
-        totals = _totals(rows, current)
-        if totals["months_due"] < max(1, int(min_months or 1)):
+        rows = _month_rows(member, by_member.get(member.id, []), _start_month(member), this_month, book, sbook)
+        totals = _totals(rows, current, seasonal.pledge_summaries(sbook, member.id, rows))
+        wanted = max(1, int(min_months or 1))
+        if totals["months_due"] < wanted and not (wanted == 1 and totals["pledge_left"] > 0):
             continue
         out.append({**_member_info(member), **{k: totals[k] for k in (
             "months_due", "amount_due", "months_overdue", "this_month_due", "paid_up_to", "last_paid_month",
-            "last_payment_on", "due_months")}})
+            "last_payment_on", "due_months", "months_excused", "pledge_left", "pledges")}})
 
     keys = {
         "amount_desc": lambda r: (-r["amount_due"], -r["months_due"], r["name"].lower()),
@@ -290,7 +314,7 @@ def dues(
         "members_with_dues": len(out),
         "total_amount_due": round(sum(r["amount_due"] for r in out), 2),
         "total_months_due": sum(r["months_due"] for r in out),
-        "fee_missing": sum(1 for r in out if r["monthly_amount"] <= 0),
+        "fee_missing": sum(1 for r in out if r["monthly_amount"] <= 0 and r["months_due"] > 0),
     }
 
 
@@ -434,11 +458,15 @@ def year_grid(db: Session, year: int, status: str = "active", country: str | Non
     this_month = _month(today_business().replace(day=1))
     from app.services.fee_history import FeeBook
 
+    from app.services import seasonal
+
     book = FeeBook(db, members)
+    sbook = seasonal.Book(db, members)
     rows = []
     for m in members:
         start = _month(_start_month(m))
-        cells = {r["month"]: r for r in _month_rows(m, by_member.get(m.id, []), date(year, 1, 1), date(year, 12, 1), book)}
+        cells = {r["month"]: r for r in _month_rows(m, by_member.get(m.id, []), date(year, 1, 1), date(year, 12, 1),
+                                                    book, sbook)}
         states = []
         for month in months:
             if month < start:
@@ -503,32 +531,41 @@ def paid_list(db: Session, year: int) -> dict:
 
     from app.services.fee_history import FeeBook
 
+    from app.services import seasonal
+
     book = FeeBook(db, members)
+    sbook = seasonal.Book(db, members)
     rows = []
     for si, m in enumerate(members, start=1):
         start = _month(_start_month(m))
-        cells = {r["month"]: r for r in _month_rows(m, monthly.get(m.id, []), fy_start, fy_end, book)}
+        cells = {r["month"]: r for r in _month_rows(m, monthly.get(m.id, []), fy_start, fy_end, book, sbook)}
         marks = []
         for month in months:
             state = cells[month]["state"]
-            if month < start and state not in ("paid", "waiting"):
+            if (month < start or state == "not_monthly") and state not in ("paid", "waiting"):
                 marks.append("-")
             elif state == "paid":
                 marks.append("P")
             elif state == "waiting":
                 marks.append("W")
+            elif state == "excused":
+                marks.append("E")
             else:
-                marks.append("")
+                marks.append("")  # not paid (or a pledge-year month, not owed by itself)
         place = ", ".join(x for x in [m.city] if x)
         order = _code_order(m.member_code)
         # Pending: months of this year from joining up to this month that are not approved
         # (proof sent but waiting still counts as pending).
-        pending = sum(1 for month, mark in zip(months, marks) if month <= this_month and mark in ("", "W"))
+        def owed(mo, mark):
+            return mo <= this_month and mark in ("", "W") and cells[mo]["state"] != "pledge"
+
+        pending = sum(1 for month, mark in zip(months, marks) if owed(month, mark))
         # A fee changed during the year: months x fee would be wrong, so the sheet gets the sums.
         fee_varies = book.varies(m.id, months[0], months[-1])
         received_amount = round(sum(cells[mo]["amount"] for mo, mark in zip(months, marks) if mark == "P"), 2)
-        pending_amount = round(sum(cells[mo]["amount"] for mo, mark in zip(months, marks)
-                                   if mo <= this_month and mark in ("", "W")), 2)
+        pledge = (seasonal.pledge_summaries(sbook, m.id, list(cells.values())) or [None])[0]
+        pending_amount = round(sum(cells[mo]["amount"] for mo, mark in zip(months, marks) if owed(mo, mark))
+                               + (pledge["left"] if pledge else 0), 2)
         rows.append({
             "si": si, "member_number": order[1] if order[0] == 0 else None,
             "pending_months": pending,
@@ -536,6 +573,9 @@ def paid_list(db: Session, year: int) -> dict:
             "member_code": m.member_code, "name": _member_name(m), "place": place,
             "status": m.status or "active", "monthly_amount": float(m.monthly_amount or 0), "months": marks,
             "campaigns": {str(cid): round(amount, 2) for cid, amount in donations.get(m.id, {}).items()},
+            "monthly_member": seasonal.is_monthly(m),
+            "excused_months": marks.count("E"),
+            "pledge": pledge,
         })
     return {
         "organisation": org_name(db), "year": year, "label": f"{year}-{year + 1}",

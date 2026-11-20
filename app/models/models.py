@@ -113,6 +113,8 @@ class Member(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     full_name = Column(String(255), nullable=True)
+    # False: not a monthly member (e.g. gives one-time contributions only) - owes no monthly fees.
+    monthly_member = Column(Boolean, nullable=False, default=True, server_default="1")
     
     # Relationships
     user = relationship("User", back_populates="member")
@@ -167,6 +169,41 @@ class MemberFee(Base):
     changed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     note = Column(Text, nullable=True)
     created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+class ExcusedMonth(Base):
+    """A month a member owes nothing for (e.g. no work that month), agreed by an admin.
+    status: approved (counts) | requested (asked by the member, waiting) | rejected."""
+    __tablename__ = "excused_months"
+    __table_args__ = (UniqueConstraint("member_id", "month", name="uq_excused_member_month"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id"), nullable=False, index=True)
+    month = Column(String(7), nullable=False)
+    status = Column(String(12), nullable=False, default="approved", index=True)
+    reason = Column(Text, nullable=True)
+    requested_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    decided_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+    decision_note = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+class MemberPledge(Base):
+    """For one Aug-Jul year (``year`` = the August year) the member promises a total amount
+    instead of paying every month - for seasonal work. Months are not owed one by one; what
+    is left of the pledge is owed by the end of July."""
+    __tablename__ = "member_pledges"
+    __table_args__ = (UniqueConstraint("member_id", "year", name="uq_pledge_member_year"),)
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id"), nullable=False, index=True)
+    year = Column(Integer, nullable=False)
+    amount = Column(Float, nullable=False)
+    note = Column(Text, nullable=True)
+    created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class ProofFile(Base):

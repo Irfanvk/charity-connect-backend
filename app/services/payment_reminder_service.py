@@ -165,9 +165,15 @@ def run_due_reminders(db: Session, today: date) -> dict:
         .all()
     )
 
-    counts = {"status": "ok", "first": 0, "follow_up": 0, "skipped_paid": 0}
+    from app.services import seasonal
+
+    counts = {"status": "ok", "first": 0, "follow_up": 0, "skipped_paid": 0, "skipped_not_owed": 0}
+    sbook = seasonal.Book(db, [m for m, _ in rows])
     for member, user in rows:
         if not reminder_enabled(user):
+            continue
+        if sbook.open_state(member.id, month):  # excused, pledge year, or not a monthly member
+            counts["skipped_not_owed"] += 1
             continue
         day = clamp_day(user.payment_reminder_day) if user.payment_reminder_day else default_day
         first_sent = sent_logs.get((member.id, FIRST))

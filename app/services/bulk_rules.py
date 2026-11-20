@@ -23,6 +23,8 @@ GENERIC_ERROR = "Something went wrong and nothing was changed. Please try again.
 def monthly_amount_for(member: Member, requested: Optional[float], entry_source: Optional[str],
                        month: Optional[str] = None, db=None) -> float:
     """The per-month amount to store for a new monthly payment: the fee of that month."""
+    if getattr(member, "monthly_member", True) is False:
+        raise HTTPException(status_code=400, detail="This member is not a monthly member, so there is no monthly fee to pay.")
     fee = float(member.monthly_amount or 0)
     if month and db is not None:
         from app.services.fee_history import fee_for
