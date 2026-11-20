@@ -91,6 +91,20 @@ def get_current_user_info(current_user: dict = Depends(get_current_user), db: Se
     return user
 
 
+@router.put("/me/language")
+def set_my_language(payload: dict, current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
+    """The app language for this account (en, ml or kn); it follows the person to every device."""
+    lang = str((payload or {}).get("language") or "").strip().lower()
+    if lang not in ("en", "ml", "kn"):
+        raise HTTPException(status_code=400, detail="Language must be en, ml or kn")
+    user = db.query(User).filter(User.id == current_user["user_id"]).first()
+    if user is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.preferred_language = lang
+    db.commit()
+    return {"language": lang}
+
+
 @router.get("/me/welcome")
 def get_welcome(current_user: dict = Depends(get_current_user), db: Session = Depends(get_db)):
     """Welcome summary shown once after a self-activation is approved."""
@@ -205,7 +219,10 @@ async def upload_avatar(
     if ext not in ("jpg", "jpeg", "png"):
         raise HTTPException(status_code=400, detail="Only JPG and PNG images are allowed")
 
-    saved_path = save_file(content, "avatars", file.filename)
+    from app.models.models import Member
+
+    code = db.query(Member.member_code).filter(Member.user_id == current_user["user_id"]).scalar()
+    saved_path = save_file(content, "avatars", file.filename, name_hint=code or f"user{current_user['user_id']}")
     avatar_url = saved_path if saved_path.startswith("http") else f"/{saved_path}"
 
     user = db.query(User).filter(User.id == current_user["user_id"]).first()

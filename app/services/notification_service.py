@@ -286,10 +286,14 @@ class NotificationService:
 
             amount = NotificationService._format_inr(challan.amount)
             type_value = getattr(challan.type, "value", challan.type)
+            number = getattr(challan, "challan_no", None)
             if type_value == "campaign" and challan.campaign is not None:
-                subject = f"donation of {amount} to {challan.campaign.title}"
+                subject = f"donation of {amount} to {challan.campaign.title}" + (f" ({number})" if number else "")
             else:
-                subject = f"monthly payment for {NotificationService._format_month(challan.month)} ({amount})"
+                subject = (
+                    f"monthly payment for {NotificationService._format_month(challan.month)} "
+                    f"({amount}{', ' + number if number else ''})"
+                )
 
             title, message, ntype = NotificationService._status_content(
                 event, subject, reason, db,
@@ -297,6 +301,7 @@ class NotificationService:
                     "member_name": getattr(member, "full_name", None) or getattr(getattr(member, "user", None), "full_name", None) or "",
                     "month": NotificationService._format_month(challan.month),
                     "amount": amount,
+                    "number": number or f"CH-{challan.id}",
                 },
             )
             if actor_name and event != "approved":
@@ -324,7 +329,8 @@ class NotificationService:
             subject = (
                 f"payment for {count} month{'s' if count != 1 else ''} "
                 f"({NotificationService._format_month_range(months)}, "
-                f"{NotificationService._format_inr(bulk_group.total_amount)})"
+                f"{NotificationService._format_inr(bulk_group.total_amount)}"
+                f"{', ' + bulk_group.challan_no if getattr(bulk_group, 'challan_no', None) else ''})"
             )
             title, message, ntype = NotificationService._status_content(
                 event, subject, reason, db,
@@ -332,6 +338,7 @@ class NotificationService:
                     "member_name": getattr(bulk_group.member, "full_name", None) or "",
                     "month": NotificationService._format_month_range(months),
                     "amount": NotificationService._format_inr(bulk_group.total_amount),
+                    "number": getattr(bulk_group, "challan_no", None) or bulk_group.bulk_group_id,
                 },
             )
         except Exception:
@@ -366,6 +373,7 @@ class NotificationService:
         challan_id: int | None = None,
         bulk_group_id: str | None = None,
         bulk_id: int | None = None,
+        warning: str | None = None,
     ) -> None:
         """One in-app notification per active admin/superadmin (except the uploader) per upload. Never raises."""
         try:
@@ -377,6 +385,8 @@ class NotificationService:
                 owner_role = db.query(User.role).filter(User.id == owner_id).scalar()
                 if owner_role in (UserRole.ADMIN, UserRole.SUPERADMIN):
                     message += " (admin's own payment — please review)"
+            if warning:
+                message += f". Check before approving: {warning}"
             admin_ids = NotificationService._active_admin_ids(db, exclude_user_id=uploader_user_id)
         except Exception:
             logger.exception("Failed to build admin proof notification")
@@ -455,11 +465,16 @@ class NotificationService:
             if not phone:
                 return
             label, total = NotificationService._describe_challans(challans)
-            ids = ", ".join(f"#{c.id}" for c in challans)
+            ids = ", ".join(dict.fromkeys(c.challan_no or f"CH-{c.id}" for c in challans))
             message = (
                 f"Your payment of {NotificationService._format_inr(total)} for {label} "
                 f"has been received and verified. Receipt: {ids}."
             )
+            from app.services.receipt_service import link_for_challans
+
+            link = link_for_challans(db, challans)
+            if link:
+                message += f" View or download your receipt: {link}"
             send_whatsapp_message(phone, message)
         except Exception:
             logger.exception("Failed to send WhatsApp payment receipt")

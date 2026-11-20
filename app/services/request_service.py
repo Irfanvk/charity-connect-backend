@@ -414,7 +414,7 @@ class RequestService:
         return None
 
     @staticmethod
-    def _apply_approval_changes(db: Session, item: MemberRequest) -> list[str]:
+    def _apply_approval_changes(db: Session, item: MemberRequest, actor_id: int | None = None) -> list[str]:
         """Apply the request's changes. Returns file URLs to delete after commit."""
         cleanup_urls: list[str] = []
         member = db.query(Member).filter(Member.id == item.member_id).first()
@@ -426,10 +426,15 @@ class RequestService:
         if request_type == RequestType.MONTHLY_AMOUNT_CHANGE.value:
             if item.requested_amount is None:
                 raise HTTPException(status_code=400, detail="requested_amount is required")
+            old_fee = float(member.monthly_amount or 0)
             member.monthly_amount = float(item.requested_amount)
             db.add(member)
-            # Months not paid yet follow the new fee; paid ones keep what was paid.
+            # The new fee applies from this month (fee history); unpaid months follow their own month's fee.
             from app.services.challan_state import sync_unpaid_monthly_amounts
+            from app.services.fee_history import record_change
+
+            record_change(db, member, old_fee, member.monthly_amount, actor_id=actor_id,
+                          source="request", note=f"Request #{item.id}")
             sync_unpaid_monthly_amounts(db, member)
             return cleanup_urls
 
@@ -507,7 +512,7 @@ class RequestService:
             raise HTTPException(status_code=400, detail="Only pending requests can be approved")
 
         assert_not_own_user(current_admin, item.user_id, "approve")
-        cleanup_urls = RequestService._apply_approval_changes(db, item)
+        cleanup_urls = RequestService._apply_approval_changes(db, item, current_admin.get("user_id"))
 
         item.status = RequestStatus.APPROVED
         item.admin_id = int(current_admin.get("user_id"))

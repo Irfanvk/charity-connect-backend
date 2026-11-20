@@ -20,9 +20,14 @@ logger = logging.getLogger(__name__)
 GENERIC_ERROR = "Something went wrong and nothing was changed. Please try again."
 
 
-def monthly_amount_for(member: Member, requested: Optional[float], entry_source: Optional[str]) -> float:
-    """The per-month amount to store for a new monthly payment."""
+def monthly_amount_for(member: Member, requested: Optional[float], entry_source: Optional[str],
+                       month: Optional[str] = None, db=None) -> float:
+    """The per-month amount to store for a new monthly payment: the fee of that month."""
     fee = float(member.monthly_amount or 0)
+    if month and db is not None:
+        from app.services.fee_history import fee_for
+
+        fee = fee_for(db, member, month)
     if entry_source == "admin":
         amount = float(requested) if requested is not None and float(requested) > 0 else fee
         if amount <= 0:

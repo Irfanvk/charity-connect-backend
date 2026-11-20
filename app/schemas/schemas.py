@@ -152,6 +152,7 @@ class UserResponse(BaseModel):
     payment_reminder_enabled: Optional[bool] = None
     payment_reminder_day: Optional[int] = None
     onboarding_completed_at: Optional[datetime] = None
+    preferred_language: Optional[str] = None  # en | ml | kn
 
     class Config:
         from_attributes = True
@@ -556,6 +557,7 @@ class MultiChallanCreate(BaseModel):
     campaign_id: Optional[int] = None
     payment_method: Optional[str] = None
     proof_type: str = "individual"  # 'individual' or 'bulk'
+    same_number: bool = False  # one payment, proof uploaded later for all months together
     member_id: Optional[int] = None  # Optional for members (uses current user), required for admins
     notes: Optional[str] = Field(default=None, max_length=500)  # saved on every challan created
 
@@ -583,7 +585,11 @@ class ChallanProofUpload(BaseModel):
     pass  # File upload handled separately
 
 
-class ChallanApprove(BaseModel):
+from app.services.verification_service import Verification  # noqa: E402
+
+
+class ChallanApprove(Verification):
+    """Approve, with what the admin checked against the bank (all optional)."""
     approved_by_admin_id: Optional[int] = None
 
 
@@ -639,8 +645,23 @@ class ChallanResponse(BaseModel):
     created_by_name: Optional[str] = None
     submitted: bool = True  # False = not paid yet (nothing handed in)
     entry_source: Optional[str] = None
+    challan_no: Optional[str] = None  # real payment number, e.g. PG-2526-0042 (None on older rows)
+    proof_duplicate_of: Optional[str] = None  # "Same proof file as ..." when the file was used before
+
+    @field_validator("proof_path", "bank_record_path", mode="after")
+    @classmethod
+    def _short_lived_proof_link(cls, value):
+        """Privately stored proofs are sent as a link that works for 30 minutes."""
+        if value and "/private/" in value:
+            from app.utils.file_handler import signed_url
+
+            return signed_url(value)
+        return value
     transaction_ref: Optional[str] = None
     received_on: Optional[date] = None
+    received_amount: Optional[float] = None
+    verification_note: Optional[str] = None
+    bank_record_path: Optional[str] = None
     collected_by_user_id: Optional[int] = None
     collected_by_name: Optional[str] = None
     entry_notes: Optional[str] = None
@@ -711,6 +732,7 @@ class ChallanPayableMonthsResponse(BaseModel):
     current_month_payable: bool
     upcoming_months: List[str]
     all_months: List[str]
+    month_fees: dict = Field(default_factory=dict)  # each listed month's fee (fee history)
 
 
 # Notification Schemas
@@ -903,6 +925,7 @@ class BulkChallanLinkedChallan(BaseModel):
 
 class BulkChallanResponse(BaseModel):
     bulk_group_id: str
+    challan_no: Optional[str] = None
     member_id: int
     created_challans: int
     challan_ids: list[int]
@@ -919,6 +942,8 @@ class BulkChallanResponse(BaseModel):
 
 class BulkChallanListItem(BaseModel):
     bulk_group_id: str
+    challan_no: Optional[str] = None
+    proof_duplicate_of: Optional[str] = None
     member_id: int
     member_name: Optional[str] = None
     member_email: Optional[str] = None
@@ -959,7 +984,7 @@ class BulkChallanListResponse(BaseModel):
         from_attributes = True
 
 
-class BulkChallanApprove(BaseModel):
+class BulkChallanApprove(Verification):
     approved: bool
     admin_notes: Optional[str] = None
 
@@ -999,6 +1024,8 @@ class BulkChallanRejectResponse(BaseModel):
 
 class BulkChallanDetails(BaseModel):
     bulk_group_id: str
+    challan_no: Optional[str] = None
+    proof_duplicate_of: Optional[str] = None
     member_id: int
     member_name: Optional[str] = None
     member_code: Optional[str] = None

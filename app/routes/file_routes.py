@@ -37,7 +37,13 @@ async def upload_file(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
 
-    saved_path = save_file(content, "proofs", file.filename)
+    from app.services import proof_service
+
+    user_id = _current_user.get("user_id")
+    saved_path, _sha = proof_service.store_proof(
+        db, content, file.filename, user_id=user_id, name_hint=proof_service.member_hint(db, user_id),
+    )
+    db.commit()
     return {
         "file_url": _build_url(saved_path),
         "filename": saved_path.split("/")[-1],
@@ -48,6 +54,7 @@ async def upload_file(
 async def upload_avatar(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """
     Upload a profile avatar / member photo and return a public URL.
@@ -71,7 +78,10 @@ async def upload_avatar(
 
     # Member avatars go to temporary storage; they are moved to the permanent
     # folder only when an admin approves the profile-update request.
-    saved_path = save_pending_avatar(content, file.filename)
+    from app.models.models import Member
+
+    code = db.query(Member.member_code).filter(Member.user_id == current_user.get("user_id")).scalar()
+    saved_path = save_pending_avatar(content, file.filename, name_hint=code or f"user{current_user.get('user_id')}")
     return {
         "file_url": _build_url(saved_path),
         "filename": saved_path.split("/")[-1],
@@ -112,3 +122,41 @@ async def remove_file(
     """
     success = delete_file(file_url)
     return {"deleted": success}
+
+
+@router.get("/proof-link")
+def proof_link(
+    challan_id: int | None = None,
+    bulk_group_id: str | None = None,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """A fresh short-lived link to a payment's proof, for admins or the member it belongs to."""
+    from app.models.models import BulkChallanGroup, Challan, Member
+    from app.utils.file_handler import signed_url
+
+    role = str(current_user.get("role") or "").lower()
+    own_member_id = db.query(Member.id).filter(Member.user_id == current_user.get("user_id")).scalar()
+    if bulk_group_id:
+        group = db.query(BulkChallanGroup).filter(BulkChallanGroup.bulk_group_id == bulk_group_id).first()
+        if group is None:
+            raise HTTPException(status_code=404, detail="Payment not found")
+        member_id, ref = group.member_id, group.proof_file_id
+    elif challan_id is not None:
+        challan = db.query(Challan).filter(Challan.id == challan_id).first()
+        if challan is None:
+            raise HTTPException(status_code=404, detail="Payment not found")
+        member_id, ref = challan.member_id, challan.proof_path
+        if not ref and challan.bulk_group_id:
+            group = db.query(BulkChallanGroup).filter(BulkChallanGroup.bulk_group_id == challan.bulk_group_id).first()
+            ref = group.proof_file_id if group is not None else None
+    else:
+        raise HTTPException(status_code=400, detail="challan_id or bulk_group_id is required")
+    if role not in ("admin", "superadmin") and member_id != own_member_id:
+        raise HTTPException(status_code=403, detail="Not allowed to view this proof")
+    if not ref or str(ref).startswith("no-proof:"):
+        raise HTTPException(status_code=404, detail="No proof was uploaded for this payment")
+    url = signed_url(_build_url(str(ref)))
+    if not url:
+        raise HTTPException(status_code=503, detail="The proof cannot be opened right now. Please try again.")
+    return {"url": url, "expires_in": 1800}

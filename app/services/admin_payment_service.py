@@ -47,6 +47,7 @@ def _group_months(db: Session, member_id: int, challans: list[Challan], *, per_m
     db.add(group)
     db.flush()
     group.bulk_group_id = f"BCH-{group.id:04d}"
+    group.challan_no = challans[0].challan_no if challans else None
     db.flush()
     for challan in challans:
         challan.bulk_group_id = group.bulk_group_id
@@ -107,11 +108,15 @@ def find_duplicate_reference(db: Session, transaction_ref: str) -> Optional[Chal
     )
 
 
-def _store_proof(db: Session, proof_file: Optional[UploadFile], proof_file_id: Optional[str]) -> Optional[str]:
+def _store_proof(db: Session, proof_file: Optional[UploadFile], proof_file_id: Optional[str],
+                 name_hint: Optional[str] = None, user_id: Optional[int] = None) -> Optional[str]:
     if proof_file is not None and proof_file.filename:
+        from app.services import proof_service
+
         content = proof_file.file.read()
         validate_file(content, proof_file.filename, max_size_mb=get_setting(db, "proof_max_upload_mb"))
-        return save_file(content, "proofs", proof_file.filename)
+        ref, _sha = proof_service.store_proof(db, content, proof_file.filename, user_id=user_id, name_hint=name_hint)
+        return ref
     reference = _clean(proof_file_id)
     if reference:
         if not reference.startswith(PROOF_REFERENCE_PREFIXES) or ".." in reference:
@@ -208,13 +213,21 @@ def record_payment(
         if clash:
             raise HTTPException(status_code=400, detail=f"Challans already exist for months: {sorted(c.month for c in clash)}")
 
-        standard = float(member.monthly_amount or 0)
-        per_month = float(amount_per_month) if amount_per_month is not None else standard
-        if per_month <= 0:
-            raise HTTPException(status_code=400, detail="amount_per_month must be greater than 0")
-        if per_month != standard and not notes:
-            raise HTTPException(status_code=400, detail="entry_notes is required when the amount differs from the member's monthly amount")
-        targets = [(m, per_month) for m in unique_months]
+        from app.services.fee_history import FeeBook
+
+        book = FeeBook(db, [member])
+        standard = {m: book.fee(member, m) for m in unique_months}  # each month's own fee
+        if amount_per_month is not None:
+            per_month = float(amount_per_month)
+            if per_month <= 0:
+                raise HTTPException(status_code=400, detail="amount_per_month must be greater than 0")
+            if any(abs(per_month - fee) > 0.005 for fee in standard.values()) and not notes:
+                raise HTTPException(status_code=400, detail="entry_notes is required when the amount differs from the member's monthly amount")
+            targets = [(m, per_month) for m in unique_months]
+        else:
+            if any(fee <= 0 for fee in standard.values()):
+                raise HTTPException(status_code=400, detail="amount_per_month must be greater than 0")
+            targets = [(m, standard[m]) for m in unique_months]
     else:
         if not campaign_id:
             raise HTTPException(status_code=400, detail="campaign_id is required for campaign payments")
@@ -229,7 +242,10 @@ def record_payment(
             raise HTTPException(status_code=400, detail=f"Minimum donation for this campaign is ₹{campaign.min_amount}")
         targets = [(None, float(amount))]
 
-    proof_path = _store_proof(db, proof_file, proof_file_id)
+    from app.services.challan_numbers import next_number
+
+    payment_no = next_number(db)  # one entry = one payment number, also for several months
+    proof_path = _store_proof(db, proof_file, proof_file_id, name_hint=payment_no, user_id=actor_id)
 
     created: list[Challan] = []
     fill = placeholders if kind == "monthly" else {}
@@ -246,6 +262,7 @@ def record_payment(
             received_on=received,
             collected_by_user_id=collector_id,
             entry_notes=notes,
+            challan_no=payment_no,
         )
         challan = fill.get(month)
         if challan is not None:
@@ -261,9 +278,20 @@ def record_payment(
             )
             db.add(challan)
         created.append(challan)
+    group = None
     if kind == "monthly" and len(created) > 1:
-        _group_months(db, member_id, created, per_month=targets[0][1], proof_path=proof_path,
-                      notes=notes, actor_id=actor_id)
+        group = _group_months(db, member_id, created, per_month=targets[0][1], proof_path=proof_path,
+                              notes=notes, actor_id=actor_id)
+    if proof_path:
+        from app.services import proof_service
+
+        db.flush()
+        if group is not None:
+            proof_service.mark_group(db, group, created, proof_path)
+        else:
+            sha = proof_service.sha_for_ref(db, proof_path)
+            for challan in created:
+                proof_service.mark_challan(db, challan, sha, ref=proof_path)
     db.commit()
     for challan in created:
         db.refresh(challan)

@@ -104,7 +104,9 @@ def _build_proof_url(proof_file_id: str | None) -> str | None:
     if not cleaned or cleaned.startswith("no-proof:"):
         return None
     if cleaned.startswith("http://") or cleaned.startswith("https://"):
-        return cleaned
+        from app.utils.file_handler import signed_url
+
+        return signed_url(cleaned)  # private proofs: a short-lived link
     if cleaned.startswith("/"):
         return cleaned
     if cleaned.startswith("uploads/"):
@@ -732,6 +734,8 @@ def get_pending_bulk_operations(
         group_challan_ids = json.loads(group.challan_ids_list) if group.challan_ids_list else []
         items.append(BulkChallanListItem(
             bulk_group_id=group.bulk_group_id,
+            challan_no=group.challan_no,
+            proof_duplicate_of=group.proof_duplicate_of,
             member_id=group.member_id,
             member_name=_member_display_name(member, user),
             member_code=getattr(member, "member_code", None) if member else None,
@@ -807,6 +811,8 @@ def get_bulk_challan_details(
     proof_url = _build_proof_url(bulk_group.proof_file_id)
     return BulkChallanDetails(
         bulk_group_id=bulk_group.bulk_group_id,
+        challan_no=bulk_group.challan_no,
+        proof_duplicate_of=bulk_group.proof_duplicate_of,
         member_id=bulk_group.member_id,
         member_name=_member_display_name(member, user),
         member_code=getattr(member, "member_code", None) if member else None,
@@ -870,6 +876,9 @@ def approve_bulk_challans(
     if bulk_group.created_by_user_id is not None and int(bulk_group.created_by_user_id) == int(admin_user_id):
         raise HTTPException(status_code=403, detail="Payments entered by an admin must be verified by a different admin.")
     _assert_months_free(db, bulk_group, group_challans, "approve")
+    from app.services import verification_service
+
+    verification_service.apply(db, request, group_challans, bulk_group)  # checked against the bank
 
     try:
         challan_ids = group_challan_ids
@@ -903,6 +912,11 @@ def approve_bulk_challans(
                 "months": months,
                 "total_amount": bulk_group.total_amount,
                 "admin_notes": request.admin_notes,
+                "received_on": str(bulk_group.received_on) if bulk_group.received_on else None,
+                "transaction_ref": bulk_group.transaction_ref,
+                "received_amount": bulk_group.received_amount,
+                "payment_method": bulk_group.payment_method,
+                "verification_note": bulk_group.verification_note,
                 "approved_challan_count": len(approved_ids),
                 "skipped_challan_count": len(challan_ids) - len(approved_ids),
             }),

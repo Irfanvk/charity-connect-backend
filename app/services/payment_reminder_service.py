@@ -211,6 +211,14 @@ async def reminder_scheduler_loop() -> None:
     await asyncio.sleep(60)
     while True:
         try:
+            from app.services import fee_history
+
+            started = await asyncio.to_thread(fee_history.run_for_now)  # waiting fee changes for this month
+            if started:
+                logger.info("Fee changes started this month: %s members", started)
+        except Exception:
+            logger.exception("Starting this month's fee changes failed")
+        try:
             if now_business().hour >= SEND_FROM_HOUR:
                 result = await asyncio.to_thread(run_for_now)
                 if result.get("first") or result.get("follow_up"):

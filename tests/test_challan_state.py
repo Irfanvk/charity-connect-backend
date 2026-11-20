@@ -83,9 +83,12 @@ def test_fee_change_updates_only_unpaid_months(db, member):
 
 
 def test_admin_edit_of_monthly_amount_syncs_unpaid_months(db, member):
+    # Fee history: the new fee starts next month; an older unpaid month keeps its fee.
     imported = _ch(db, member, "2026-01", ChallanStatus.PENDING)
+    ahead = _ch(db, member, "2099-01", ChallanStatus.PENDING)
     MemberService.update_member(db, member.id, MemberUpdate(monthly_amount=500))
-    assert float(db.get(Challan, imported.id).amount) == 500
+    assert float(db.get(Challan, imported.id).amount) == 100
+    assert float(db.get(Challan, ahead.id).amount) == 500
 
 
 def test_approved_amount_change_request_syncs_unpaid_months(db, member):
@@ -93,6 +96,7 @@ def test_approved_amount_change_request_syncs_unpaid_months(db, member):
     db.add(admin)
     db.commit()
     imported = _ch(db, member, "2026-01", ChallanStatus.PENDING)
+    ahead = _ch(db, member, "2099-01", ChallanStatus.PENDING)
     approved = _ch(db, member, "2025-12", ChallanStatus.APPROVED)
     req = MemberRequest(user_id=member.user_id, member_id=member.id, request_type=RequestType.MONTHLY_AMOUNT_CHANGE,
                         subject="Change", message="Please", requested_amount=500, current_amount=100,
@@ -100,7 +104,8 @@ def test_approved_amount_change_request_syncs_unpaid_months(db, member):
     db.add(req)
     db.commit()
     RequestService.approve_request(db, {"user_id": admin.id, "role": "admin"}, req.id)
-    assert float(db.get(Challan, imported.id).amount) == 500
+    assert float(db.get(Challan, imported.id).amount) == 100   # before the change: old fee
+    assert float(db.get(Challan, ahead.id).amount) == 500      # from next month: new fee
     assert float(db.get(Challan, approved.id).amount) == 100
 
 

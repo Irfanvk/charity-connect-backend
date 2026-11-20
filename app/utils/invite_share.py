@@ -8,8 +8,15 @@ from app.utils.message_format import with_islamic_greeting
 DEFAULT_ORG_NAME = "PMB GCC PORTAL"
 
 
+HOSTING_OR_LOCAL = ("netlify.app", "vercel.app", "localhost", "127.0.0.1", "0.0.0.0")
+
+
 def _normalize_base_url() -> str:
+    """The address for shared links: the server's own website address, never a hosting
+    (netlify.app / vercel.app) or local one; then PUBLIC_SITE_URL (poyyathabailgcc.com)."""
     base_url = str(settings.FRONTEND_BASE_URL or "").strip().rstrip("/")
+    if not base_url or any(part in base_url.lower() for part in HOSTING_OR_LOCAL):
+        base_url = str(settings.PUBLIC_SITE_URL or "").strip().rstrip("/") or base_url
     if not base_url:
         # FRONTEND_BASE_URL is required — a missing value here means the env
         # var was never set.  Fail loudly so broken localhost links are never

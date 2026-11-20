@@ -278,3 +278,24 @@ def test_member_notes_are_saved_on_every_kind_of_challan(db, world):
     assert {c.entry_notes for c in multi} == {"Two months together"}
     r = _create(db, user, ["2026-11", "2026-12"], notes="One transfer for both")
     assert {c.entry_notes for c in db.query(Challan).filter_by(bulk_group_id=r.bulk_group_id)} == {"One transfer for both"}
+
+
+def test_every_new_payment_gets_a_real_number(db, world, monkeypatch):
+    """One number per payment: single, each separate month, one bulk payment, or months paid later together."""
+    months = ["2026-08", "2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02"]
+    monkeypatch.setattr(ChallanService, "get_payable_months", staticmethod(lambda *a, **k: {"all_months": months}))
+    MONTHS = months  # noqa: N806
+    member = world["members"]["regular"]
+    single = challan_routes.create_challan(
+        ChallanCreate(type=ChallanType.MONTHLY, month=MONTHS[0], amount=1), _ctx(world["regular"]), db)
+    separate = challan_routes.create_multi_challans(
+        MultiChallanCreate(months=[MONTHS[1], MONTHS[2]], amount=1), _ctx(world["regular"]), db)
+    later = challan_routes.create_multi_challans(
+        MultiChallanCreate(months=[MONTHS[3], MONTHS[4]], amount=1, same_number=True), _ctx(world["regular"]), db)
+    bulk = _create(db, world["regular"], [MONTHS[5], MONTHS[6]])
+    numbers = [single.challan_no, *separate["challan_numbers"]]
+    assert all(n and n.startswith("PG-") for n in numbers) and len(set(numbers)) == 3
+    assert len(set(later["challan_numbers"])) == 1 and later["challan_numbers"][0] not in numbers
+    rows = db.query(Challan).filter(Challan.bulk_group_id == bulk.bulk_group_id).all()
+    assert bulk.challan_no and {c.challan_no for c in rows} == {bulk.challan_no}
+    assert member.id == rows[0].member_id

@@ -158,6 +158,7 @@ def test_future_received_on_rejected(db, world):
 def test_multi_month_creates_one_challan_each(db, world):
     created = _record(db, world["admin1"], world["members"]["regular"], months=MONTHS)
     assert [c.month for c in created] == MONTHS
+    assert created[0].challan_no and {c.challan_no for c in created} == {created[0].challan_no}  # one entry, one number
 
 
 def test_collector_must_be_active_admin(db, world):
