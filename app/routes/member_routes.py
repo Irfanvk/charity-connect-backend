@@ -256,6 +256,20 @@ def get_member_import_job_status(
     return ImportJobStatusResponse(**job)
 
 
+@router.get("/{member_id}/fees")
+def get_member_fee_history(
+    member_id: int,
+    current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Admins: the member's monthly fee over time (each fee applies from its month on)."""
+    from app.services.fee_history import history, upcoming
+
+    member = MemberService.get_member(db, member_id)
+    return {"member_id": member.id, "current_fee": float(member.monthly_amount or 0),
+            "upcoming": upcoming(db, member), "history": history(db, member)}
+
+
 @router.get("/{member_id}", response_model=MemberResponse)
 def get_member(
     member_id: int,
@@ -282,7 +296,7 @@ def update_member(
 ):
     """Update member information (Admin only)."""
     _ = current_user
-    member = MemberService.update_member(db, member_id, update_data)
+    member = MemberService.update_member(db, member_id, update_data, actor_user_id=current_user.get("user_id"))
     log_audit(
         db,
         user_id=current_user.get("user_id"),

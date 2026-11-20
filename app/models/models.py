@@ -66,6 +66,7 @@ class User(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
     full_name = Column(String(255), nullable=True)
+    preferred_language = Column(String(5), nullable=True)  # en | ml | kn (app language)
     last_seen_at = Column(DateTime, nullable=True)
     notification_permission = Column(String(20), nullable=True)
     notification_permission_updated_at = Column(DateTime, nullable=True)
@@ -149,6 +150,43 @@ class PaymentReminderLog(Base):
     month = Column(String(7), nullable=False)  # YYYY-MM (IST)
     kind = Column(String(20), nullable=False)  # first | follow_up
     sent_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+class MemberFee(Base):
+    """A member's monthly fee over time: ``amount`` applies from ``effective_from`` (YYYY-MM)
+    until the next entry. The fee for a month is the latest entry starting on or before it
+    (for a tie, the one saved last). A member with no entries pays ``members.monthly_amount``
+    for every month (the state before fee history existed)."""
+    __tablename__ = "member_fees"
+
+    id = Column(Integer, primary_key=True, index=True)
+    member_id = Column(Integer, ForeignKey("members.id"), nullable=False, index=True)
+    amount = Column(Float, nullable=False)
+    effective_from = Column(String(7), nullable=False)
+    source = Column(String(20), nullable=False, default="admin")  # start | admin | request
+    changed_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    note = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+class ProofFile(Base):
+    """Every payment proof uploaded through the app, with its fingerprint, so a proof chosen
+    first and attached later (multi-month payments) can still be checked for reuse."""
+    __tablename__ = "proof_files"
+
+    id = Column(Integer, primary_key=True, index=True)
+    ref = Column(String(500), nullable=False, unique=True, index=True)  # stored URL / path
+    sha256 = Column(String(64), nullable=False, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+class NumberSequence(Base):
+    """Running numbers, one row per series (e.g. ``PG-2526`` for Aug 2025 - Jul 2026)."""
+    __tablename__ = "number_sequences"
+
+    key = Column(String(30), primary_key=True)
+    last = Column(Integer, nullable=False, default=0)
 
 
 class NudgeLog(Base):
@@ -270,6 +308,16 @@ class Challan(Base):
     received_on = Column(Date, nullable=True)
     collected_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     entry_notes = Column(Text, nullable=True)
+    # Real payment number, e.g. PG-2526-0042 (financial year + running number). Months paid
+    # together with one proof share it. Older and imported rows have none (shown as CH-<id>).
+    challan_no = Column(String(30), nullable=True, index=True)
+    # Fingerprint of the proof file, and a note when the same file was used for another payment.
+    proof_sha256 = Column(String(64), nullable=True, index=True)
+    proof_duplicate_of = Column(String(255), nullable=True)
+    # Checked against the bank when approved: amount actually received, note, bank record file
+    received_amount = Column(Float, nullable=True)
+    verification_note = Column(Text, nullable=True)
+    bank_record_path = Column(String(500), nullable=True)
 
     @property
     def member_code(self) -> str | None:
@@ -318,6 +366,16 @@ class BulkChallanGroup(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     bulk_group_id = Column(String(50), unique=True, nullable=False, index=True)
+    challan_no = Column(String(30), nullable=True, index=True)  # same number as its challans
+    proof_sha256 = Column(String(64), nullable=True, index=True)
+    proof_duplicate_of = Column(String(255), nullable=True)
+    # Checked against the bank when approved (also copied onto each month's challan)
+    received_on = Column(Date, nullable=True)
+    transaction_ref = Column(String(100), nullable=True)
+    payment_method = Column(String(50), nullable=True)
+    received_amount = Column(Float, nullable=True)
+    verification_note = Column(Text, nullable=True)
+    bank_record_path = Column(String(500), nullable=True)
     member_id = Column(Integer, ForeignKey("members.id"), nullable=False)
     amount_per_month = Column(Float, nullable=False)
     total_amount = Column(Float, nullable=False)

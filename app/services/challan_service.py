@@ -173,7 +173,18 @@ class ChallanService:
             "current_month_payable": current_month_payable,
             "upcoming_months": upcoming_months,
             "all_months": all_months,
+            "month_fees": ChallanService._month_fees(db, member_id, all_months),
         }
+
+    @staticmethod
+    def _month_fees(db: Session, member_id: int, months: list[str]) -> dict:
+        from app.services.fee_history import FeeBook
+
+        member = db.query(Member).filter(Member.id == member_id).first()
+        if member is None:
+            return {}
+        book = FeeBook(db, [member])
+        return {m: book.fee(member, m) for m in months}
     
     @staticmethod
     def create_challan(
@@ -229,7 +240,7 @@ class ChallanService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Challan already exists for this month",
                 )
-            amount = monthly_amount_for(member, challan_data.amount, entry_source)
+            amount = monthly_amount_for(member, challan_data.amount, entry_source, challan_data.month, db)
         else:
             amount = challan_data.amount
 
@@ -244,7 +255,9 @@ class ChallanService:
             entry_source=entry_source,
             entry_notes=clean_note(getattr(challan_data, "notes", None)),
         )
-        
+        from app.services.challan_numbers import next_number
+
+        new_challan.challan_no = next_number(db)
         db.add(new_challan)
         db.commit()
         db.refresh(new_challan)
@@ -271,9 +284,11 @@ class ChallanService:
         notes: str | None = None,
         created_by_user_id: int | None = None,
         entry_source: str | None = None,
+        same_number: bool = False,
     ) -> dict:
         """
         Create multiple challans with optional bulk proof routing.
+        ``same_number``: one payment paid together later with one proof (one number for all).
         
         If proof_type == 'bulk', returns routing info for bulk challan flow.
         If proof_type == 'individual', creates individual challans immediately.
@@ -318,11 +333,14 @@ class ChallanService:
         # Check for existing challans (paid, or waiting for review)
         from app.services.bulk_rules import monthly_amount_for, taken_months
 
+        month_amounts: dict = {}
         if len(set(months)) != len(months):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Each month can be selected only once")
         if challan_type == ChallanType.MONTHLY:
             existing_months = taken_months(db, member_id, months)
-            amount = monthly_amount_for(member, amount, entry_source)
+            # each month at its own fee (fee history); an admin's own amount applies to all
+            month_amounts = {m: monthly_amount_for(member, amount, entry_source, m, db) for m in months}
+            amount = month_amounts[months[0]]
         else:
             existing_months = sorted({
                 c.month for c in db.query(Challan).filter(
@@ -347,12 +365,15 @@ class ChallanService:
                 "member_id": member_id,
                 "months": months,
                 "amount_per_month": amount,
-                "total_amount": amount * len(months),
+                "total_amount": round(sum(month_amounts.get(m, amount) for m in months), 2),
                 "notes": notes,
                 "next_step": "POST /challans/bulk-create with months, amount_per_month, and proof file",
             }
         else:
             # Create individual challans
+            from app.services.challan_numbers import next_number
+
+            shared_no = next_number(db) if same_number else None
             challan_ids = []
             for month in months:
                 new_challan = Challan(
@@ -360,11 +381,12 @@ class ChallanService:
                     type=challan_type,
                     month=month,
                     campaign_id=campaign_id,
-                    amount=amount,
+                    amount=month_amounts.get(month, amount),
                     payment_method=normalize_payment_method(payment_method),
                     created_by_user_id=created_by_user_id,
                     entry_source=entry_source,
                     entry_notes=clean_note(notes),
+                    challan_no=shared_no or next_number(db),
                 )
                 db.add(new_challan)
                 db.flush()
@@ -382,8 +404,10 @@ class ChallanService:
                 "message": f"Successfully created {len(challan_ids)} individual challans",
                 "created_count": len(challan_ids),
                 "challan_ids": challan_ids,
+                "challan_numbers": [c.challan_no for c in sorted(created_challans, key=lambda c: c.id)],
+                "same_number": bool(same_number),
                 "member_id": member_id,
-                "total_amount": amount * len(challan_ids),
+                "total_amount": round(sum(float(c.amount or 0) for c in created_challans), 2),
                 "next_step": "Upload proof files for each challan individually",
             }
 
@@ -579,8 +603,13 @@ class ChallanService:
         # Validate file
         validate_file(file_content, filename, max_size_mb=get_setting(db, "proof_max_upload_mb"))
         
-        # Save file
-        proof_path = save_file(file_content, "proofs", filename)
+        # Save privately, named by the payment number, and check the file was not used before
+        from app.services import proof_service
+
+        proof_path, sha = proof_service.store_proof(
+            db, file_content, filename, user_id=None, name_hint=challan.challan_no or f"CH-{challan.id}",
+        )
+        proof_service.mark_challan(db, challan, sha, ref=proof_path)
         
         # Update challan
         challan.proof_path = proof_path
@@ -975,6 +1004,7 @@ class ChallanService:
             query = query.filter(
                 or_(
                     cast(Challan.id, String).ilike(term),
+                    Challan.challan_no.ilike(term),
                     Challan.month.ilike(term),
                     Member.member_code.ilike(term),
                     User.username.ilike(term),
@@ -1083,7 +1113,11 @@ class ChallanService:
 
         inferred_items = []
         today = today_business().replace(day=1)
-        for member in due_members_query.all():
+        from app.services.fee_history import FeeBook
+
+        due_members = due_members_query.all()
+        fee_book = FeeBook(db, due_members)
+        for member in due_members:
             payable = ChallanService.get_payable_months(db, member.id)
             for month in payable["all_months"]:
                 month_start = ChallanService._parse_month_start(month)
@@ -1094,7 +1128,7 @@ class ChallanService:
                     "type": ChallanType.MONTHLY,
                     "month": month,
                     "campaign_id": None,
-                    "amount": float(member.monthly_amount),
+                    "amount": fee_book.fee(member, month),
                     "payment_method": None,
                     "proof_path": None,
                     "status": ChallanStatus.GENERATED,

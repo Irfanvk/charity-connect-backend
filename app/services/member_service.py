@@ -602,7 +602,7 @@ class MemberService:
         return member
 
     @staticmethod
-    def update_member(db: Session, member_id: int, update_data: MemberUpdate):
+    def update_member(db: Session, member_id: int, update_data: MemberUpdate, actor_user_id: int | None = None):
         """Update member information and linked user contact fields."""
         member = MemberService.get_member(db, member_id)
         user = db.query(User).filter(User.id == member.user_id).first()
@@ -660,6 +660,7 @@ class MemberService:
                     )
             user.phone = new_phone
 
+        old_fee = float(member.monthly_amount or 0)
         for key in ("monthly_amount", "address", "status", "join_date"):
             if key in update_fields and update_fields[key] is not None:
                 setattr(member, key, update_fields[key])
@@ -669,9 +670,12 @@ class MemberService:
                 setattr(member, key, update_fields[key])
 
         if update_fields.get("monthly_amount") is not None:
-            # Months not paid yet follow the new fee; paid ones keep what was paid.
+            # The new fee applies from this month (fee history); unpaid months follow their own month's fee.
             from app.services.challan_state import sync_unpaid_monthly_amounts
+            from app.services.fee_history import record_change
+
             db.flush()
+            record_change(db, member, old_fee, member.monthly_amount, actor_id=actor_user_id, source="admin")
             sync_unpaid_monthly_amounts(db, member)
 
         db.commit()

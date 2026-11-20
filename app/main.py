@@ -33,6 +33,7 @@ from app.routes.settings_routes import router as settings_router
 from app.routes.report_routes import router as report_router
 from app.routes.relief_routes import router as relief_router
 from app.routes.banner_routes import router as banner_router
+from app.routes.receipt_routes import router as receipt_router
 import app.models as _models
 
 try:
@@ -113,6 +114,7 @@ app.include_router(settings_router)
 app.include_router(report_router)
 app.include_router(relief_router)
 app.include_router(banner_router)
+app.include_router(receipt_router)
 
 # Serve locally uploaded files (avatars, challan proofs, campaign images).
 # Cloud storage (R2) bypasses this path entirely via full URLs.

@@ -113,9 +113,11 @@ def _member_info(member: Member) -> dict:
     }
 
 
-def _month_rows(member: Member, challans: Iterable[Challan], start: date, end: date) -> list[dict]:
-    """One row per month start..end; months paid ahead of end are added too."""
-    fee = float(member.monthly_amount or 0)
+def _month_rows(member: Member, challans: Iterable[Challan], start: date, end: date, book=None) -> list[dict]:
+    """One row per month start..end; months paid ahead of end are added too.
+    Unpaid months show the fee of that month (fee history), paid ones what was paid."""
+    def fee_of(month: str) -> float:
+        return book.fee(member, month) if book is not None else float(member.monthly_amount or 0)
     best: dict[str, Challan] = {}
     for c in challans:
         if c.type != ChallanType.MONTHLY or not c.month:
@@ -136,7 +138,7 @@ def _month_rows(member: Member, challans: Iterable[Challan], start: date, end: d
         rows.append({
             "month": month,
             "state": state,
-            "amount": float(c.amount) if c is not None and paid else fee,
+            "amount": float(c.amount) if c is not None and paid else fee_of(month),
             "paid_on": _iso(c.received_on or c.approved_at) if c is not None and state == "paid" else None,
             "handed_in_on": _iso(c.proof_uploaded_at or c.created_at) if c is not None and state == "waiting" else None,
             "method": c.payment_method if c is not None and paid else None,
@@ -196,7 +198,9 @@ def member_statement(db: Session, member_id: int, from_month: str | None = None,
         raise HTTPException(status_code=400, detail="Please choose at most 20 years")
 
     challans = db.query(Challan).filter(Challan.member_id == member.id).all()
-    rows = _month_rows(member, challans, start, end)
+    from app.services.fee_history import FeeBook
+
+    rows = _month_rows(member, challans, start, end, FeeBook(db, [member]))
     donations = sorted(
         (c for c in challans if c.type == ChallanType.CAMPAIGN),
         key=lambda c: c.created_at or datetime.min, reverse=True,
@@ -257,9 +261,12 @@ def dues(
 
     this_month = today_business().replace(day=1)
     current = _month(this_month)
+    from app.services.fee_history import FeeBook
+
+    book = FeeBook(db, members)
     out = []
     for member in members:
-        rows = _month_rows(member, by_member.get(member.id, []), _start_month(member), this_month)
+        rows = _month_rows(member, by_member.get(member.id, []), _start_month(member), this_month, book)
         totals = _totals(rows, current)
         if totals["months_due"] < max(1, int(min_months or 1)):
             continue
@@ -425,10 +432,13 @@ def year_grid(db: Session, year: int, status: str = "active", country: str | Non
                                           Challan.member_id.in_([m.id for m in members])).all():
             by_member[c.member_id].append(c)
     this_month = _month(today_business().replace(day=1))
+    from app.services.fee_history import FeeBook
+
+    book = FeeBook(db, members)
     rows = []
     for m in members:
         start = _month(_start_month(m))
-        cells = {r["month"]: r for r in _month_rows(m, by_member.get(m.id, []), date(year, 1, 1), date(year, 12, 1))}
+        cells = {r["month"]: r for r in _month_rows(m, by_member.get(m.id, []), date(year, 1, 1), date(year, 12, 1), book)}
         states = []
         for month in months:
             if month < start:
@@ -491,10 +501,13 @@ def paid_list(db: Session, year: int) -> dict:
     campaigns = [{"id": cid, "title": titles.get(cid) or f"Campaign {cid}", "total": round(total, 2)}
                  for cid, total in sorted(campaign_totals.items(), key=lambda kv: (titles.get(kv[0]) or "").lower())]
 
+    from app.services.fee_history import FeeBook
+
+    book = FeeBook(db, members)
     rows = []
     for si, m in enumerate(members, start=1):
         start = _month(_start_month(m))
-        cells = {r["month"]: r for r in _month_rows(m, monthly.get(m.id, []), fy_start, fy_end)}
+        cells = {r["month"]: r for r in _month_rows(m, monthly.get(m.id, []), fy_start, fy_end, book)}
         marks = []
         for month in months:
             state = cells[month]["state"]
@@ -511,9 +524,15 @@ def paid_list(db: Session, year: int) -> dict:
         # Pending: months of this year from joining up to this month that are not approved
         # (proof sent but waiting still counts as pending).
         pending = sum(1 for month, mark in zip(months, marks) if month <= this_month and mark in ("", "W"))
+        # A fee changed during the year: months x fee would be wrong, so the sheet gets the sums.
+        fee_varies = book.varies(m.id, months[0], months[-1])
+        received_amount = round(sum(cells[mo]["amount"] for mo, mark in zip(months, marks) if mark == "P"), 2)
+        pending_amount = round(sum(cells[mo]["amount"] for mo, mark in zip(months, marks)
+                                   if mo <= this_month and mark in ("", "W")), 2)
         rows.append({
             "si": si, "member_number": order[1] if order[0] == 0 else None,
             "pending_months": pending,
+            "fee_varies": fee_varies, "received_amount": received_amount, "pending_amount": pending_amount,
             "member_code": m.member_code, "name": _member_name(m), "place": place,
             "status": m.status or "active", "monthly_amount": float(m.monthly_amount or 0), "months": marks,
             "campaigns": {str(cid): round(amount, 2) for cid, amount in donations.get(m.id, {}).items()},
@@ -522,3 +541,74 @@ def paid_list(db: Session, year: int) -> dict:
         "organisation": org_name(db), "year": year, "label": f"{year}-{year + 1}",
         "months": months, "current_month": this_month, "campaigns": campaigns, "rows": rows,
     }
+
+
+# ----------------------------------------------------------- my statement
+def payment_history(db: Session, member_id: int) -> list[dict]:
+    """Every payment of one member, newest first: one entry per payment (a bulk payment, or
+    months started together, count once). Old imported "not paid yet" rows are not payments
+    and are left out. Paid ones say which receipt to open."""
+    challans = db.query(Challan).filter(Challan.member_id == member_id).all()
+    titles = dict(db.query(Campaign.id, Campaign.title).filter(
+        Campaign.id.in_({c.campaign_id for c in challans if c.campaign_id})).all()) if challans else {}
+    groups: dict[str, list[Challan]] = {}
+    for c in challans:
+        if c.bulk_group_id:
+            key = f"g:{c.bulk_group_id}"
+        elif c.challan_no and c.type == ChallanType.MONTHLY and challan_state(c) == "not_paid":
+            key = f"n:{c.challan_no}"  # months started together, proof still to come
+        else:
+            key = f"c:{c.id}"
+        groups.setdefault(key, []).append(c)
+
+    items = []
+    for key, rows in groups.items():
+        first = min(rows, key=lambda r: r.id)
+        state = challan_state(first)
+        if state == "not_paid" and first.created_by_user_id is None:
+            continue  # an imported "not paid yet" month, not a payment
+        months = sorted(r.month for r in rows if r.month)
+        is_campaign = first.type == ChallanType.CAMPAIGN
+        items.append({
+            "key": key,
+            "number": first.challan_no or (first.bulk_group_id if key.startswith("g:") else f"CH-{first.id}"),
+            "type": "campaign" if is_campaign else "monthly",
+            "months": months,
+            "campaign_title": titles.get(first.campaign_id) if is_campaign else None,
+            "amount": round(sum(float(r.amount or 0) for r in rows), 2),
+            "state": state,
+            "rejection_reason": first.rejection_reason if state == "rejected" else None,
+            "started_on": _iso(min((r.created_at for r in rows if r.created_at), default=None)),
+            "sent_on": _iso(first.proof_uploaded_at) if state != "not_paid" else None,
+            "paid_on": _iso(first.received_on or first.approved_at) if state == "paid" else None,
+            "receipt": ({"bulk_group_id": first.bulk_group_id} if first.bulk_group_id else {"challan_id": first.id})
+            if state == "paid" else None,
+            "sort": (first.approved_at or first.proof_uploaded_at or first.created_at or datetime.min).isoformat(),
+        })
+    items.sort(key=lambda i: i["sort"], reverse=True)
+    for i in items:
+        i.pop("sort")
+    return items
+
+
+def my_statement(db: Session, user_id: int, year: int | None = None) -> dict:
+    """The signed-in person's own statement: one Aug-Jul year month by month, and all payments."""
+    member = db.query(Member).filter(Member.user_id == user_id).first()
+    if member is None:
+        raise HTTPException(status_code=404, detail="There is no member record for your account, so there is no statement.")
+    today = today_business()
+    current_fy = today.year if today.month >= 8 else today.year - 1
+    start_fy = max(PLATFORM_START.year if PLATFORM_START.month >= 8 else PLATFORM_START.year - 1,
+                   _start_month(member).year if _start_month(member).month >= 8 else _start_month(member).year - 1)
+    fy = current_fy if year is None else int(year)
+    if fy < start_fy or fy > current_fy + 3:
+        raise HTTPException(status_code=400, detail="There is no statement for that year.")
+    joined = _start_month(member)
+    from_month = max(f"{fy}-08", _month(joined))  # months before joining are not owed
+    to_month = f"{fy + 1}-07"
+    data = member_statement(db, member.id, from_month, to_month)
+    data["year"] = fy
+    data["label"] = f"{fy}-{fy + 1}"
+    data["years"] = list(range(start_fy, current_fy + 1))
+    data["history"] = payment_history(db, member.id)
+    return data

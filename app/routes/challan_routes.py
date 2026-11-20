@@ -323,6 +323,7 @@ def create_multi_challans(
         notes=challan_data.notes,
         created_by_user_id=current_user.get("user_id"),
         entry_source="admin" if _is_admin(current_user) and not is_own_member_record(db, current_user, target_member_id) else "self",
+        same_number=challan_data.same_number,
     )
     
     # Log audit
@@ -508,6 +509,7 @@ def upload_proof(
         [result.month] if result.month else [],
         current_user["user_id"],
         challan_id=challan_id,
+        warning=result.proof_duplicate_of,
     )
     return result
 
@@ -699,6 +701,9 @@ def approve_challan(
         raise HTTPException(status_code=400, detail="Challan already processed")
 
     admin_id = current_user.get("user_id")
+    from app.services import verification_service
+
+    verification_service.apply(db, approve_data, [challan])  # checked against the bank
     result = ChallanService.approve_challan(db, challan_id, admin_id)
     log_audit(
         db,
@@ -707,7 +712,12 @@ def approve_challan(
         entity_type="Challan",
         entity_id=challan_id,
         old_values={"status": "pending"},
-        new_values={"status": "approved", "member_id": challan.member_id, "amount": float(challan.amount)},
+        new_values={
+            "status": "approved", "member_id": challan.member_id, "amount": float(challan.amount),
+            "received_on": str(challan.received_on) if challan.received_on else None,
+            "transaction_ref": challan.transaction_ref, "received_amount": challan.received_amount,
+            "payment_method": challan.payment_method, "verification_note": challan.verification_note,
+        },
         auto_commit=True,
     )
     NotificationService.notify_challan_status_change(db, challan, "approved")
@@ -745,8 +755,10 @@ def reject_challan(
         new_values={"status": "rejected", "reason": reject_data.rejection_reason, "member_id": challan.member_id},
         auto_commit=True,
     )
-    NotificationService.notify_challan_status_change(
-        db, challan, "rejected", reject_data.rejection_reason, _current_user.get("username")
+    from app.utils.admin_codes import admin_code
+
+    NotificationService.notify_challan_status_change(  # members see the admin's code, not the name
+        db, challan, "rejected", reject_data.rejection_reason, admin_code(db, _current_user.get("user_id"))
     )
     return result
 

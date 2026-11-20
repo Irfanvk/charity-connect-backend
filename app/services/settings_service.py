@@ -93,6 +93,10 @@ _ENTRIES = [
     _entry("max_months_per_payment", "int", 36, "Max months per payment",
            "Most months that can be covered by one payment.", "Payments", public=True,
            min_=1, max_=36, unit="months"),
+    _entry("challan_number_prefix", "string", "PG", "Payment number prefix",
+           "Letters at the start of every payment number, e.g. PG in PG-2526-0001 "
+           "(then the Aug-Jul year and a running number). Changing it starts a new series.",
+           "Payments", max_len=6),
     _entry("default_campaign_min_amount", "int", 100, "Default campaign minimum",
            "Minimum donation applied to new campaigns when none is given.", "Payments",
            public=True, min_=1, max_=100000, unit="₹"),
@@ -195,7 +199,7 @@ _ENTRIES = [
            max_len=500, multiline=True, placeholders=["member_name", "month", "amount", "org_name"]),
     _entry("msg_payment_approved", "template", "Your {payment} has been approved.",
            "Payment approved message", "In-app notification text.", "Messages", max_len=500,
-           multiline=True, placeholders=["member_name", "month", "amount", "payment", "org_name"]),
+           multiline=True, placeholders=["member_name", "month", "amount", "payment", "number", "org_name"]),
     _entry("msg_payment_rejected", "template",
            "Your {payment} was rejected. Reason: {reason}. "
            "Please re-upload your payment proof from the Challans page.",

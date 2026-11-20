@@ -3,7 +3,9 @@ from sqlalchemy.orm import Session
 import uuid
 import json
 from datetime import datetime
-from typing import cast
+from typing import Optional, cast
+
+from pydantic import BaseModel, Field
 
 from app.services.challan_service import clean_note
 from app.database import get_db
@@ -114,7 +116,10 @@ def bulk_create_challans(
         if current_role != UserRole.MEMBER.value and not is_own_member_record(db, current_user, member_id)
         else "self"
     )
-    amount_per_month = monthly_amount_for(member, request.amount_per_month, entry_source)
+    # each month at its own fee (fee history); an admin's own amount applies to all
+    month_fees = {m: monthly_amount_for(member, request.amount_per_month, entry_source, m, db) for m in request.months}
+    amount_per_month = month_fees[request.months[0]] if request.months else monthly_amount_for(
+        member, request.amount_per_month, entry_source)
 
     # Check member is active
     if str(member.status) != "active":
@@ -167,7 +172,8 @@ def bulk_create_challans(
     # Use a temporary unique placeholder so we can flush and get the auto-increment id,
     # then replace it with the human-readable BCH-XXXX format.
     challan_ids = []
-    total_amount = amount_per_month * len(request.months)
+    created_rows = []
+    total_amount = round(sum(month_fees.values()), 2)
 
     try:
         temp_id = f"tmp-{uuid.uuid4()}"
@@ -190,6 +196,10 @@ def bulk_create_challans(
         # Now assign the human-readable ID: BCH-XXXX (consistent with CH-XXXX for regular challans)
         bulk_group_id = f"BCH-{bulk_group.id:04d}"
         bulk_group.bulk_group_id = bulk_group_id
+        from app.services.challan_numbers import next_number
+
+        payment_no = next_number(db)  # one payment, one number for all its months
+        bulk_group.challan_no = payment_no
         db.flush()  # Persist the updated bulk_group_id
 
         for month in request.months:
@@ -197,9 +207,10 @@ def bulk_create_challans(
                 member_id=member_id,
                 type=ChallanType.MONTHLY,
                 month=month,
-                amount=amount_per_month,
+                amount=month_fees.get(month, amount_per_month),
                 status=ChallanStatus.PENDING,
                 bulk_group_id=bulk_group_id,
+                challan_no=payment_no,
                 entry_source=entry_source,
                 created_by_user_id=current_user_id,
                 entry_notes=clean_note(notes),
@@ -209,8 +220,15 @@ def bulk_create_challans(
             db.add(challan)
             db.flush()  # Get the ID
             challan_ids.append(challan.id)
+            created_rows.append(challan)
 
         setattr(bulk_group, "challan_ids_list", json.dumps(challan_ids))
+        if not proof_file_id.startswith("no-proof:"):
+            # Fingerprint the proof, flag reuse, and name the file after the payment number.
+            from app.services import proof_service
+
+            proof_service.mark_group(db, bulk_group, created_rows, proof_file_id)
+            proof_file_id = bulk_group.proof_file_id
         
         # Create audit log
         audit_log = AuditLog(
@@ -235,10 +253,12 @@ def bulk_create_challans(
         NotificationService.notify_admins_proof_uploaded(
             db, member, list(request.months), current_user_id,
             bulk_group_id=bulk_group_id, bulk_id=bulk_group.id,
+            warning=bulk_group.proof_duplicate_of,
         )
         
         return BulkChallanResponse(
             bulk_group_id=bulk_group_id,
+            challan_no=payment_no,
             member_id=member_id,
             created_challans=len(challan_ids),
             challan_ids=challan_ids,
@@ -255,3 +275,28 @@ def bulk_create_challans(
     except Exception as e:
         db.rollback()
         raise internal_error(e, "Bulk challan create") from e
+
+
+class PayTogetherRequest(BaseModel):
+    challan_ids: list[int] = Field(..., min_length=2, max_length=36)
+    proof_file_id: str = Field(..., min_length=1, max_length=255)
+    notes: Optional[str] = Field(default=None, max_length=500)
+
+
+@router.post("/pay-together", response_model=BulkChallanResponse, status_code=201)
+def pay_together(
+    request: PayTogetherRequest,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+):
+    """Your own open months (no proof yet) paid with one proof: one bulk payment for review."""
+    from app.services.pay_together import pay_together as run
+
+    try:
+        return run(db, current_user, request.challan_ids, request.proof_file_id, request.notes)
+    except HTTPException:
+        db.rollback()
+        raise
+    except Exception as e:
+        db.rollback()
+        raise internal_error(e, "Pay together") from e

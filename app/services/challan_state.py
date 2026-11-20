@@ -51,14 +51,14 @@ def sync_unpaid_monthly_amounts(db: Session, member) -> int:
     Paid, submitted or decided challans keep the amount actually paid.
     Returns how many challans changed. The caller commits.
     """
-    fee = float(member.monthly_amount or 0)
-    if fee <= 0:
-        return 0
-    rows = (
-        db.query(Challan)
-        .filter(Challan.member_id == member.id, unpaid_monthly_clause(), Challan.amount != fee)
-        .all()
-    )
+    from app.services.fee_history import FeeBook
+
+    book = FeeBook(db, [member])
+    rows = db.query(Challan).filter(Challan.member_id == member.id, unpaid_monthly_clause()).all()
+    changed = 0
     for challan in rows:
-        challan.amount = fee
-    return len(rows)
+        fee = book.fee(member, challan.month)  # the fee of that month (fee history)
+        if fee > 0 and abs(float(challan.amount or 0) - fee) > 0.005:
+            challan.amount = fee
+            changed += 1
+    return changed

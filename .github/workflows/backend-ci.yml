@@ -30,7 +30,7 @@ jobs:
 
       - name: Install Dependencies
         run: |
-          pip install -r requirements.txt
+          pip install -r requirements-dev.txt
 
       - name: Verify Python Syntax
         run: |
@@ -39,3 +39,13 @@ jobs:
       - name: Verify Uvicorn
         run: |
           uvicorn --version
+
+      - name: Run Tests
+        env:
+          DEBUG: "true"
+          DATABASE_URL: "sqlite:///./ci-test.db"
+          SECRET_KEY: "ci-only-secret-key-not-used-anywhere-else-0123456789"
+          PAYMENT_REMINDER_SCHEDULER: "false"
+          CELERY_WORKERS_ENABLED: "false"
+        run: |
+          python -m pytest -q -p no:warnings

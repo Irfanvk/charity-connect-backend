@@ -159,6 +159,7 @@ def list_unfinished(db: Session, min_hours: int = 48, member_id: int | None = No
         reminders = [k for k in ("48h", "7d") if _key(c.id, k) in sent]
         items.append({
             "id": c.id,
+            "challan_no": c.challan_no or f"CH-{c.id}",
             "member_id": c.member_id,
             "member_code": member.member_code if member is not None else None,
             "member_name": (member.full_name if member is not None else None) or (user.full_name if user else None),

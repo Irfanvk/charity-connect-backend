@@ -131,6 +131,9 @@ class Settings(BaseSettings):
 
     # Frontend links
     FRONTEND_BASE_URL: str = os.getenv("FRONTEND_BASE_URL", "http://localhost:5173")
+    # The organisation's own web address, used in every shared link (receipts, invites, password
+    # resets) whenever FRONTEND_BASE_URL is a hosting address (netlify.app, vercel.app) or local.
+    PUBLIC_SITE_URL: str = os.getenv("PUBLIC_SITE_URL", "https://poyyathabailgcc.com")
 
     @field_validator("FRONTEND_BASE_URL", mode="after")
     @classmethod

@@ -139,6 +139,19 @@ def _ensure_member_location_columns(connection, inspector) -> None:
     })
 
 
+def _ensure_challan_number_columns(connection, inspector) -> None:
+    extra = {"challan_no": "VARCHAR(30)", "proof_sha256": "VARCHAR(64)", "proof_duplicate_of": "VARCHAR(255)"}
+    verify = {"received_amount": "FLOAT", "verification_note": "TEXT", "bank_record_path": "VARCHAR(500)"}
+    _add_missing_columns(connection, inspector, "challans", {**extra, **verify})
+    _add_missing_columns(connection, inspector, "challan_bulk_groups", {
+        **extra, **verify, "received_on": "DATE", "transaction_ref": "VARCHAR(100)", "payment_method": "VARCHAR(50)",
+    })
+    for table in ("challans", "challan_bulk_groups"):
+        if inspector.has_table(table):
+            for column in ("challan_no", "proof_sha256"):
+                connection.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_{column} ON {table} ({column})"))
+
+
 def ensure_runtime_schema() -> None:
     """Apply additive schema updates for existing deployments."""
     with engine.begin() as connection:
@@ -156,6 +169,8 @@ def ensure_runtime_schema() -> None:
                 connection.execute(text("ALTER TABLE users ADD COLUMN device_display_mode VARCHAR(30)"))
             if "last_activity_user_agent" not in user_columns:
                 connection.execute(text("ALTER TABLE users ADD COLUMN last_activity_user_agent VARCHAR(500)"))
+            if "preferred_language" not in user_columns:
+                connection.execute(text("ALTER TABLE users ADD COLUMN preferred_language VARCHAR(5)"))
 
         if inspector.has_table("members"):
             member_columns = {column["name"]: column for column in inspector.get_columns("members")}
@@ -174,6 +189,7 @@ def ensure_runtime_schema() -> None:
         _ensure_member_activation_columns(connection, inspector)
         _ensure_payment_reminder_columns(connection, inspector)
         _ensure_member_location_columns(connection, inspector)
+        _ensure_challan_number_columns(connection, inspector)
 
         if not inspector.has_table("campaigns"):
             return

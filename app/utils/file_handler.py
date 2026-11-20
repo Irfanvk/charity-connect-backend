@@ -1,6 +1,9 @@
 from pathlib import Path
+import hashlib
+import re
 import secrets
 import os
+import time
 from uuid import uuid4
 import io
 
@@ -46,7 +49,19 @@ PERMANENT_AVATAR_SUBFOLDER = "avatars"
 PENDING_AVATAR_TAG = "pending_avatar"
 
 
-def save_file(file_content: bytes, subfolder: str, filename: str, tags: list[str] | None = None) -> str:
+def safe_name(hint: str | None) -> str:
+    """A file-name-safe version of a payment number / member ID (e.g. PG-2627-0042)."""
+    cleaned = re.sub(r"[^A-Za-z0-9_-]+", "-", str(hint or "")).strip("-")
+    return cleaned[:60]
+
+
+def file_sha256(file_content: bytes) -> str:
+    """Fingerprint of a file's bytes: the same screenshot always gives the same value."""
+    return hashlib.sha256(file_content or b"").hexdigest()
+
+
+def save_file(file_content: bytes, subfolder: str, filename: str, tags: list[str] | None = None,
+              name_hint: str | None = None, private: bool = False) -> str:
     """
     Save uploaded file and return a public URL.
 
@@ -65,27 +80,41 @@ def save_file(file_content: bytes, subfolder: str, filename: str, tags: list[str
 
     Returns:
         Public URL string (Cloudinary secure_url) or relative local path.
+
+    ``name_hint`` names the file after what it belongs to (payment number, member ID), with a
+    short random part so two uploads never clash. ``private`` stores it privately on
+    Cloudinary: it can then only be opened through a short-lived link (see ``signed_url``).
     """
     ext = _safe_extension(filename)
     folder_root = settings.CLOUDINARY_FOLDER
+    hint = safe_name(name_hint)
+    base_name = f"{hint}-{uuid4().hex[:8]}" if hint else uuid4().hex
 
     if _configure_cloudinary():
         resource_type = _cloudinary_resource_type(ext)
-        public_id = f"{folder_root}/{subfolder}/{uuid4().hex}"
+        public_id = f"{folder_root}/{subfolder}/{base_name}"
+        if resource_type == "raw":
+            public_id += ext  # raw files keep their extension in the id
         result = cloudinary.uploader.upload(
             io.BytesIO(file_content),
             public_id=public_id,
             resource_type=resource_type,
             overwrite=False,
             unique_filename=False,
+            **({"type": "private"} if private else {}),
             **({"tags": tags} if tags else {}),
         )
-        return result["secure_url"]
+        url = result["secure_url"]
+        if private:
+            # Cloudinary's link for a private file carries a permanent signature (s--...--/).
+            # Keep it without, so the file only opens through a short-lived link (signed_url).
+            url = re.sub(r"/private/s--[^/]+--/", "/private/", url)
+        return url
 
     # --- Local disk fallback (development only) ---
     upload_dir = Path(__file__).parent.parent / "uploads" / subfolder
     upload_dir.mkdir(parents=True, exist_ok=True)
-    opaque_name = secrets.token_urlsafe(16) + ext
+    opaque_name = (f"{hint}-{secrets.token_urlsafe(6)}" if hint else secrets.token_urlsafe(16)) + ext
     file_path = upload_dir / opaque_name
     with open(file_path, "wb") as f:
         f.write(file_content)
@@ -102,6 +131,71 @@ def _cloudinary_public_id(public_url: str) -> str | None:
     if after_upload.startswith("v") and "/" in after_upload:
         after_upload = after_upload.split("/", 1)[1]
     return after_upload.rsplit(".", 1)[0]
+
+
+_CLOUDINARY_RE = re.compile(
+    r"^https://res\.cloudinary\.com/[^/]+/(?P<rtype>image|raw|video)/(?P<dtype>upload|private|authenticated)/"
+    r"(?:s--[^/]+--/)?(?:v\d+/)?(?P<rest>.+)$"
+)
+SIGNED_LINK_SECONDS = 30 * 60
+
+
+def cloudinary_parts(url: str | None) -> dict | None:
+    """{resource_type, delivery_type, public_id, format} of a Cloudinary file URL, or None."""
+    match = _CLOUDINARY_RE.match(str(url or ""))
+    if not match:
+        return None
+    rtype, dtype, rest = match.group("rtype"), match.group("dtype"), match.group("rest")
+    if rtype == "raw":
+        return {"resource_type": rtype, "delivery_type": dtype, "public_id": rest, "format": ""}
+    public_id, _, fmt = rest.rpartition(".")
+    if not public_id:
+        public_id, fmt = rest, ""
+    return {"resource_type": rtype, "delivery_type": dtype, "public_id": public_id, "format": fmt}
+
+
+def is_private_file(url: str | None) -> bool:
+    parts = cloudinary_parts(url)
+    return bool(parts and parts["delivery_type"] == "private")
+
+
+def signed_url(url: str | None, seconds: int = SIGNED_LINK_SECONDS) -> str | None:
+    """A link that works for a short time, for a privately stored file. Others are returned as is."""
+    parts = cloudinary_parts(url)
+    if not parts or parts["delivery_type"] != "private" or not _configure_cloudinary():
+        return url
+    try:
+        from cloudinary.utils import private_download_url
+
+        return private_download_url(
+            parts["public_id"], parts["format"],
+            resource_type=parts["resource_type"], type="private",
+            expires_at=int(time.time()) + seconds, attachment=False,
+        )
+    except Exception:
+        return None
+
+
+def rename_file(url: str | None, name_hint: str | None) -> str | None:
+    """Best effort: give an uploaded Cloudinary file a name after what it belongs to
+    (e.g. the payment number once it is known). Returns the new URL, or the old one."""
+    parts = cloudinary_parts(url)
+    hint = safe_name(name_hint)
+    if not parts or not hint or not _configure_cloudinary():
+        return url
+    folder, _, current = parts["public_id"].rpartition("/")
+    if current.startswith(f"{hint}-"):
+        return url
+    suffix = ".pdf" if parts["resource_type"] == "raw" and current.lower().endswith(".pdf") else ""
+    to_id = f"{folder}/{hint}-{uuid4().hex[:8]}{suffix}"
+    try:
+        result = cloudinary.uploader.rename(
+            parts["public_id"], to_id, resource_type=parts["resource_type"],
+            type=parts["delivery_type"], overwrite=False, invalidate=True,
+        )
+        return result.get("secure_url") or url
+    except Exception:
+        return url
 
 
 def _local_upload_path(public_url: str) -> Path | None:
@@ -127,10 +221,15 @@ def delete_file(public_url: str) -> bool:
     if not _configure_cloudinary():
         return False
     try:
+        parts = cloudinary_parts(public_url)
+        if parts:
+            cloudinary.uploader.destroy(parts["public_id"], resource_type=parts["resource_type"],
+                                        type=parts["delivery_type"], invalidate=True)  # also clears the CDN copy
+            return True
         public_id = _cloudinary_public_id(public_url)
         if not public_id:
             return False
-        cloudinary.uploader.destroy(public_id)
+        cloudinary.uploader.destroy(public_id, invalidate=True)
         return True
     except Exception:
         return False
@@ -155,9 +254,10 @@ def is_pending_avatar_url(public_url: str | None) -> bool:
     return url.lstrip("/").startswith(f"uploads/{PENDING_AVATAR_SUBFOLDER}/")
 
 
-def save_pending_avatar(file_content: bytes, filename: str) -> str:
-    """Store an avatar in the temporary pending folder and return its URL."""
-    return save_file(file_content, PENDING_AVATAR_SUBFOLDER, filename, tags=[PENDING_AVATAR_TAG])
+def save_pending_avatar(file_content: bytes, filename: str, name_hint: str | None = None) -> str:
+    """Store an avatar in the temporary pending folder and return its URL (named by member ID)."""
+    return save_file(file_content, PENDING_AVATAR_SUBFOLDER, filename, tags=[PENDING_AVATAR_TAG],
+                     name_hint=name_hint)
 
 
 def promote_pending_avatar(public_url: str) -> str:

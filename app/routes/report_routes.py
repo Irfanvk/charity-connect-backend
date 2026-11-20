@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.services import report_service
-from app.utils import get_current_admin
+from app.utils import get_current_admin, get_current_user
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
@@ -21,6 +21,17 @@ def member_statement(
 ):
     """Every month for one member (paid, waiting, not paid), totals due, and donations."""
     return report_service.member_statement(db, member_id, from_month, to_month)
+
+
+@router.get("/my-statement")
+def my_statement(
+    year: Optional[int] = Query(default=None, ge=2024, le=2100, description="Aug-Jul year start; default: this year"),
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Your own statement (members, and admins who are members): one year month by month,
+    the years there are, and every payment you made with its receipt."""
+    return report_service.my_statement(db, current_user["user_id"], year)
 
 
 @router.get("/dues")
