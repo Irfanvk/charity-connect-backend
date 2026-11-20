@@ -1,5 +1,14 @@
 # API Changelog
 
+## 2026-11-20
+
+### Unfinished payments (new table `nudge_logs`, created at startup)
+- "Unfinished" = a challan the member started themself (`entry_source` "self" with a `created_by_user_id`), still generated/pending, with nothing handed in. Imported "not paid yet" rows and admin entries never count.
+- `GET /challans/unfinished?min_hours=48`: admins get everyone's open at least `min_hours` (default 48); members get their own, any age. `{items: [{id, member_id, member_code, member_name, phone, type, month, campaign_id, campaign_title, what, amount, created_at (UTC, Z), hours_open, reminders_sent: ["48h","7d"], reminded_today, already_paid}], count, min_hours}`. `already_paid` = that month was since paid or handed in with another challan (a leftover to cancel).
+- `POST /challans/{id}/remind` (admins): sends the member a reminder now; once per challan per day (409), 404 if it is no longer unfinished, 400 if the member has no active login. Audited `challan_unfinished_remind`.
+- `DELETE /challans/{id}?reason=` (max 300): when an admin cancels a payment the member started, the member gets a "Payment cancelled" notification with the reason; the reason is saved in the audit log.
+- Scheduler (same loop as the monthly reminders, from 09:00 IST): members get one notification 48 hours after starting, and a follow-up at 7 days (at least 3 days after the first); several due together go in one notification; link `/Challans?unfinished=1`. Admins get one summary a day listing those open 48+ hours, link `/Unfinished`. Leftovers get no reminders. Every send is logged once by key in `nudge_logs`. New setting `unfinished_payment_reminders` (bool, default on).
+
 ## 2026-11-16
 
 ### Yearly paid list

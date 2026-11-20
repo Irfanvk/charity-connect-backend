@@ -151,6 +151,16 @@ class PaymentReminderLog(Base):
     sent_at = Column(DateTime, server_default=func.now(), nullable=False)
 
 
+class NudgeLog(Base):
+    """One row per follow-up sent (key like ``challan:12:48h`` or ``admin-digest:2026-11-20``),
+    so restarts and several workers never send the same one twice."""
+    __tablename__ = "nudge_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(80), unique=True, nullable=False, index=True)
+    sent_at = Column(DateTime, server_default=func.now(), nullable=False)
+
+
 class MemberActivation(Base):
     """An existing (imported) member asking to activate their own account.
 

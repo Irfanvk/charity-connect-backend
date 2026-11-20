@@ -130,6 +130,9 @@ _ENTRIES = [
            "Members can choose any day from 1 to 28; unpaid members get one follow-up 7 days later.",
            "Reminders & messaging",
            min_=1, max_=28, unit="day"),
+    _entry("unfinished_payment_reminders", "bool", True, "Unfinished payment reminders",
+           "Remind members 48 hours and 7 days after they start a payment without uploading proof, "
+           "and send admins one summary each morning.", "Reminders & messaging"),
     _entry("whatsapp_payment_receipts", "bool", False, "WhatsApp payment receipts",
            "Send a WhatsApp receipt when a payment is approved.", "Reminders & messaging"),
     # Visibility
