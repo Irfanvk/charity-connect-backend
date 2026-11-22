@@ -82,7 +82,7 @@ def test_member_stats_visible_keeps_stored_value(db):
     assert settings_service.get_setting(db, "member_stats_visible") is True
 
 
-def test_superadmin_updates_within_range_and_audit_has_old_and_new(db, world):
+def test_superadmin_updates_within_range_and_audit_has_old_and_new(db, world, staff_viewer):
     resp = admin_router.update_app_settings(
         {"proof_max_upload_mb": 8, "monthly_reminder_enabled": False},
         current_user=_ctx(world["super"]),
@@ -91,7 +91,7 @@ def test_superadmin_updates_within_range_and_audit_has_old_and_new(db, world):
     assert settings_service.get_setting(db, "proof_max_upload_mb") == 8
     assert settings_service.get_setting(db, "monthly_reminder_enabled") is False
     by_key = {s["key"]: s for s in resp.settings}
-    assert by_key["proof_max_upload_mb"]["updated_by"] == "Super"
+    assert by_key["proof_max_upload_mb"]["updated_by"] .startswith("admin (AD")  # a code, never the name
 
     log = db.query(AuditLog).filter(AuditLog.action == "app_settings_update").one()
     assert json.loads(log.old_values)["proof_max_upload_mb"] == 5

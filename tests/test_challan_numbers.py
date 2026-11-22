@@ -34,17 +34,17 @@ def db(monkeypatch):
     session.close()
 
 
-def test_numbers_run_per_aug_jul_year(db):
-    assert cn.next_number(db, date(2026, 7, 31)) == "PG-2526-0001"
-    assert cn.next_number(db, date(2026, 7, 1)) == "PG-2526-0002"
-    assert cn.next_number(db, date(2026, 8, 1)) == "PG-2627-0001"   # new year starts at 0001
-    assert cn.next_number(db, date(2027, 1, 15)) == "PG-2627-0002"
+def test_numbers_run_per_calendar_year(db):
+    assert cn.next_number(db, date(2026, 7, 31)) == "PG-2026-0001"
+    assert cn.next_number(db, date(2026, 12, 31)) == "PG-2026-0002"
+    assert cn.next_number(db, date(2027, 1, 1)) == "PG-2027-0001"   # new year starts at 0001
+    assert cn.next_number(db, date(2027, 8, 15)) == "PG-2027-0002"
 
 
 def test_prefix_setting(db, monkeypatch):
     monkeypatch.setattr("app.services.settings_service.get_setting",
                         lambda db, key: "gcc-1!" if key == "challan_number_prefix" else None)
-    assert cn.next_number(db, date(2026, 11, 1)) == "GCC1-2627-0001"
+    assert cn.next_number(db, date(2026, 11, 1)) == "GCC1-2026-0001"
 
 
 def test_display_number_falls_back_to_id():

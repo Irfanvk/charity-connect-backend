@@ -270,7 +270,7 @@ def run_admin_digest(db: Session) -> dict:
 
     from app.services.notification_service import NotificationService
 
-    admins = db.query(User).filter(User.role.in_([UserRole.ADMIN, UserRole.SUPERADMIN]), User.is_active == True).all()  # noqa: E712
+    admins = db.query(User).filter(User.role.in_([UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.EXECUTIVE]), User.is_active == True).all()  # noqa: E712
     for admin in admins:
         try:
             _notify(db, admin.id, admin.role, "Unfinished payments", message, ADMIN_LINK, "admin_payment_reviews")

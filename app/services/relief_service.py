@@ -32,6 +32,7 @@ from app.models.models import ChallanType, UserRole
 from app.services import report_service as rs
 from app.services.notification_service import NotificationService
 from app.services.settings_service import get_setting
+from app.utils.admin_codes import actor_label_for, actor_labels
 from app.utils.timezone import today_business
 
 REASONS = ("death", "illness", "retirement")
@@ -46,7 +47,6 @@ REQUIRED_DOCS = {
     "retirement": ("application", "gulf_proof"),
 }
 DOC_KINDS = ("application", "death_certificate", "medical_report", "gulf_proof", "other")
-FIRST_YEAR = ("2024-08", "2025-03")  # the 2024-25 year that must be fully paid
 REASON_LABEL = {"death": "Death", "illness": "Serious illness", "retirement": "Retirement"}
 
 
@@ -75,7 +75,6 @@ def scheme(db: Session) -> dict:
         "max_unpaid_months": _int_setting(db, "relief_max_unpaid_months"),
         "min_membership_months": _int_setting(db, "relief_min_membership_months"),
         "min_gulf_years": _int_setting(db, "relief_min_gulf_years"),
-        "first_year": {"from": FIRST_YEAR[0], "to": FIRST_YEAR[1]},
         "required_documents": {k: list(v) for k, v in REQUIRED_DOCS.items()},
         "illnesses": list(ILLNESSES),
     }
@@ -106,18 +105,12 @@ def eligibility(db: Session, member: Member, reason: str | None = None,
     min_years = _int_setting(db, "relief_min_gulf_years")
     months_member = _membership_months(member, today)
 
-    first_year_rows = [r for r in rows if FIRST_YEAR[0] <= r["month"] <= FIRST_YEAR[1]]
-    first_year_unpaid = [r["month"] for r in first_year_rows if r["state"] == "not_paid"]
-
     checks = [
         {"key": "unpaid_months", "ok": len(unpaid) <= max_unpaid, "value": len(unpaid), "limit": max_unpaid,
          "months": unpaid},
         {"key": "membership_months",
          "ok": None if reason == "retirement" else months_member >= min_months,
          "value": months_member, "limit": min_months},
-        {"key": "first_year_paid", "ok": None if not first_year_rows else not first_year_unpaid,
-         "value": len(first_year_rows) - len(first_year_unpaid), "limit": len(first_year_rows),
-         "months": first_year_unpaid},
         {"key": "lives_abroad",
          "ok": None if reason == "retirement" else bool(member.country and member.country != "IN"),
          "value": member.country, "limit": None},
@@ -145,7 +138,8 @@ def eligibility(db: Session, member: Member, reason: str | None = None,
 
 # ----------------------------------------------------------------- serialise
 def _name(user: User | None) -> str | None:
-    return (user.full_name or user.username) if user else None
+    """"admin (A12)" for an admin, the person's name for a member."""
+    return user.actor_label if user else None
 
 
 def serialize(db: Session, claim: ReliefClaim, viewer: dict, *, full: bool = True) -> dict:
@@ -177,6 +171,8 @@ def serialize(db: Session, claim: ReliefClaim, viewer: dict, *, full: bool = Tru
         "details": claim.details,
         "created_by_user_id": claim.created_by_user_id,
         "created_by_name": _name(claim.created_by),
+        "rejected_by_name": actor_label_for(db, claim.rejected_by_user_id),
+        "paid_by_name": actor_label_for(db, claim.paid_by_user_id),
         "receiver": {
             "name": claim.receiver_name, "relation": claim.receiver_relation, "phone": claim.receiver_phone,
             "bank_account": claim.receiver_bank_account, "ifsc": claim.receiver_ifsc,
@@ -375,11 +371,15 @@ def approve(db: Session, user: dict, claim_id: int, note: str | None = None) -> 
                                                      "approved": done, "note": note})
     db.commit()
     if done:
+        approvers = db.query(ReliefApproval.admin_user_id).filter(ReliefApproval.claim_id == claim.id,
+                                                                  ReliefApproval.decision == "approve").all()
+        labels = actor_labels(db, [a[0] for a in approvers], staff=True)
+        by = ", ".join(labels[a[0]] for a in approvers if a[0] in labels) or "the admins"  # for the admins
         _notify(db, claim.created_by_user_id, "Relief claim approved",
-                f"The relief claim for {name} ({_inr(claim.amount)}) is approved. Please mark it paid once the money is given.",
+                f"The relief claim for {name} ({_inr(claim.amount)}) is approved by {by}. Please mark it paid once the money is given.",
                 claim, ntype="success")
         _notify(db, member.user_id, "Relief approved",
-                f"Your relief of {_inr(claim.amount)} is approved. The admins will tell you when it is paid.",
+                f"Your relief of {_inr(claim.amount)} is approved by the committee. The admins will tell you when it is paid.",
                 claim, ntype="success", link="/Relief")
     return serialize(db, _load(db, claim.id), user)
 
@@ -398,10 +398,11 @@ def reject(db: Session, user: dict, claim_id: int, reason: str) -> dict:
     _audit(db, user, "relief_claim_reject", claim, {"reason": reason})
     db.commit()
     member = db.query(Member).filter(Member.id == claim.member_id).first()
+    by = actor_label_for(db, int(user["user_id"]), staff=True) or "an admin"
     _notify(db, claim.created_by_user_id, "Relief claim rejected",
-            f"The relief claim for {rs._member_name(member)} was rejected. Reason: {reason}", claim, ntype="warning")
+            f"The relief claim for {rs._member_name(member)} was rejected by {by}. Reason: {reason}", claim, ntype="warning")
     _notify(db, member.user_id if member else None, "Relief claim not approved",
-            f"Your relief claim was not approved. Reason: {reason}", claim, ntype="warning", link="/Relief")
+            f"Your relief claim was not approved by the committee. Reason: {reason}", claim, ntype="warning", link="/Relief")
     return serialize(db, _load(db, claim.id), user)
 
 
@@ -433,7 +434,8 @@ def mark_paid(db: Session, user: dict, claim_id: int, data: dict) -> dict:
     db.commit()
     member = db.query(Member).filter(Member.id == claim.member_id).first()
     _notify(db, member.user_id if member else None, "Relief paid",
-            f"Your relief of {_inr(claim.amount)} was paid on {paid_on:%d %b %Y}.", claim, ntype="success", link="/Relief")
+            f"Your relief of {_inr(claim.amount)} was paid on {paid_on:%d %b %Y}"
+            " by the committee.", claim, ntype="success", link="/Relief")
     return serialize(db, _load(db, claim.id), user)
 
 

@@ -64,12 +64,13 @@ def _date(value) -> Optional[str]:
 
 
 def _name(db: Session, user_id: Optional[int]) -> Optional[str]:
-    """The approving admin's short code (A12), never their name."""
+    """Who checked it, as printed on the receipt the member keeps: always "the committee"
+    (staff find the admin's code in the receipts list)."""
     if not user_id:
         return None
-    from app.utils.admin_codes import admin_code
+    from app.utils.admin_codes import actor_label_for
 
-    return admin_code(db, user_id)
+    return actor_label_for(db, user_id, staff=False)
 
 
 def short_name(name: Optional[str]) -> str:

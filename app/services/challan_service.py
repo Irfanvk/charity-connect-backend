@@ -706,6 +706,8 @@ class ChallanService:
 
         challan.status = ChallanStatus.REJECTED
         challan.rejection_reason = reject_data.rejection_reason
+        challan.rejected_by_admin_id = actor_id
+        challan.rejected_at = datetime.utcnow()
         challan.approved_by_admin_id = None
         challan.approved_at = None
         

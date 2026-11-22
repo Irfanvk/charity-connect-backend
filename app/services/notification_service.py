@@ -251,6 +251,24 @@ class NotificationService:
             logger.exception("Failed to dispatch challan notification %s", notification.id)
 
     @staticmethod
+    def _actor(db: Session, user_id: int | None, staff: bool = True) -> str | None:
+        from app.utils.admin_codes import actor_label_for
+
+        return actor_label_for(db, user_id, staff)
+
+    @staticmethod
+    def _done_by(db: Session, event: str, actor_id: int | None, staff: bool = False) -> str:
+        """" Approved by the committee." for a member (default); " Approved by admin (A12)." when
+        ``staff`` (the reader is an admin). Never the admin's name."""
+        if not actor_id:
+            return ""
+        from app.utils.admin_codes import actor_label_for
+
+        label = actor_label_for(db, actor_id, staff)
+        verb = {"approved": "Approved", "rejected": "Rejected", "reverted": "Moved back"}.get(event, "Done")
+        return f" {verb} by {label}." if label else ""
+
+    @staticmethod
     def _status_content(event: str, subject: str, reason: str | None, db: Session | None = None, context: dict | None = None) -> tuple[str, str, str]:
         reason_text = (reason or "").strip() or "No reason provided"
         ctx = {**(context or {}), "payment": subject, "reason": reason_text}
@@ -276,7 +294,7 @@ class NotificationService:
         raise ValueError(f"Unknown challan event: {event}")
 
     @staticmethod
-    def notify_challan_status_change(db: Session, challan, event: str, reason: str | None = None, actor_name: str | None = None) -> None:
+    def notify_challan_status_change(db: Session, challan, event: str, reason: str | None = None, actor_id: int | None = None) -> None:
         """Notify the member that their challan was approved/rejected/reverted. Never raises."""
         try:
             member = challan.member
@@ -304,8 +322,7 @@ class NotificationService:
                     "number": number or f"CH-{challan.id}",
                 },
             )
-            if actor_name and event != "approved":
-                message += f" (by {actor_name})"
+            message = message.rstrip() + NotificationService._done_by(db, event, actor_id)
         except Exception:
             logger.exception("Failed to build challan notification")
             return
@@ -318,7 +335,8 @@ class NotificationService:
         )
 
     @staticmethod
-    def notify_bulk_status_change(db: Session, bulk_group, event: str, reason: str | None = None) -> None:
+    def notify_bulk_status_change(db: Session, bulk_group, event: str, reason: str | None = None,
+                                  actor_id: int | None = None) -> None:
         """Send ONE notification for a whole bulk group. Never raises."""
         try:
             user_id = getattr(bulk_group.member, "user_id", None)
@@ -341,6 +359,7 @@ class NotificationService:
                     "number": getattr(bulk_group, "challan_no", None) or bulk_group.bulk_group_id,
                 },
             )
+            message = message.rstrip() + NotificationService._done_by(db, event, actor_id)
         except Exception:
             logger.exception("Failed to build bulk challan notification")
             return
@@ -385,6 +404,10 @@ class NotificationService:
                 owner_role = db.query(User.role).filter(User.id == owner_id).scalar()
                 if owner_role in (UserRole.ADMIN, UserRole.SUPERADMIN):
                     message += " (admin's own payment — please review)"
+            if uploader_user_id is not None and owner_id is not None and uploader_user_id != owner_id:
+                by = NotificationService._actor(db, uploader_user_id)
+                if by:
+                    message += f" (uploaded by {by})"
             if warning:
                 message += f". Check before approving: {warning}"
             admin_ids = NotificationService._active_admin_ids(db, exclude_user_id=uploader_user_id)
@@ -424,14 +447,16 @@ class NotificationService:
             member = first.member
             member_name = getattr(member, "full_name", None) or "a member"
             message = (
-                f"{actor_name or 'An admin'} recorded {method} payment of "
+                f"{NotificationService._actor(db, actor_user_id) or actor_name or 'An admin'} recorded {method} payment of "
                 f"{NotificationService._format_inr(total)} from {member_name} for {label} — needs verification"
             )
             admin_ids = NotificationService._active_admin_ids(db, exclude_user_id=actor_user_id)
             member_user_id = getattr(member, "user_id", None)
             member_message = (
                 f"A {method} payment of {NotificationService._format_inr(total)} for {label} "
-                "was recorded for you and is waiting for verification."
+                "was recorded for you"
+                + (f" by {NotificationService._actor(db, actor_user_id, staff=False)}" if actor_user_id else "")
+                + " and is waiting for verification."
             )
         except Exception:
             logger.exception("Failed to build recorded payment notification")
@@ -501,7 +526,8 @@ class NotificationService:
             )
 
     @staticmethod
-    def notify_fund_utilization_status_change(db: Session, utilization, event: str, reason: str | None = None) -> None:
+    def notify_fund_utilization_status_change(db: Session, utilization, event: str, reason: str | None = None,
+                                              actor_id: int | None = None) -> None:
         """Tell the creator their utilization was approved/rejected/reverted. Never raises."""
         try:
             user_id = utilization.registered_by_admin_id
@@ -526,6 +552,7 @@ class NotificationService:
                 )
             else:
                 raise ValueError(f"Unknown fund utilization event: {event}")
+            message = message.rstrip() + NotificationService._done_by(db, event, actor_id, staff=True)
         except Exception:
             logger.exception("Failed to build fund utilization status notification")
             return
@@ -572,8 +599,11 @@ class NotificationService:
             queue_notification(notification_data.user_id)
 
         elif notification_data.target_role:
-            # Send to all users with specific role
-            users = db.query(User).filter(User.role == notification_data.target_role).all()
+            # Send to all users with specific role (executives are members too: they get member news)
+            roles = [notification_data.target_role]
+            if str(getattr(notification_data.target_role, "value", notification_data.target_role)).lower() == "member":
+                roles.append(UserRole.EXECUTIVE)
+            users = db.query(User).filter(User.role.in_(roles)).all()
             if not users:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,
@@ -653,11 +683,12 @@ class NotificationService:
 
             batch = groups[key]
             batch["total_recipients"] += 1
-            if str(role).lower() == "member":
+            role = str(getattr(role, "value", role)).lower()  # the enum's str() is "UserRole.MEMBER"
+            if role == "member":
                 batch["member_recipients"] += 1
-            elif str(role).lower() == "admin":
+            elif role == "admin":
                 batch["admin_recipients"] += 1
-            elif str(role).lower() == "superadmin":
+            elif role == "superadmin":
                 batch["superadmin_recipients"] += 1
 
             if not notif.is_read:

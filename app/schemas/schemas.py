@@ -300,6 +300,7 @@ class MemberResponse(BaseModel):
     email: Optional[str] = None
     monthly_amount: float
     monthly_member: bool = True
+    fee_confirmed: bool = True  # False: the fee chosen when joining waits for an admin
     address: Optional[str]
     country: Optional[str] = None
     city: Optional[str] = None
@@ -523,6 +524,7 @@ class CampaignResponse(BaseModel):
     status: str = "active"  # ✅ ADD
     created_at: datetime
     updated_at: datetime
+    created_by_name: Optional[str] = None  # "admin (A12)"
 
     class Config:
         from_attributes = True
@@ -642,6 +644,8 @@ class ChallanResponse(BaseModel):
     reversed_by_admin_id: Optional[int] = None
     reversed_by_name: Optional[str] = None
     reversal_reason: Optional[str] = None
+    rejected_at: Optional[datetime] = None
+    rejected_by_name: Optional[str] = None
     created_by_user_id: Optional[int] = None
     created_by_name: Optional[str] = None
     submitted: bool = True  # False = not paid yet (nothing handed in)
@@ -736,7 +740,7 @@ class ChallanPayableMonthsResponse(BaseModel):
     month_fees: dict = Field(default_factory=dict)  # each listed month's fee (fee history)
     monthly_member: bool = True                    # False: no monthly fee is owed at all
     excused_months: List[str] = Field(default_factory=list)  # not owed, not offered
-    pledge_years: List[int] = Field(default_factory=list)    # Aug-Jul years with a yearly pledge
+    pledge_years: List[int] = Field(default_factory=list)    # years (Jan-Dec) with a yearly pledge
 
 
 # Notification Schemas
@@ -969,6 +973,7 @@ class BulkChallanListItem(BaseModel):
     entered_by_admin: bool = False
     has_proof: bool = True
     rejected_at: Optional[datetime] = None
+    rejected_by_name: Optional[str] = None
     rejection_reason: Optional[str] = None
     reversal_reason: Optional[str] = None
     approved_at: Optional[datetime] = None
@@ -1052,6 +1057,8 @@ class BulkChallanDetails(BaseModel):
     created_by_email: Optional[str] = None
     approved_at: Optional[datetime] = None
     approved_by: Optional[str] = None
+    approved_by_name: Optional[str] = None
+    rejected_by_name: Optional[str] = None
     admin_notes: Optional[str] = None
     notes: Optional[str] = None
     linked_challans: list[BulkChallanLinkedChallan]
@@ -1090,6 +1097,8 @@ class FundUtilizationResponse(BaseModel):
     date: datetime
     registered_by_admin_id: int
     registered_by_name: Optional[str] = None
+    rejected_by_name: Optional[str] = None
+    rejected_at: Optional[datetime] = None
     status: str = "pending"
     approved_by_admin_id: Optional[int] = None
     approved_by_name: Optional[str] = None
@@ -1164,6 +1173,9 @@ class PasswordResetRequestResponse(BaseModel):
     user_email: Optional[str] = None
     # WhatsApp direct chat link for admin to manually message the user
     whatsapp_chat_url: Optional[str] = None
+    # Pending or rejected requests can be deleted 7 days after they were sent
+    can_delete: bool = False
+    deletable_from: Optional[datetime] = None
 
     class Config:
         from_attributes = True

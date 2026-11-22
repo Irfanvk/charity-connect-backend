@@ -35,7 +35,7 @@ from app.models.models import (
     AppSetting,
     PushSubscription,
 )
-from app.utils.auth import get_current_user, get_current_admin, get_current_superadmin, verify_password
+from app.utils.auth import get_current_user, get_current_admin, get_current_staff, get_current_superadmin, is_staff, verify_password
 from app.utils.audit import log_audit
 from app.utils.permissions import assert_not_self, assert_different_actor, assert_can_verify_entry, require_reason
 from app.config import settings
@@ -43,6 +43,7 @@ from app.services.notification_service import NotificationService
 from app.services import settings_service
 from app.services.bulk_rules import internal_error, taken_months
 from app.services.web_push_service import device_type_from_user_agent
+from app.utils.admin_codes import actor_label, actor_label_for, actor_labels
 
 # ✅ admin router — prefix="/admin"
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -51,7 +52,7 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 @router.get("/reports/cash-collected")
 def cash_collected_report(
     month: str = Query(..., pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_staff),
     db: Session = Depends(get_db),
 ):
     """Cash collected per collecting admin for an IST month (by received_on, falling back to created_at)."""
@@ -76,10 +77,7 @@ def cash_collected_report(
             entry["approved_amount"] += float(c.amount or 0)
         else:
             entry["pending_amount"] += float(c.amount or 0)
-    names = {
-        u.id: (u.full_name or u.username)
-        for u in db.query(User).filter(User.id.in_(list(totals.keys()) or [0])).all()
-    }
+    names = actor_labels(db, totals.keys())
     collectors = []
     for uid, entry in totals.items():
         entry["collected_by_name"] = names.get(uid)
@@ -124,10 +122,9 @@ def _settings_response(db: Session, current_user: dict) -> AppSettingsResponse:
     is_admin = _role_of(current_user) in ("admin", "superadmin")
     items: list[dict] = []
     if is_admin:
-        names = {
-            uid: (full_name or username)
-            for uid, full_name, username in db.query(User.id, User.full_name, User.username).all()
-        }
+        from app.models.models import AppSetting
+
+        names = actor_labels(db, [r[0] for r in db.query(AppSetting.updated_by_user_id).distinct().all()])
         items = [settings_service.serialize_setting(db, key, names) for key in settings_service.SETTINGS_REGISTRY]
     return AppSettingsResponse(
         member_stats_visible=bool(settings_service.get_setting(db, "member_stats_visible")),
@@ -195,7 +192,7 @@ def reset_app_setting(
 def get_dashboard_charts(
     months: int = Query(default=12, ge=1, le=24),
     top_limit: int = Query(default=10, ge=1, le=25),
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_staff),
     db: Session = Depends(get_db),
 ):
     """
@@ -676,7 +673,7 @@ def get_pending_bulk_operations(
     status: pending_approval (default), approved, rejected or all. Pending payments
     are never hidden by age; ``days`` only narrows the list when given.
     """
-    if not _is_admin_role(current_user):
+    if not is_staff(current_user):  # executives may look, not decide
         raise HTTPException(status_code=403, detail="Admin access required")
     if status != "all" and status not in BULK_STATUSES:
         raise HTTPException(status_code=400, detail="status must be pending_approval, approved, rejected or all")
@@ -752,13 +749,14 @@ def get_pending_bulk_operations(
             created_at=group.created_at,
             created_by_email=created_by.email if created_by else None,
             created_by_user_id=group.created_by_user_id,
-            created_by_name=_member_display_name(None, created_by) if created_by else None,
+            created_by_name=actor_label(created_by),
             entered_by_admin=bool(created_by and member and created_by.id != member.user_id),
             has_proof=proof_url is not None,
             notes=group.notes,
             approved_at=group.approved_at,
-            approved_by_name=_member_display_name(None, approved_by) if approved_by else None,
+            approved_by_name=actor_label(approved_by),
             rejected_at=group.rejected_at,
+            rejected_by_name=actor_label_for(db, group.rejected_by_admin_id),
             rejection_reason=group.rejection_reason,
             reversal_reason=group.reversal_reason,
             challans_missing=len(group_challan_ids) > 0 and not db.query(Challan.id).filter(Challan.id.in_(group_challan_ids)).first(),
@@ -774,7 +772,7 @@ def get_bulk_challan_details(
     current_user: dict = Depends(get_current_user),
 ):
     """Get detailed information about a specific bulk operation (Admin only)."""
-    if not _is_admin_role(current_user):
+    if not is_staff(current_user):  # executives may look, not decide
         raise HTTPException(status_code=403, detail="Admin access required")
 
     bulk_group = db.query(BulkChallanGroup).filter(
@@ -819,7 +817,7 @@ def get_bulk_challan_details(
         member_user_id=member.user_id if member else None,
         member_email=user.email if user else None,
         created_by_user_id=bulk_group.created_by_user_id,
-        created_by_name=_member_display_name(None, created_by) if created_by else None,
+        created_by_name=actor_label(created_by),
         entered_by_admin=bool(created_by and member and created_by.id != member.user_id),
         has_proof=proof_url is not None,
         rejection_reason=bulk_group.rejection_reason,
@@ -834,7 +832,9 @@ def get_bulk_challan_details(
         created_at=bulk_group.created_at,
         created_by_email=created_by.email if created_by else None,
         approved_at=bulk_group.approved_at,
-        approved_by=approved_by.email if approved_by else None,
+        approved_by=actor_label(approved_by),
+        approved_by_name=actor_label(approved_by),
+        rejected_by_name=actor_label_for(db, bulk_group.rejected_by_admin_id),
         admin_notes=bulk_group.admin_notes,
         notes=bulk_group.notes,
         linked_challans=linked_challans,
@@ -924,7 +924,7 @@ def approve_bulk_challans(
         db.commit()
         db.refresh(bulk_group)
 
-        NotificationService.notify_bulk_status_change(db, bulk_group, "approved")
+        NotificationService.notify_bulk_status_change(db, bulk_group, "approved", actor_id=admin_user_id)
         NotificationService.send_payment_receipt_whatsapp(
             db, db.query(Challan).filter(Challan.id.in_(approved_ids)).all()
         )
@@ -998,6 +998,8 @@ def reject_bulk_challans(
                     challan.approved_at = None
                 challan.status           = ChallanStatus.REJECTED
                 challan.rejection_reason = request.reason
+                challan.rejected_by_admin_id = admin_user_id
+                challan.rejected_at = now
 
         if was_approved:
             bulk_group.reversed_at = now
@@ -1008,6 +1010,7 @@ def reject_bulk_challans(
         bulk_group.status           = "rejected"
         bulk_group.rejection_reason = request.reason
         bulk_group.rejected_at      = now
+        bulk_group.rejected_by_admin_id = admin_user_id
 
         months = json.loads(bulk_group.months_list) if bulk_group.months_list else []
 
@@ -1029,7 +1032,7 @@ def reject_bulk_challans(
         db.commit()
         db.refresh(bulk_group)
 
-        NotificationService.notify_bulk_status_change(db, bulk_group, "rejected", request.reason)
+        NotificationService.notify_bulk_status_change(db, bulk_group, "rejected", request.reason, actor_id=admin_user_id)
 
         return BulkChallanRejectResponse(
             bulk_group_id=bulk_group.bulk_group_id,
@@ -1038,7 +1041,7 @@ def reject_bulk_challans(
             challan_ids=challan_ids,
             rejected_at=bulk_group.rejected_at,
             reason=request.reason,
-            rejected_by=admin_user.email if admin_user else None,
+            rejected_by=actor_label(admin_user),
         )
     except HTTPException:
         db.rollback()
@@ -1121,7 +1124,7 @@ def revert_bulk_challans(
         db.commit()
         db.refresh(bulk_group)
 
-        NotificationService.notify_bulk_status_change(db, bulk_group, "reverted", reason)
+        NotificationService.notify_bulk_status_change(db, bulk_group, "reverted", reason, actor_id=admin_user_id)
 
         return {
             "bulk_group_id": bulk_group.bulk_group_id,

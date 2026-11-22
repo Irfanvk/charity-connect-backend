@@ -83,7 +83,7 @@ def test_receipt_for_single_and_bulk_payment(db):
     c = _challan(db, status=ChallanStatus.APPROVED, approved_by_admin_id=1, approved_at=datetime(2026, 11, 3, 5, 0),
                  received_on=date(2026, 11, 2), transaction_ref="UTR9")
     r = rs.for_challan(db, c)
-    assert r["number"] == "PG-2627-0001" and r["valid"] and r["approved_by"] == "AD1"  # a code, never the name
+    assert r["number"] == "PG-2627-0001" and r["valid"] and r["approved_by"] == "the committee"  # receipts never show a name or code
     assert r["months"] == ["2026-09"] and r["received_on"] == "2026-11-02" and r["verify_url"].endswith(r["token"])
 
     group = BulkChallanGroup(bulk_group_id="BCH-0001", challan_no="PG-2627-0005", member_id=10, amount_per_month=500,
@@ -132,7 +132,7 @@ def test_receipt_shows_admin_code_not_name(db):
     db.add(Member(id=12, user_id=1, member_code="MEM-0012", monthly_amount=500))
     db.commit()
     c = _challan(db, status=ChallanStatus.APPROVED, approved_by_admin_id=1, approved_at=datetime(2026, 11, 3))
-    assert rs.for_challan(db, c)["approved_by"] == "A12"
+    assert rs.for_challan(db, c)["approved_by"] == "the committee"
 
 
 def test_links_never_use_a_hosting_address(monkeypatch):
@@ -176,7 +176,7 @@ def test_my_statement_year_and_history(db, monkeypatch):
     _challan(db, month="2026-10", challan_no="PG-2627-0004", created_by_user_id=2)         # waiting (proof sent)
     _challan(db, month="2026-11", challan_no=None, proof_path=None, created_by_user_id=None)  # imported "not paid yet"
     out = report_service.my_statement(db, 2)
-    assert out["label"] == "2026-2027" and out["years"] == [2026]
+    assert out["label"] == "2026" and out["years"] == [2026]  # years run January to December
     states = {r["month"]: r["state"] for r in out["months"]}
     assert states["2026-09"] == "paid" and states["2026-10"] == "waiting" and states["2026-11"] == "not_paid"
     assert "2026-08" not in states                       # before joining

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.services import report_service
-from app.utils import get_current_admin, get_current_user
+from app.utils import get_current_staff, get_current_user
 
 router = APIRouter(prefix="/reports", tags=["Reports"])
 
@@ -16,7 +16,7 @@ def member_statement(
     member_id: int,
     from_month: Optional[str] = Query(default=None, description="yyyy-MM; default: join month"),
     to_month: Optional[str] = Query(default=None, description="yyyy-MM; default: this month"),
-    _admin: dict = Depends(get_current_admin),
+    _admin: dict = Depends(get_current_staff),
     db: Session = Depends(get_db),
 ):
     """Every month for one member (paid, waiting, not paid), totals due, and donations."""
@@ -25,7 +25,7 @@ def member_statement(
 
 @router.get("/my-statement")
 def my_statement(
-    year: Optional[int] = Query(default=None, ge=2024, le=2100, description="Aug-Jul year start; default: this year"),
+    year: Optional[int] = Query(default=None, ge=2024, le=2100, description="Year (January to December); default: this year"),
     current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -41,7 +41,7 @@ def dues(
     search: Optional[str] = None,
     status: str = Query(default="active", description="active | inactive | all"),
     sort: str = Query(default="amount_desc", description="amount_desc | months_desc | name | code"),
-    _admin: dict = Depends(get_current_admin),
+    _admin: dict = Depends(get_current_staff),
     db: Session = Depends(get_db),
 ):
     """Members with months not paid, most owed first."""
@@ -62,7 +62,7 @@ def payments(
     member_id: Optional[int] = None,
     search: Optional[str] = None,
     method: Optional[str] = None,
-    _admin: dict = Depends(get_current_admin),
+    _admin: dict = Depends(get_current_staff),
     db: Session = Depends(get_db),
 ):
     """Every payment record with filters, totals per state over all matches, and pages."""
@@ -78,7 +78,7 @@ def year_grid(
     year: int,
     status: str = Query(default="active"),
     country: Optional[str] = None,
-    _admin: dict = Depends(get_current_admin),
+    _admin: dict = Depends(get_current_staff),
     db: Session = Depends(get_db),
 ):
     """One row per member, one cell per month of the year: paid / waiting / not paid."""
@@ -87,9 +87,9 @@ def year_grid(
 
 @router.get("/paid-list")
 def paid_list(
-    year: int = Query(..., description="Start year of the Aug-Jul year, e.g. 2025 for 2025-2026"),
-    _admin: dict = Depends(get_current_admin),
+    year: int = Query(..., description="The year, January to December, e.g. 2025"),
+    _admin: dict = Depends(get_current_staff),
     db: Session = Depends(get_db),
 ):
-    """The yearly paid list (Aug-Jul): month marks per member and campaign amounts in that year."""
+    """The yearly paid list (Jan-Dec): month marks per member and campaign amounts in that year."""
     return report_service.paid_list(db, year)

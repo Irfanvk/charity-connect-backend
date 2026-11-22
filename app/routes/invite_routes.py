@@ -70,6 +70,20 @@ def get_pending_invites(
     return invites
 
 
+@router.get("/status/{invite_code}")
+def invite_status(invite_code: str, db: Session = Depends(get_db)):
+    """Public: is this invite link still usable? ``status``: valid | used | expired | not_found.
+    Lets the sign-up page say "already registered, log in" instead of showing the form again.
+    Nothing about the person is returned."""
+    state = InviteService.invite_status(db, invite_code)
+    mode = InviteService.invite_mode(db, invite_code) if state == "valid" else None
+    out = {"status": state, "registration_mode": mode}
+    if mode == "new_member":  # the sign-up page is not signed in, so it can't read the settings
+        from app.services.fee_confirm import min_fee
+        out["min_monthly_fee"] = min_fee(db)
+    return out
+
+
 @router.post("/validate")
 def validate_invite(email_or_phone: str, invite_code: str, db: Session = Depends(get_db)):
     """

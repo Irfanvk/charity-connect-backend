@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.models import ExcusedMonth, Member
 from app.services import MemberService, seasonal
-from app.utils import get_current_admin, get_current_user, log_audit
+from app.utils import get_current_admin, get_current_staff, get_current_user, log_audit
 
 router = APIRouter(tags=["Excused months and pledges"])
 
@@ -71,13 +71,13 @@ def cancel_excused_request(excused_id: int, current_user: dict = Depends(get_cur
 
 # ------------------------------------------------------------- admins
 @router.get("/excused/requests")
-def excused_requests(_admin: dict = Depends(get_current_admin), db: Session = Depends(get_db)):
+def excused_requests(_admin: dict = Depends(get_current_staff), db: Session = Depends(get_db)):
     """Every waiting excuse request, oldest first."""
     return seasonal.waiting_requests(db)
 
 
 @router.get("/members/{member_id}/seasonal")
-def member_seasonal(member_id: int, _admin: dict = Depends(get_current_admin), db: Session = Depends(get_db)):
+def member_seasonal(member_id: int, _admin: dict = Depends(get_current_staff), db: Session = Depends(get_db)):
     return seasonal.overview(db, MemberService.get_member(db, member_id))
 
 

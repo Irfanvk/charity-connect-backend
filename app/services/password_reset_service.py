@@ -20,7 +20,7 @@ from app.utils.permissions import assert_not_own_user
 
 logger = logging.getLogger(__name__)
 
-PRIVILEGED_ROLES = {"admin", "superadmin"}
+PRIVILEGED_ROLES = {"admin", "superadmin", "executive"}  # executives see members' details
 ADMIN_RESET_DENIED = "Password resets for admin accounts must be handled by the superadmin"
 SUPERADMIN_RESET_DENIED = "Superadmin password resets must be done from the server with seed_admin.py"
 
@@ -143,8 +143,24 @@ def create_request(db: Session, identifier: str) -> PasswordResetRequest:
     """Create a pending password reset request (public, no auth required)."""
     user = _find_user_by_identifier(db, identifier)
 
+    # Asking again while a request is still waiting: keep that one (with what they typed now);
+    # admins are not told again.
+    if user is not None:
+        waiting = (
+            db.query(PasswordResetRequest)
+            .filter(PasswordResetRequest.user_id == user.id, PasswordResetRequest.status == "pending")
+            .order_by(PasswordResetRequest.created_at.desc())
+            .first()
+        )
+        if waiting is not None:
+            waiting.identifier = identifier.strip()
+            db.commit()
+            db.refresh(waiting)
+            return waiting
+
     # Create the request even when the user is not found to avoid leaking
-    # whether an account exists for a given identifier.
+    # whether an account exists for a given identifier (the response is the same). Such
+    # requests are kept but not shown to admins: there is no account to reset.
     req = PasswordResetRequest(
         identifier=identifier.strip(),
         user_id=user.id if user else None,
@@ -154,8 +170,8 @@ def create_request(db: Session, identifier: str) -> PasswordResetRequest:
     db.commit()
     db.refresh(req)
 
-    # Notify all admins about the new password reset request
-    _notify_admins_new_request(db, req, user)
+    if user is not None:  # nothing to do for an unknown name or number
+        _notify_admins_new_request(db, req, user)
 
     return req
 
@@ -203,12 +219,62 @@ def list_requests(
     skip: int = 0,
     limit: int = 50,
 ) -> list[PasswordResetRequest]:
-    """Return password reset requests (admin-only)."""
-    q = db.query(PasswordResetRequest)
+    """Return password reset requests (admin-only), only those that match an account."""
+    # Older requests may match now (e.g. after the case-insensitive fix): link them first.
+    for req in (db.query(PasswordResetRequest)
+                .filter(PasswordResetRequest.user_id.is_(None), PasswordResetRequest.status == "pending")
+                .limit(500).all()):
+        resolve_user(db, req)
+    q = db.query(PasswordResetRequest).filter(PasswordResetRequest.user_id.isnot(None))
     if status:
         q = q.filter(PasswordResetRequest.status == status)
     q = q.order_by(PasswordResetRequest.created_at.desc())
     return q.offset(skip).limit(limit).all()
+
+
+DELETE_AFTER_DAYS = 7
+
+
+def deletable_from(req: PasswordResetRequest) -> Optional[datetime]:
+    """When an admin may delete this request: pending or rejected, 7 days after it was sent.
+    Approved and used ones stay as a record (None)."""
+    if req.status not in ("pending", "rejected") or req.created_at is None:
+        return None
+    return req.created_at + timedelta(days=DELETE_AFTER_DAYS)
+
+
+def can_delete(req: PasswordResetRequest, now: Optional[datetime] = None) -> bool:
+    start = deletable_from(req)
+    return start is not None and (now or _utcnow()) >= start
+
+
+def delete_request(db: Session, req_id: int, actor_id: int) -> None:
+    """Delete an old pending or rejected request (7 days after it was sent). Audited. Commits.
+    Requests for admin accounts can only be deleted by a superadmin (as with resetting them)."""
+    req = get_request(db, req_id)
+    if req is None:
+        raise HTTPException(status_code=404, detail="Password reset request not found")
+    if req.status not in ("pending", "rejected"):
+        raise HTTPException(status_code=400, detail="Approved and used requests are kept as a record.")
+    if not can_delete(req):
+        raise HTTPException(status_code=400,
+                            detail=f"Requests can be deleted {DELETE_AFTER_DAYS} days after they were sent.")
+    target = db.query(User).filter(User.id == req.user_id).first() if req.user_id else None
+    actor = db.query(User).filter(User.id == actor_id).first()
+    if target is not None and _role_value(target) in PRIVILEGED_ROLES and _role_value(actor) != "superadmin":
+        raise HTTPException(status_code=403, detail="Requests for admin accounts can only be deleted by the superadmin.")
+    log_audit(
+        db,
+        user_id=actor_id,
+        action="password_reset_request_deleted",
+        entity_type="PasswordResetRequest",
+        entity_id=req.id,
+        old_values={"status": req.status, "identifier": req.identifier, "user_id": req.user_id,
+                    "created_at": req.created_at.isoformat() if req.created_at else None},
+        auto_commit=False,
+    )
+    db.delete(req)
+    db.commit()
 
 
 def get_request(db: Session, req_id: int) -> Optional[PasswordResetRequest]:

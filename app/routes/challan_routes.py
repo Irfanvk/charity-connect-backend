@@ -7,7 +7,7 @@ from app.schemas import ChallanCreate, ChallanResponse, ChallanApprove, ChallanR
 from app.services import ChallanService, MemberService
 from app.services.notification_service import NotificationService
 from app.services.import_job_service import ImportJobService
-from app.utils import get_current_user, get_current_admin, get_current_superadmin, log_audit
+from app.utils import get_current_user, get_current_admin, get_current_staff, get_current_superadmin, is_staff, log_audit
 from app.utils.permissions import assert_not_self, assert_different_actor, assert_can_verify_entry, is_own_member_record, require_reason
 from app.services.settings_service import get_setting
 from typing import List, Optional
@@ -29,8 +29,32 @@ def _assert_creator_for_pending_admin_entry(current_user: dict, challan, action:
         )
 
 
+def _not_part_of_bulk(db: Session, challan, action: str) -> None:
+    """A month of a bulk (several months, one proof) payment is approved, rejected or moved back
+    as a whole, from its bulk payment; doing one month alone leaves the group behind (no
+    receipt, "Approve all" still offered)."""
+    if not getattr(challan, "bulk_group_id", None):
+        return
+    from app.models.models import BulkChallanGroup
+
+    group = db.query(BulkChallanGroup).filter(BulkChallanGroup.bulk_group_id == challan.bulk_group_id).first()
+    if group is None:
+        return  # an old group that no longer exists: the month stands alone
+    number = group.challan_no or group.bulk_group_id
+    raise HTTPException(status_code=400, detail=(
+        f"This month is part of payment {number} (bulk {group.bulk_group_id}, several months with one proof). "
+        f"Please {action} the whole payment from its bulk payment details."))
+
+
 def _is_admin(current_user: dict) -> bool:
+    """Admin or superadmin: may edit and approve."""
     return current_user.get("role") in ["admin", "superadmin"]
+
+
+def _is_staff(current_user: dict) -> bool:
+    """Admin, superadmin or executive: may see every member's payments and help members
+    (create payments, upload proof). Executives never approve, reject or edit amounts."""
+    return is_staff(current_user)
 
 
 @router.get("/summary", response_model=ChallanSummaryResponse)
@@ -42,7 +66,7 @@ def get_challan_summary(
 ):
     """Get aggregate challan metrics for dashboard cards."""
     summary_member_id = member_id
-    if not _is_admin(current_user):
+    if not _is_staff(current_user):
         member = MemberService.get_member_for_user(db, current_user["user_id"])
         if not member:
             raise HTTPException(status_code=404, detail="Member not found")
@@ -60,7 +84,7 @@ def get_outstanding_receivables(
 ):
     """Return aggregate unpaid challans with a paginated drill-down list."""
     member_id = None
-    if not _is_admin(current_user):
+    if not _is_staff(current_user):
         member = MemberService.get_member_for_user(db, current_user["user_id"])
         if not member:
             raise HTTPException(status_code=404, detail="Member not found")
@@ -81,7 +105,7 @@ def get_collection_stats(
     Members are scoped to their own challans; admins see org-wide totals.
     """
     stats_member_id = None
-    if not _is_admin(current_user):
+    if not _is_staff(current_user):
         member = MemberService.get_member_for_user(db, current_user["user_id"])
         if not member:
             raise HTTPException(status_code=404, detail="Member not found")
@@ -198,7 +222,7 @@ def create_challan(
     - Member: can create only for self
     - Admin/Superadmin: can create for any member via member_id
     """
-    if _is_admin(current_user):
+    if _is_staff(current_user):
         if challan_data.member_id is None:
             raise HTTPException(status_code=400, detail="member_id is required for admin challan creation")
 
@@ -221,7 +245,7 @@ def create_challan(
     if member.status != "active":
         raise HTTPException(status_code=400, detail="Cannot create challan for inactive member")
 
-    entry_source = "admin" if _is_admin(current_user) and not is_own_member_record(db, current_user, member.id) else "self"
+    entry_source = "admin" if _is_staff(current_user) and not is_own_member_record(db, current_user, member.id) else "self"
     challan = ChallanService.create_challan(
         db,
         member.id,
@@ -229,7 +253,7 @@ def create_challan(
         created_by_user_id=current_user.get("user_id"),
         entry_source=entry_source,
     )
-    if _is_admin(current_user):
+    if _is_staff(current_user):
         log_audit(
             db,
             user_id=current_user.get("user_id"),
@@ -285,7 +309,7 @@ def create_multi_challans(
     """
     
     # Determine target member
-    if _is_admin(current_user):
+    if _is_staff(current_user):
         if challan_data.member_id is None:
             raise HTTPException(status_code=400, detail="member_id is required for admin")
         
@@ -322,12 +346,12 @@ def create_multi_challans(
         payment_method=challan_data.payment_method,
         notes=challan_data.notes,
         created_by_user_id=current_user.get("user_id"),
-        entry_source="admin" if _is_admin(current_user) and not is_own_member_record(db, current_user, target_member_id) else "self",
+        entry_source="admin" if _is_staff(current_user) and not is_own_member_record(db, current_user, target_member_id) else "self",
         same_number=challan_data.same_number,
     )
     
     # Log audit
-    if _is_admin(current_user):
+    if _is_staff(current_user):
         log_audit(
             db,
             user_id=current_user.get("user_id"),
@@ -360,7 +384,7 @@ def admin_record_payment(
     entry_notes: Optional[str] = Form(default=None),
     proof_file_id: Optional[str] = Form(default=None),
     proof_file: Optional[UploadFile] = File(default=None),
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_staff),  # executives too; an admin approves it
     db: Session = Depends(get_db),
 ):
     """Admin/superadmin records a payment for a member; it stays PENDING until a different admin verifies it."""
@@ -419,7 +443,7 @@ def get_unfinished_payments(
     ``min_hours``. Members: their own, any age."""
     from app.services import unfinished_service
 
-    if _is_admin(current_user):
+    if _is_staff(current_user):
         return unfinished_service.list_unfinished(db, min_hours=min_hours)
     member = MemberService.get_member_for_user(db, current_user["user_id"])
     if member is None:
@@ -430,10 +454,10 @@ def get_unfinished_payments(
 @router.post("/{challan_id}/remind", response_model=dict)
 def remind_unfinished_payment(
     challan_id: int,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_staff),
     db: Session = Depends(get_db),
 ):
-    """Admin: send the member a reminder for this unfinished payment now (once a day)."""
+    """Admin or executive: send the member a reminder for this unfinished payment now (once a day)."""
     from app.services import unfinished_service
 
     return unfinished_service.remind_now(db, current_user, challan_id)
@@ -452,7 +476,7 @@ def get_payable_months(
     """Return pending/current payable months and optional upcoming payable months."""
     target_member_id = member_id
 
-    if _is_admin(current_user):
+    if _is_staff(current_user):
         if target_member_id is None:
             raise HTTPException(status_code=400, detail="member_id is required for admin")
     else:
@@ -467,7 +491,7 @@ def get_payable_months(
         include_upcoming=include_upcoming,
         upcoming_count=upcoming_count,
         from_month=from_month,
-        include_unpaid_placeholders=include_unpaid_placeholders and _is_admin(current_user),
+        include_unpaid_placeholders=include_unpaid_placeholders and _is_staff(current_user),
     )
 
 
@@ -488,7 +512,7 @@ def upload_proof(
     """
     challan = ChallanService.get_challan(db, challan_id)
 
-    if not _is_admin(current_user):
+    if not _is_staff(current_user):
         member = MemberService.get_member_for_user(db, current_user["user_id"])
         if challan.member_id != member.id:
             raise HTTPException(status_code=403, detail="Not authorized to upload proof")
@@ -543,7 +567,7 @@ def get_challans(
     - Member: only their own challans (member_id / created_by ignored —
       always scoped to the logged-in member)
     """
-    if _is_admin(current_user):
+    if _is_staff(current_user):
         # Admin path — all filters are honoured
         return ChallanService.get_all_challans(
             db,
@@ -596,7 +620,7 @@ def get_member_challans(
     """
     Get challans for a specific member (admin or self).
     """
-    if not _is_admin(current_user):
+    if not _is_staff(current_user):
         member = MemberService.get_member_for_user(db, current_user["user_id"])
         if member.id != member_id:
             raise HTTPException(status_code=403, detail="Access denied")
@@ -622,7 +646,7 @@ def get_challan(
     """
     challan = ChallanService.get_challan(db, challan_id)
 
-    if not _is_admin(current_user):
+    if not _is_staff(current_user):
         member = MemberService.get_member_for_user(db, current_user["user_id"])
         if member is None:
             raise HTTPException(status_code=404, detail="Member not found")
@@ -696,6 +720,7 @@ def approve_challan(
     challan = ChallanService.get_challan(db, challan_id)
     assert_not_self(db, current_user, challan.member_id, "approve")
     assert_can_verify_entry(current_user, challan)
+    _not_part_of_bulk(db, challan, "approve")
 
     if challan.status != ChallanStatus.PENDING.value:
         raise HTTPException(status_code=400, detail="Challan already processed")
@@ -720,7 +745,7 @@ def approve_challan(
         },
         auto_commit=True,
     )
-    NotificationService.notify_challan_status_change(db, challan, "approved")
+    NotificationService.notify_challan_status_change(db, challan, "approved", actor_id=admin_id)
     NotificationService.send_payment_receipt_whatsapp(db, [challan])
     return result
 
@@ -737,6 +762,7 @@ def reject_challan(
 ):
     challan = ChallanService.get_challan(db, challan_id)
     assert_not_self(db, _current_user, challan.member_id, "reject")
+    _not_part_of_bulk(db, challan, "reject")
     require_reason(reject_data.rejection_reason, "Rejection reason", db)
     if challan.status not in (ChallanStatus.PENDING.value, ChallanStatus.APPROVED.value):
         raise HTTPException(status_code=400, detail="Only pending or approved challans can be rejected")
@@ -755,10 +781,8 @@ def reject_challan(
         new_values={"status": "rejected", "reason": reject_data.rejection_reason, "member_id": challan.member_id},
         auto_commit=True,
     )
-    from app.utils.admin_codes import admin_code
-
-    NotificationService.notify_challan_status_change(  # members see the admin's code, not the name
-        db, challan, "rejected", reject_data.rejection_reason, admin_code(db, _current_user.get("user_id"))
+    NotificationService.notify_challan_status_change(  # members see "admin (A12)", not the name
+        db, challan, "rejected", reject_data.rejection_reason, actor_id=_current_user.get("user_id")
     )
     return result
 
@@ -775,6 +799,7 @@ def revert_challan(
 ):
     challan = ChallanService.get_challan(db, challan_id)
     assert_not_self(db, current_user, challan.member_id, "revert")
+    _not_part_of_bulk(db, challan, "move back")
     require_reason(revert_data.reason, "Reason", db)
     if challan.status not in (ChallanStatus.APPROVED.value, ChallanStatus.REJECTED.value):
         raise HTTPException(status_code=400, detail="Only approved or rejected challans can be reverted")
@@ -795,7 +820,8 @@ def revert_challan(
         new_values={"status": "pending", "reason": revert_data.reason},
         auto_commit=True,
     )
-    NotificationService.notify_challan_status_change(db, challan, "reverted", revert_data.reason)
+    NotificationService.notify_challan_status_change(db, challan, "reverted", revert_data.reason,
+                                                   actor_id=current_user.get("user_id"))
     return result
 
 
@@ -813,7 +839,13 @@ def delete_challan(
     member started gets an optional ``reason``, sent to the member."""
     challan = ChallanService.get_challan(db, challan_id)
 
-    if not _is_admin(current_user):
+    own_entry = (
+        is_staff(current_user) and challan.created_by_user_id == current_user.get("user_id")
+        and challan.status != ChallanStatus.APPROVED.value
+    )
+    if not _is_admin(current_user) and own_entry and not is_own_member_record(db, current_user, challan.member_id):
+        pass  # an executive removing a payment they made for a member by mistake (not yet approved)
+    elif not _is_admin(current_user):
         member = MemberService.get_member_for_user(db, current_user["user_id"])
         if member is None or challan.member_id != member.id:
             raise HTTPException(status_code=403, detail="Not authorized to delete this challan")

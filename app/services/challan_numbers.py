@@ -1,7 +1,8 @@
-"""Real payment numbers: ``<prefix>-<yy><yy+1>-<running number>``, e.g. PG-2526-0042.
+"""Real payment numbers: ``<prefix>-<year>-<running number>``, e.g. PG-2026-0042.
 
-The year is the organisation's Aug-Jul financial year (the same as the reports) of the day
-the payment is started, in India time. The running number starts at 0001 each year. One
+The year is the calendar year (January to December, the same as the reports) of the day the
+payment is started, in India time. The running number starts at 0001 each year. Numbers given
+before 2026-11-23 used the old Aug-Jul year (PG-2526-..., PG-2627-...) and stay as they are. One
 number per payment: months paid together with one proof share it.
 
 The counter row is locked (SELECT ... FOR UPDATE on Postgres) until the caller commits, so
@@ -35,8 +36,7 @@ def _prefix(db: Session) -> str:
 
 def series_key(db: Session, day: date | None = None) -> str:
     day = day or today_business()
-    start = day.year if day.month >= 8 else day.year - 1
-    return f"{_prefix(db)}-{start % 100:02d}{(start + 1) % 100:02d}"
+    return f"{_prefix(db)}-{day.year}"
 
 
 def next_number(db: Session, day: date | None = None) -> str:

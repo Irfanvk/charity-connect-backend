@@ -24,14 +24,10 @@ CREATOR_ONLY_DETAIL = "Only the admin who registered this entry can {action} it 
 
 
 def _to_response(fu: FundUtilization) -> FundUtilizationResponse:
-    registered_by_name = None
-    if fu.registered_by:
-        registered_by_name = (
-            fu.registered_by.full_name
-            or fu.registered_by.username
-        )
-    approved_by_name = fu.approved_by.full_name or fu.approved_by.username if fu.approved_by else None
-    reversed_by_name = fu.reversed_by.full_name or fu.reversed_by.username if fu.reversed_by else None
+    registered_by_name = fu.registered_by.actor_label if fu.registered_by else None
+    approved_by_name = fu.approved_by.actor_label if fu.approved_by else None
+    reversed_by_name = fu.reversed_by.actor_label if fu.reversed_by else None
+    rejected_by_name = fu.rejected_by.actor_label if fu.rejected_by else None
     return FundUtilizationResponse(
         id=fu.id,
         title=fu.title,
@@ -50,6 +46,8 @@ def _to_response(fu: FundUtilization) -> FundUtilizationResponse:
         reversed_at=fu.reversed_at,
         reversed_by_admin_id=fu.reversed_by_admin_id,
         reversed_by_name=reversed_by_name,
+        rejected_by_name=rejected_by_name,
+        rejected_at=fu.rejected_at,
         reversal_reason=fu.reversal_reason,
         created_at=fu.created_at,
         updated_at=fu.updated_at,
@@ -292,7 +290,7 @@ def approve_fund_utilization(
         new_values={"status": "approved", "amount": record.amount},
         auto_commit=True,
     )
-    NotificationService.notify_fund_utilization_status_change(db, record, "approved")
+    NotificationService.notify_fund_utilization_status_change(db, record, "approved", actor_id=current_user["user_id"])
     return _to_response(record)
 
 
@@ -312,6 +310,8 @@ def reject_fund_utilization(
 
     record.status = "rejected"
     record.rejection_reason = payload.reason
+    record.rejected_by_admin_id = current_user["user_id"]
+    record.rejected_at = datetime.utcnow()
     db.commit()
     db.refresh(record)
 
@@ -325,7 +325,8 @@ def reject_fund_utilization(
         new_values={"status": "rejected", "reason": payload.reason},
         auto_commit=True,
     )
-    NotificationService.notify_fund_utilization_status_change(db, record, "rejected", payload.reason)
+    NotificationService.notify_fund_utilization_status_change(db, record, "rejected", payload.reason,
+                                                          actor_id=current_user["user_id"])
     return _to_response(record)
 
 
@@ -362,5 +363,6 @@ def revert_fund_utilization(
         new_values={"status": "pending", "reason": payload.reason},
         auto_commit=True,
     )
-    NotificationService.notify_fund_utilization_status_change(db, record, "reverted", payload.reason)
+    NotificationService.notify_fund_utilization_status_change(db, record, "reverted", payload.reason,
+                                                          actor_id=current_user["user_id"])
     return _to_response(record)

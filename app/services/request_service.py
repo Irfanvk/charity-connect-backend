@@ -13,6 +13,7 @@ from app.utils.file_handler import (
     is_pending_avatar_url,
     promote_pending_avatar,
 )
+from app.utils.admin_codes import actor_label_for
 from app.utils.permissions import assert_not_own_user
 
 
@@ -84,6 +85,7 @@ class RequestService:
             "admin_notes": item.admin_notes,
             "rejection_reason": item.rejection_reason,
             "admin_id": item.admin_id,
+            "resolved_by": actor_label_for(db, item.admin_id),
             "created_at": item.created_at,
             "updated_at": item.updated_at,
             "resolved_at": item.resolved_at,
@@ -122,6 +124,12 @@ class RequestService:
         )
         db.add(notification)
         return notification
+
+    @staticmethod
+    def _by(db: Session, verb: str, admin_id: int | None) -> str:
+        """" Approved by admin (A12)." (never the admin's name)."""
+        label = actor_label_for(db, admin_id, staff=False)  # the member reads it
+        return f" {verb} by {label}." if label else ""
 
     @staticmethod
     def _approval_message(item: MemberRequest) -> str:
@@ -525,7 +533,7 @@ class RequestService:
             db,
             user_id=item.user_id,
             title="Request Approved",
-            message=RequestService._approval_message(item),
+            message=RequestService._approval_message(item) + RequestService._by(db, "Approved", item.admin_id),
             request_id=item.id,
         )
 
@@ -582,7 +590,7 @@ class RequestService:
             db,
             user_id=item.user_id,
             title="Request Update",
-            message=RequestService._rejection_message(item),
+            message=RequestService._rejection_message(item) + RequestService._by(db, "Decided", item.admin_id),
             request_id=item.id,
         )
 

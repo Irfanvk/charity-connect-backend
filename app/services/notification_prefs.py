@@ -30,6 +30,8 @@ def categories_for_role(role) -> list[str]:
     value = getattr(role, "value", role)
     if str(value).lower() in ("admin", "superadmin"):
         return ADMIN_CATEGORIES + MEMBER_CATEGORIES
+    if str(value).lower() == "executive":  # follows up payments: the daily unfinished-payments summary
+        return ["admin_payment_reviews"] + MEMBER_CATEGORIES
     return list(MEMBER_CATEGORIES)
 
 

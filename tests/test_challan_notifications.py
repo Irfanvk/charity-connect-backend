@@ -82,7 +82,7 @@ def test_single_approve(db, world):
     notes = _member_notifications(db, user)
     assert len(notes) == 1
     assert notes[0].title == "Payment approved"
-    assert notes[0].message == "Your monthly payment for Oct 2026 (₹500) has been approved."
+    assert notes[0].message == "Your monthly payment for Oct 2026 (₹500) has been approved. Approved by the committee."
     assert notes[0].type == "success"
 
 
@@ -147,7 +147,7 @@ def test_bulk_approve_single_notification(db, world):
     admin_router.approve_bulk_challans("BCH-0001", BulkChallanApprove(approved=True), db, _admin_ctx(admin))
     notes = _member_notifications(db, user)
     assert len(notes) == 1
-    assert notes[0].message == "Your payment for 3 months (Aug–Oct 2026, ₹1,500) has been approved."
+    assert notes[0].message == "Your payment for 3 months (Aug–Oct 2026, ₹1,500) has been approved. Approved by the committee."
 
 
 def test_bulk_reject_single_notification(db, world):
@@ -184,3 +184,22 @@ def test_admins_notified_once_per_upload(db, world):
     assert db.query(Notification).filter(Notification.user_id == admin.id).count() == 1
     assert db.query(Notification).filter(Notification.user_id == sa.id).count() == 1
     assert db.query(Notification).filter(Notification.user_id == user.id).count() == 0
+
+
+def test_a_month_of_a_bulk_payment_cannot_be_decided_alone(db, world):
+    """Approving one month of a bulk payment left the group waiting (no receipt, "Approve all" again)."""
+    from fastapi import HTTPException
+
+    admin, user, member = world
+    _bulk(db, member, admin)
+    month = db.query(Challan).filter(Challan.bulk_group_id == "BCH-0001").first()
+    for call in (
+        lambda: challan_routes.approve_challan(month.id, ChallanApprove(), _admin_ctx(admin), db),
+        lambda: challan_routes.reject_challan(ChallanReject(rejection_reason="Proof is not clear at all"), month.id,
+                                              _admin_ctx(admin), db),
+    ):
+        with pytest.raises(HTTPException) as exc:
+            call()
+        assert exc.value.status_code == 400 and "BCH-0001" in exc.value.detail
+    db.refresh(month)
+    assert month.status == ChallanStatus.PENDING
