@@ -62,7 +62,8 @@ class InviteService:
                 candidates.append(user)
 
         for user in candidates:
-            if str(user.role).lower() == "member" and user.member is not None:
+            # str() of the role enum is "UserRole.MEMBER", so compare its value
+            if str(getattr(user.role, "value", user.role)).lower() == "member" and user.member is not None:
                 return user
 
         return None
@@ -72,7 +73,7 @@ class InviteService:
         """Add computed fields to invite object."""
         # Add invited_by from created_by relationship
         if hasattr(invite, 'created_by') and invite.created_by:
-            invite.invited_by = invite.created_by.email or invite.created_by.username
+            invite.invited_by = invite.created_by.actor_label
         else:
             invite.invited_by = None
 
@@ -154,6 +155,27 @@ class InviteService:
         invite_with_relation = db.query(Invite).options(joinedload(Invite.created_by)).filter(Invite.id == new_invite.id).first()
         return InviteService._enrich_invite(invite_with_relation)
     
+    @staticmethod
+    def invite_status(db: Session, invite_code: str) -> str:
+        code = str(invite_code or "").strip().upper()
+        invite = db.query(Invite).filter(Invite.invite_code == code).first() if code else None
+        if invite is None:
+            return "not_found"
+        if invite.is_used:
+            return "used"
+        if InviteService._to_utc_naive(invite.expiry_date) < datetime.utcnow():
+            return "expired"
+        return "valid"
+
+    @staticmethod
+    def invite_mode(db: Session, invite_code: str) -> str | None:
+        """new_member | existing_member for a usable invite (decides whether the fee box is shown)."""
+        code = str(invite_code or "").strip().upper()
+        invite = db.query(Invite).filter(Invite.invite_code == code).first() if code else None
+        if invite is None:
+            return None
+        return "existing_member" if InviteService._find_existing_member_user_for_invite(db, invite) else "new_member"
+
     @staticmethod
     def validate_invite(db: Session, validate_data: InviteValidate):
         """Validate if invite code matches email or phone."""

@@ -140,7 +140,8 @@ def _ensure_member_location_columns(connection, inspector) -> None:
 
 
 def _ensure_seasonal_columns(connection, inspector) -> None:
-    _add_missing_columns(connection, inspector, "members", {"monthly_member": "BOOLEAN NOT NULL DEFAULT TRUE"})
+    _add_missing_columns(connection, inspector, "members", {"monthly_member": "BOOLEAN NOT NULL DEFAULT TRUE",
+                                                           "fee_confirmed": "BOOLEAN NOT NULL DEFAULT TRUE"})
 
 
 def _ensure_challan_number_columns(connection, inspector) -> None:
@@ -154,6 +155,49 @@ def _ensure_challan_number_columns(connection, inspector) -> None:
         if inspector.has_table(table):
             for column in ("challan_no", "proof_sha256"):
                 connection.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_{column} ON {table} ({column})"))
+
+
+def _ensure_rejected_by_columns(connection, inspector) -> None:
+    """Who rejected a payment. When the columns are first added, older rejections are filled in
+    from the audit log (the last reject action on that payment)."""
+    tables = {  # table: (audit entity, audit action, also add rejected_at)
+        "challans": ("Challan", "challan_reject", True),
+        "challan_bulk_groups": ("BulkChallanGroup", "bulk_reject", False),  # has rejected_at already
+        "fund_utilizations": ("FundUtilization", "fund_utilization_reject", True),
+    }
+    for table, (entity, action, with_time) in tables.items():
+        ddl = {"rejected_by_admin_id": "INTEGER REFERENCES users(id)"}
+        if with_time:
+            ddl["rejected_at"] = "TIMESTAMP"
+        added = _add_missing_columns(connection, inspector, table, ddl)
+        if "rejected_by_admin_id" not in added or not inspector.has_table("audit_logs"):
+            continue
+        last = (f"FROM audit_logs a WHERE a.entity_type = '{entity}' AND a.action = '{action}' "
+                f"AND a.entity_id = {table}.id AND a.user_id IS NOT NULL ORDER BY a.id DESC LIMIT 1")
+        sets = f"rejected_by_admin_id = (SELECT a.user_id {last})"
+        if "rejected_at" in added:
+            sets += f", rejected_at = (SELECT a.created_at {last})"
+        connection.execute(text(f"UPDATE {table} SET {sets}"))
+
+
+def _ensure_executive_role(connection) -> None:
+    """Add 'executive' to the Postgres enum behind users.role (written like the existing values:
+    names such as ADMIN, or values such as admin). SQLite stores plain text: nothing to do."""
+    if connection.dialect.name != "postgresql":
+        return
+    row = connection.execute(text("""
+        SELECT t.typname FROM pg_attribute a
+        JOIN pg_class c ON c.oid = a.attrelid JOIN pg_type t ON t.oid = a.atttypid
+        WHERE c.relname = 'users' AND a.attname = 'role' AND t.typtype = 'e'""")).first()
+    if row is None:
+        return
+    type_name = row[0]
+    labels = {r[0] for r in connection.execute(text(
+        "SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid WHERE t.typname = :t"),
+        {"t": type_name})}
+    wanted = "EXECUTIVE" if "ADMIN" in labels else "executive"
+    if wanted not in labels:
+        connection.execute(text(f"ALTER TYPE \"{type_name}\" ADD VALUE IF NOT EXISTS '{wanted}'"))
 
 
 def ensure_runtime_schema() -> None:
@@ -195,6 +239,8 @@ def ensure_runtime_schema() -> None:
         _ensure_member_location_columns(connection, inspector)
         _ensure_challan_number_columns(connection, inspector)
         _ensure_seasonal_columns(connection, inspector)
+        _ensure_rejected_by_columns(connection, inspector)
+        _ensure_executive_role(connection)
 
         if not inspector.has_table("campaigns"):
             return

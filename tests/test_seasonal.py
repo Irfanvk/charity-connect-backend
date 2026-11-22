@@ -109,12 +109,12 @@ def test_pledge_year(db):
     states, totals = _states(db)
     assert states == {"2026-08": "paid", "2026-09": "waiting", "2026-10": "pledge", "2026-11": "pledge"}
     assert totals["months_due"] == 0
-    assert totals["pledges"][0] | {} == {"year": 2026, "label": "2026-2027", "amount": 3000.0, "note": "Works 6 months a year",
+    assert totals["pledges"][0] | {} == {"year": 2026, "label": "2026", "amount": 3000.0, "note": "Works 6 months a year",
                                          "paid": 500.0, "waiting": 500.0, "left": 2000.0, "ended": False}
     assert totals["amount_due"] == 2000
     dues = report_service.dues(db)
-    # last year (2025-2026, no pledge) is still owed month by month: 12 months
-    assert dues["members"][0]["pledge_left"] == 2000 and dues["members"][0]["months_due"] == 12
+    # 2025 (no pledge) is still owed month by month: Aug-Dec 2025 = 5 months (joined Aug 2025)
+    assert dues["members"][0]["pledge_left"] == 2000 and dues["members"][0]["months_due"] == 5
     # changing it replaces the amount
     seasonal.set_pledge(db, m, 2026, 1000, None, actor_id=1)
     assert _states(db)[1]["pledge_left"] == 0
@@ -145,11 +145,12 @@ def test_paid_list_marks(db):
     m = db.get(Member, 10)
     seasonal.excuse_months(db, m, ["2026-09"], "No work", actor_id=1)
     row = report_service.paid_list(db, 2026)["rows"][0]
-    assert row["months"][:4] == ["P", "E", "", ""]
-    assert row["pending_months"] == 2 and row["excused_months"] == 1 and row["pledge"] is None
+    assert row["months"][7:11] == ["P", "E", "", ""]   # Aug-Nov 2026
+    # pending: Jan-Jul 2026 (7) + Oct, Nov = 9
+    assert row["pending_months"] == 9 and row["excused_months"] == 1 and row["pledge"] is None
     seasonal.set_monthly_member(db, m, False, actor_id=1)
     row = report_service.paid_list(db, 2026)["rows"][0]
-    assert row["months"][:4] == ["P", "-", "-", "-"] and row["pending_months"] == 0 and row["monthly_member"] is False
+    assert row["months"][7:11] == ["P", "-", "-", "-"] and row["pending_months"] == 0 and row["monthly_member"] is False
 
 
 def test_reminders_skip_months_not_owed(db, monkeypatch):

@@ -7,6 +7,8 @@ from .auth import (
     verify_token,
     get_current_user,
     get_current_admin,
+    get_current_staff,
+    is_staff,
     get_current_superadmin,
 )
 from .audit import log_audit
@@ -20,6 +22,8 @@ __all__ = [
     "verify_token",
     "get_current_user",
     "get_current_admin",
+    "get_current_staff",
+    "is_staff",
     "get_current_superadmin",
     "log_audit",
 ]

@@ -114,11 +114,11 @@ def test_admin_without_proof_needs_a_reason_and_shows_no_link(db, world):
 
 # ── Maker-checker ─────────────────────────────────────────────────────────
 
-def test_admin_entered_bulk_needs_a_second_admin(db, world):
+def test_admin_entered_bulk_needs_a_second_admin(db, world, staff_viewer):
     r = _create(db, world["admin1"], ["2026-08", "2026-09"], member_id=world["members"]["regular"].id)
     assert {c.entry_source for c in db.query(Challan).filter_by(bulk_group_id=r.bulk_group_id)} == {"admin"}
     item = _list(db, world["admin2"]).bulk_operations[0]
-    assert item.entered_by_admin is True and item.created_by_name == "Admin1"
+    assert item.entered_by_admin is True and item.created_by_name == "admin (AD1)"
     _raises(403, _approve, db, r.bulk_group_id, world["admin1"])
     _approve(db, r.bulk_group_id, world["admin2"])
 
@@ -206,7 +206,7 @@ def test_old_pending_payments_are_never_hidden(db, world):
     assert res.pending == 1 and [i.bulk_group_id for i in res.bulk_operations] == [r.bulk_group_id]
 
 
-def test_history_tabs_come_from_the_server(db, world):
+def test_history_tabs_come_from_the_server(db, world, staff_viewer):
     a = _create(db, world["regular"], ["2026-08"])
     b = _create(db, world["regular"], ["2026-09"])
     _create(db, world["regular"], ["2026-10"])
@@ -215,7 +215,7 @@ def test_history_tabs_come_from_the_server(db, world):
 
     approved = _list(db, world["admin2"], status="approved")
     assert [i.bulk_group_id for i in approved.bulk_operations] == [a.bulk_group_id]
-    assert approved.bulk_operations[0].approved_by_name == "Admin1"
+    assert approved.bulk_operations[0].approved_by_name == "admin (AD1)"
     assert approved.pending == 1 and approved.total == 1
 
     rejected = _list(db, world["admin2"], status="rejected").bulk_operations

@@ -46,7 +46,7 @@ def test_no_history_means_todays_fee_for_every_month(db):
                                   "changed_by": None, "note": None, "created_at": None}]
 
 
-def test_change_starts_next_month(db):
+def test_change_starts_next_month(db, staff_viewer):
     m = _change(db, 500)
     assert [(r.effective_from, r.amount, r.source) for r in db.query(MemberFee).order_by(MemberFee.id)] == [
         ("2025-03", 300, "start"), ("2026-02", 500, "admin")]
@@ -55,7 +55,7 @@ def test_change_starts_next_month(db):
     assert fh.fee_for(db, m, "2026-02") == 500      # from next month: the new fee
     assert fh.fee_for(db, m, "2024-08") == 300      # before the start: the first fee
     assert fh.upcoming(db, m) == {"amount": 500, "effective_from": "2026-02"}
-    assert fh.history(db, m)[-1]["changed_by"] == "AD1"
+    assert fh.history(db, m)[-1]["changed_by"] == "admin (AD1)"
 
 
 def test_waiting_change_starts_by_itself_next_month(db):

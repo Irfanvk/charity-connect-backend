@@ -5,14 +5,15 @@ from app.schemas import MemberResponse, MemberUpdate, MemberLocationUpdate, Memb
 from app.models.models import Member as MemberModel
 from app.services import MemberService
 from app.services.import_job_service import ImportJobService
-from app.utils import get_current_user, get_current_admin, get_current_superadmin, log_audit
+from app.utils import get_current_user, get_current_admin, get_current_staff, get_current_superadmin, log_audit
 from typing import List
 
 router = APIRouter(prefix="/members", tags=["Members"])
 
 
 def _is_admin(current_user: dict) -> bool:
-    return current_user.get("role") in ["admin", "superadmin"]
+    """Admins and executives may look at every member (only admins change them)."""
+    return current_user.get("role") in ["admin", "superadmin", "executive"]
 
 
 @router.get("/summary", response_model=MemberSummaryResponse)
@@ -120,7 +121,7 @@ def update_my_location(
 
 @router.get("/stats/countries")
 def get_country_breakdown(
-    _current_user: dict = Depends(get_current_admin),
+    _current_user: dict = Depends(get_current_staff),
     db: Session = Depends(get_db),
 ):
     """Member counts per country they live in (admins and superadmins)."""
@@ -130,7 +131,7 @@ def get_country_breakdown(
 @router.get("/code/{member_code}", response_model=MemberResponse)
 def get_member_by_code(
     member_code: str,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_staff),
     db: Session = Depends(get_db),
 ):
     """Get member details by member code (Admin only)."""
@@ -259,10 +260,10 @@ def get_member_import_job_status(
 @router.get("/{member_id}/fees")
 def get_member_fee_history(
     member_id: int,
-    current_user: dict = Depends(get_current_admin),
+    current_user: dict = Depends(get_current_staff),
     db: Session = Depends(get_db),
 ):
-    """Admins: the member's monthly fee over time (each fee applies from its month on)."""
+    """Admins and executives: the member's monthly fee over time (each fee applies from its month on)."""
     from app.services.fee_history import history, upcoming
 
     member = MemberService.get_member(db, member_id)

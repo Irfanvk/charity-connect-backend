@@ -24,6 +24,46 @@ COUNTRIES: dict[str, tuple[str, str]] = {
 }
 
 CITY_MAX_LENGTH = 100
+
+# Common cities per country, offered as suggestions (any other city can still be typed).
+# Keep in sync with CITY_SUGGESTIONS in CharityConnect src/lib/countries.js.
+CITY_SUGGESTIONS: dict[str, list[str]] = {
+    "SA": ["Riyadh", "Jeddah", "Dammam", "Al Khobar", "Dhahran", "Makkah", "Madinah", "Jubail", "Taif",
+           "Abha", "Khamis Mushait", "Tabuk", "Buraidah", "Hail", "Al Ahsa", "Hafar Al Batin", "Yanbu",
+           "Jizan", "Najran", "Qatif", "Al Kharj", "Unaizah"],
+    "AE": ["Dubai", "Abu Dhabi", "Sharjah", "Ajman", "Al Ain", "Ras Al Khaimah", "Fujairah", "Umm Al Quwain",
+           "Khor Fakkan", "Ruwais"],
+    "KW": ["Kuwait City", "Farwaniya", "Hawalli", "Salmiya", "Jahra", "Mangaf", "Fahaheel", "Abbasiya",
+           "Mahboula", "Ahmadi"],
+    "OM": ["Muscat", "Salalah", "Sohar", "Nizwa", "Sur", "Ibri", "Barka", "Ruwi", "Seeb", "Duqm"],
+    "QA": ["Doha", "Al Wakrah", "Al Khor", "Al Rayyan", "Mesaieed", "Umm Salal", "Lusail"],
+    "BH": ["Manama", "Riffa", "Muharraq", "Isa Town", "Hamad Town", "Sitra", "Juffair", "Budaiya"],
+    "IN": ["Mangaluru", "Kasaragod", "Udupi", "Puttur", "Bantwal", "Belthangady", "Uppala", "Manjeshwar",
+           "Bengaluru", "Mysuru", "Kozhikode", "Kannur", "Kochi", "Thiruvananthapuram", "Mumbai", "Chennai",
+           "Hyderabad", "Delhi"],
+}
+
+# Words that name a country, not a city (any case, dots and extra spaces ignored).
+_COUNTRY_WORDS = {name.lower() for name, _ in COUNTRIES.values()} | {
+    "ksa", "k.s.a", "saudi", "saudia", "saudiarabia", "kingdom of saudi arabia", "uae", "u.a.e", "emirates",
+    "the emirates", "united arab emirate", "oman", "sultanate of oman", "qatar", "bahrain", "kingdom of bahrain",
+    "india", "bharat", "usa", "u.s.a", "us", "america", "united states of america", "uk", "u.k", "england",
+    "great britain", "britain", "canada", "australia", "gcc", "gulf", "middle east",
+}
+# A country name that people also use for the capital: saved as the city's name.
+_CITY_FIXES = {"kuwait": "Kuwait City"}
+
+
+def _key(value: str) -> str:
+    return " ".join(str(value or "").replace(".", " ").replace(",", " ").lower().split())
+
+
+def is_country_word(value: str | None) -> bool:
+    k = _key(value or "")
+    return bool(k) and (k in _COUNTRY_WORDS or k.replace(" ", "") in {w.replace(" ", "") for w in _COUNTRY_WORDS})
+
+
+CITY_NOT_COUNTRY = "Please enter your city, not the country (for example Riyadh, Dubai or Doha)."
 NOT_SET = "none"  # filter value for members who have not entered a country yet
 
 
@@ -37,13 +77,25 @@ def normalize_country(value: str | None) -> str | None:
     return code
 
 
+_KNOWN_CITIES = {_key(c): c for cities in CITY_SUGGESTIONS.values() for c in cities}
+
+
 def normalize_city(value: str | None) -> str | None:
+    """Tidy a city: known cities get their usual spelling ("riyadh" -> "Riyadh"); a country name
+    (e.g. "Saudi Arabia", "KSA") is refused. Empty -> None."""
     city = " ".join(str(value or "").split())
     if not city:
         return None
     if len(city) > CITY_MAX_LENGTH:
         raise ValueError(f"City must be at most {CITY_MAX_LENGTH} characters.")
-    return city
+    k = _key(city)
+    if k in _CITY_FIXES:
+        return _CITY_FIXES[k]
+    if is_country_word(city):
+        raise ValueError(CITY_NOT_COUNTRY)
+    if len(k.replace(" ", "")) < 2 or not re.search(r"[^\W\d_]", city):
+        raise ValueError("Please enter the name of your city.")
+    return _KNOWN_CITIES.get(k, city)
 
 
 def dial_code_digits(value: str | None) -> str | None:

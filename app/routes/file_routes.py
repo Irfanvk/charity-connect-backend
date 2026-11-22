@@ -152,7 +152,7 @@ def proof_link(
             ref = group.proof_file_id if group is not None else None
     else:
         raise HTTPException(status_code=400, detail="challan_id or bulk_group_id is required")
-    if role not in ("admin", "superadmin") and member_id != own_member_id:
+    if role not in ("admin", "superadmin", "executive") and member_id != own_member_id:
         raise HTTPException(status_code=403, detail="Not allowed to view this proof")
     if not ref or str(ref).startswith("no-proof:"):
         raise HTTPException(status_code=404, detail="No proof was uploaded for this payment")

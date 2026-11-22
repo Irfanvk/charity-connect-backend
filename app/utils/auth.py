@@ -156,7 +156,28 @@ async def get_current_user(credentials = Depends(http_bearer), db: Session = Dep
     except Exception:
         db.rollback()
 
+    from app.utils.admin_codes import set_viewer
+
+    set_viewer(role)  # staff see admin codes; members see "the committee"
     return {"user_id": user_id, "role": role}
+
+
+STAFF_ROLES = ("admin", "superadmin", "executive")
+
+
+def is_staff(current_user: dict) -> bool:
+    """Admin, superadmin or executive."""
+    return str(current_user.get("role") or "").lower() in STAFF_ROLES
+
+
+def get_current_staff(current_user: dict = Depends(get_current_user)):
+    """Admin, superadmin or executive (view everything, help members; no approving)."""
+    if not is_staff(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin or executive access required",
+        )
+    return current_user
 
 
 def get_current_admin(current_user: dict = Depends(get_current_user)):

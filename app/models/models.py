@@ -8,6 +8,9 @@ from datetime import datetime
 class UserRole(str, enum.Enum):
     SUPERADMIN = "superadmin"
     ADMIN = "admin"
+    # Views every report, payment and campaign; follows up payments (creates payments, uploads
+    # proof, records cash, sends reminders) but never approves, rejects or edits members.
+    EXECUTIVE = "executive"
     MEMBER = "member"
 
 
@@ -96,6 +99,13 @@ class User(Base):
     def member_code(self):
         return self.member.member_code if self.member else None
 
+    @property
+    def actor_label(self) -> str:
+        """How this person is shown as the one who did something: "admin (A12)" for admins
+        (never their name), their own name for members."""
+        from app.utils.admin_codes import actor_label
+        return actor_label(self)
+
 
 class Member(Base):
     __tablename__ = "members"
@@ -115,6 +125,8 @@ class Member(Base):
     full_name = Column(String(255), nullable=True)
     # False: not a monthly member (e.g. gives one-time contributions only) - owes no monthly fees.
     monthly_member = Column(Boolean, nullable=False, default=True, server_default="1")
+    # False while a fee the member chose when joining by invite waits for an admin to confirm it.
+    fee_confirmed = Column(Boolean, nullable=False, default=True, server_default="1")
     
     # Relationships
     user = relationship("User", back_populates="member")
@@ -190,7 +202,7 @@ class ExcusedMonth(Base):
 
 
 class MemberPledge(Base):
-    """For one Aug-Jul year (``year`` = the August year) the member promises a total amount
+    """For one year (January to December) the member promises a total amount
     instead of paying every month - for seasonal work. Months are not owed one by one; what
     is left of the pledge is owed by the end of July."""
     __tablename__ = "member_pledges"
@@ -311,6 +323,10 @@ class Campaign(Base):
     challans = relationship("Challan", back_populates="campaign")
 
     @property
+    def created_by_name(self):
+        return self.created_by.actor_label if self.created_by else None
+
+    @property
     def status(self):
         if not self.is_active:
             return "cancelled"
@@ -339,6 +355,9 @@ class Challan(Base):
     reversed_at = Column(DateTime, nullable=True)
     reversed_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     reversal_reason = Column(Text, nullable=True)
+    # Who rejected it and when (older rejections are filled in from the audit log).
+    rejected_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
     created_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     entry_source = Column(String(20), nullable=True)  # self | admin | import
     transaction_ref = Column(String(100), nullable=True)
@@ -373,21 +392,22 @@ class Challan(Base):
     campaign = relationship("Campaign", back_populates="challans")
     approved_by = relationship("User", foreign_keys=[approved_by_admin_id])
     reversed_by = relationship("User", foreign_keys=[reversed_by_admin_id])
+    rejected_by = relationship("User", foreign_keys=[rejected_by_admin_id])
     created_by = relationship("User", foreign_keys=[created_by_user_id])
     collected_by = relationship("User", foreign_keys=[collected_by_user_id])
     bulk_group = relationship("BulkChallanGroup", back_populates="challans")
 
     @property
     def created_by_name(self):
-        return self.created_by.username if self.created_by else None
+        return self.created_by.actor_label if self.created_by else None
 
     @property
     def collected_by_name(self):
-        return self.collected_by.username if self.collected_by else None
+        return self.collected_by.actor_label if self.collected_by else None
 
     @property
     def approved_by_name(self):
-        return self.approved_by.username if self.approved_by else None
+        return self.approved_by.actor_label if self.approved_by else None
 
     @property
     def member_user_id(self):
@@ -395,7 +415,11 @@ class Challan(Base):
 
     @property
     def reversed_by_name(self):
-        return self.reversed_by.username if self.reversed_by else None
+        return self.reversed_by.actor_label if self.reversed_by else None
+
+    @property
+    def rejected_by_name(self):
+        return self.rejected_by.actor_label if self.rejected_by else None
 
 
 class BulkChallanGroup(Base):
@@ -427,6 +451,7 @@ class BulkChallanGroup(Base):
     created_at = Column(DateTime, server_default=func.now())
     approved_at = Column(DateTime, nullable=True)
     rejected_at = Column(DateTime, nullable=True)
+    rejected_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     reversed_at = Column(DateTime, nullable=True)
     reversed_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     reversal_reason = Column(Text, nullable=True)
@@ -679,6 +704,9 @@ class Banner(Base):
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
+    created_by = relationship("User", foreign_keys=[created_by_user_id])
+    updated_by = relationship("User", foreign_keys=[updated_by_user_id])
+
 
 class AppSetting(Base):
     """Key-value store for application-level settings managed by admins."""
@@ -707,6 +735,8 @@ class FundUtilization(Base):
     approved_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     approved_at = Column(DateTime, nullable=True)
     rejection_reason = Column(Text, nullable=True)
+    rejected_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    rejected_at = Column(DateTime, nullable=True)
     reversed_at = Column(DateTime, nullable=True)
     reversed_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     reversal_reason = Column(Text, nullable=True)
@@ -717,6 +747,7 @@ class FundUtilization(Base):
     registered_by = relationship("User", foreign_keys=[registered_by_admin_id])
     approved_by = relationship("User", foreign_keys=[approved_by_admin_id])
     reversed_by = relationship("User", foreign_keys=[reversed_by_admin_id])
+    rejected_by = relationship("User", foreign_keys=[rejected_by_admin_id])
 
 
 class PasswordResetRequest(Base):

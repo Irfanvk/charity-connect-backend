@@ -148,6 +148,7 @@ class AuthService:
     @staticmethod
     def register_with_invite(db: Session, registration: UserRegisterWithInvite):
         """Register new user with valid invite code."""
+        from app.services import fee_confirm
         normalized_username = AuthService._normalize_username(registration.username)
         if not normalized_username:
             raise HTTPException(
@@ -255,7 +256,8 @@ class AuthService:
         new_member = Member(
             user_id=new_user.id,
             member_code=next_member_code,
-            monthly_amount=registration.monthly_amount or 0.0,
+            monthly_amount=fee_confirm.check_new_member_fee(db, registration.monthly_amount),
+            fee_confirmed=False,  # an admin confirms or changes the fee they chose
             address=registration.address,
             country=registration.country,
             city=registration.city,
@@ -273,27 +275,40 @@ class AuthService:
 
         from app.services.notification_service import NotificationService
 
-        welcome_title, welcome_message = welcome_content(db, user.full_name)
+        fee_confirm.tell_admins_new_fee(db, new_member)
+        welcome_title, welcome_message = welcome_content(db, new_user.full_name)
+        welcome_message += (f" Your monthly fee of ₹{float(new_member.monthly_amount or 0):,.0f} is waiting for the "
+                            "committee to confirm it.")
         enqueue_result = NotificationService.enqueue_user_notification(
-            user_id=user.id,
+            user_id=new_user.id,
             title=welcome_title,
             message=welcome_message,
-            target_role=user.role,
+            target_role=new_user.role,
             category="announcements",
             link_url="/Notifications",
         )
         if not enqueue_result.get("queued"):
             NotificationService.create_user_notification(
                 db=db,
-                user_id=user.id,
+                user_id=new_user.id,
                 title=welcome_title,
                 message=welcome_message,
-                target_role=user.role,
+                target_role=new_user.role,
                 category="announcements",
                 link_url="/Notifications",
             )
         
         return new_user
+
+    @staticmethod
+    def _with_fee_on_record(message: str, member) -> str:
+        """Existing members joining: tell them the monthly fee on our records."""
+        if member is None:
+            return message
+        if getattr(member, "monthly_member", True) is False:
+            return message + " You are not a monthly member on our records."
+        return (message + f" Your monthly fee on our records is ₹{float(member.monthly_amount or 0):,.0f}."
+                " If this is not right, send a request from your Profile.")
 
     @staticmethod
     def _find_claimable_member_user(db: Session, invite: Invite, registration: UserRegisterWithInvite):
@@ -369,7 +384,8 @@ class AuthService:
                 candidates.append(user)
 
         for user in candidates:
-            if str(user.role).lower() == "member" and user.member is not None:
+            # str() of the role enum is "UserRole.MEMBER", so compare its value
+            if str(getattr(user.role, "value", user.role)).lower() == "member" and user.member is not None:
                 return user
 
         return None
@@ -437,6 +453,8 @@ class AuthService:
 
         from app.services.notification_service import NotificationService
 
+        welcome_title, welcome_message = welcome_content(db, user.full_name)
+        welcome_message = AuthService._with_fee_on_record(welcome_message, user.member)
         enqueue_result = NotificationService.enqueue_user_notification(
             user_id=user.id,
             title=welcome_title,

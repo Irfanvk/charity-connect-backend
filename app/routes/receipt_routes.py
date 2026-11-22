@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.models import BulkChallanGroup, Challan, Member
 from app.services import receipt_service
-from app.utils.auth import get_current_admin, get_current_user
+from app.utils.auth import get_current_staff, get_current_user, is_staff
 
 router = APIRouter(prefix="/receipts", tags=["Receipts"])
 
@@ -23,7 +23,7 @@ def list_receipts(
     checked_by: Optional[str] = Query(default=None, max_length=20),
     skip: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=500),
-    _admin: dict = Depends(get_current_admin),
+    _admin: dict = Depends(get_current_staff),
     db: Session = Depends(get_db),
 ):
     """Admins: every receipt (approved payment) with search and filters, newest first."""
@@ -32,8 +32,7 @@ def list_receipts(
 
 
 def _may_see(db: Session, current_user: dict, member_id: int) -> None:
-    role = str(current_user.get("role") or "").lower()
-    if role in ("admin", "superadmin"):
+    if is_staff(current_user):
         return
     own = db.query(Member.id).filter(Member.user_id == current_user.get("user_id")).scalar()
     if own != member_id:

@@ -89,9 +89,9 @@ def resolve_collector(db: Session, current_user: dict, collected_by_user_id: Opt
     if (
         collector is None
         or not collector.is_active
-        or collector.role not in (UserRole.ADMIN, UserRole.SUPERADMIN)
+        or collector.role not in (UserRole.ADMIN, UserRole.SUPERADMIN, UserRole.EXECUTIVE)
     ):
-        raise HTTPException(status_code=400, detail="Cash must be collected by an active admin or superadmin")
+        raise HTTPException(status_code=400, detail="Cash must be collected by an active admin, superadmin or executive")
     return collector.id
 
 

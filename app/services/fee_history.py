@@ -90,7 +90,9 @@ def history(db: Session, member: Member) -> list[dict]:
     if not rows:
         return [{"amount": float(member.monthly_amount or 0), "effective_from": start_month(member),
                  "source": "start", "changed_by": None, "note": None, "created_at": None}]
-    from app.utils.admin_codes import admin_code
+    from app.utils.admin_codes import actor_labels
+
+    labels = actor_labels(db, [r.changed_by_user_id for r in rows])
 
     out = []
     for r in rows:
@@ -98,7 +100,7 @@ def history(db: Session, member: Member) -> list[dict]:
             out.pop()  # changed twice in one month: only the last one applies
         out.append({
             "amount": float(r.amount), "effective_from": r.effective_from, "source": r.source,
-            "changed_by": admin_code(db, r.changed_by_user_id) if r.changed_by_user_id else None,
+            "changed_by": labels.get(r.changed_by_user_id),
             "note": r.note, "created_at": r.created_at.isoformat() + "Z" if r.created_at else None,
         })
     return out

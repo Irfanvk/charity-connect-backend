@@ -93,13 +93,17 @@ _ENTRIES = [
     _entry("max_months_per_payment", "int", 36, "Max months per payment",
            "Most months that can be covered by one payment.", "Payments", public=True,
            min_=1, max_=36, unit="months"),
+    _entry("min_monthly_fee", "int", 100, "Lowest monthly fee for new members",
+           "The least a new member may choose as their monthly fee when joining by invite. "
+           "An admin confirms or changes the fee they chose.", "Payments", public=True,
+           min_=0, max_=100000, unit="₹"),
     _entry("excused_months_per_year", "int", 0, "Excused months per year",
-           "Most months one member may be excused in an Aug-Jul year (e.g. no work). "
+           "Most months one member may be excused in one year, January to December (e.g. no work). "
            "0 means no limit. Seasonal members may suit a yearly pledge better.", "Payments",
            min_=0, max_=12, unit="months"),
     _entry("challan_number_prefix", "string", "PG", "Payment number prefix",
            "Letters at the start of every payment number, e.g. PG in PG-2526-0001 "
-           "(then the Aug-Jul year and a running number). Changing it starts a new series.",
+           "(then the year and a running number, e.g. PG-2026-0001). Changing it starts a new series.",
            "Payments", max_len=6),
     _entry("default_campaign_min_amount", "int", 100, "Default campaign minimum",
            "Minimum donation applied to new campaigns when none is given.", "Payments",

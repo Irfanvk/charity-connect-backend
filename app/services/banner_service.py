@@ -72,6 +72,8 @@ def serialize(b: Banner, now: datetime | None = None, full: bool = True) -> dict
             "is_active": b.is_active,
             "status": _status(b, now),
             "created_at": _iso(b.created_at) if b.created_at else None,
+            "created_by_name": b.created_by.actor_label if b.created_by else None,
+            "updated_by_name": b.updated_by.actor_label if b.updated_by else None,
         })
     return out
 
@@ -189,7 +191,7 @@ def active(db: Session, place: str, role: str | None = None) -> list[dict]:
     if place == "login":
         query = query.filter(Banner.show_on_login.is_(True))
     elif place == "dashboard":
-        if role in ("admin", "superadmin"):
+        if role in ("admin", "superadmin", "executive"):
             query = query.filter(Banner.show_to_admins.is_(True))
         elif role == "member":
             query = query.filter(Banner.show_to_members.is_(True))

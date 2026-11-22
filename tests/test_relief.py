@@ -81,7 +81,6 @@ def test_eligibility_checks(db, world):
     checks = {c["key"]: c for c in out["checks"]}
     assert checks["unpaid_months"]["value"] == 1 and checks["unpaid_months"]["ok"] is True
     assert checks["membership_months"]["ok"] is True
-    assert checks["first_year_paid"]["ok"] is True
     assert checks["lives_abroad"]["ok"] is True
     assert out["all_ok"] is True
     # Lives in India and unpaid for 4 overdue months -> warnings, not blocks
@@ -94,12 +93,11 @@ def test_eligibility_checks(db, world):
     assert "lives_abroad" not in retire["warnings"] and "gulf_years" in retire["warnings"]
 
 
-def test_first_year_rule(db, world):
-    db.query(Challan).filter(Challan.month == "2024-12").delete()
-    db.commit()
+def test_no_first_year_rule_any_more(db, world):
+    """The 2024-25 "Aug 2024 - Mar 2025 fully paid" rule was dropped (2026-11-23)."""
     out = relief.eligibility(db, world["member"], "illness")
-    first = next(c for c in out["checks"] if c["key"] == "first_year_paid")
-    assert first["ok"] is False and first["months"] == ["2024-12"]
+    assert "first_year_paid" not in {c["key"] for c in out["checks"]}
+    assert "first_year" not in relief.scheme(db)
 
 
 def test_hard_rules_on_create(db, world):

@@ -131,9 +131,6 @@ def list_requests(
     result = []
     for req in items:
         user = db.query(User).filter(User.id == req.user_id).first() if req.user_id else None
-        # Re-resolve unmatched requests (e.g. created before case-insensitive fix)
-        if not user and req.identifier and req.status == "pending":
-            user = password_reset_service.resolve_user(db, req)
         result.append(
             PasswordResetRequestResponse(
                 id=req.id,
@@ -150,9 +147,25 @@ def list_requests(
                 user_phone=user.phone if user else None,
                 user_email=user.email if user else None,
                 whatsapp_chat_url=_build_reset_chat_url(user),
+                can_delete=password_reset_service.can_delete(req),
+                deletable_from=password_reset_service.deletable_from(req),
             )
         )
     return result
+
+
+@router.delete(
+    "/admin/password-reset-requests/{req_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete an old pending or rejected password reset request (admin)",
+)
+def delete_request(
+    req_id: int,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(get_current_admin),
+) -> None:
+    """Pending or rejected, 7 days after it was sent. Approved and used ones are kept."""
+    password_reset_service.delete_request(db, req_id, int(current_user["user_id"]))
 
 
 @router.post(

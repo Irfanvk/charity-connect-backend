@@ -25,6 +25,7 @@ from app.models.models import ChallanStatus, ChallanType
 from app.services.notification_service import NotificationService
 from app.services.settings_service import get_setting
 from app.utils import hash_password, verify_password
+from app.utils.admin_codes import actor_label_for
 from app.utils.countries import normalize_city, normalize_country
 from app.utils.message_format import with_islamic_greeting
 
@@ -347,6 +348,7 @@ class MemberActivationService:
                     "member_code": member_code,
                     "full_name": item.full_name,
                     "reason": item.rejection_reason,
+                    "reviewed_by": item.reviewed_by.actor_label if item.reviewed_by else None,
                     "reviewed_at": item.reviewed_at.isoformat() if item.reviewed_at else None,
                 }
         return None
@@ -418,7 +420,7 @@ class MemberActivationService:
             "city": item.city,
             "rejection_reason": item.rejection_reason,
             "admin_notes": item.admin_notes,
-            "reviewed_by_name": (item.reviewed_by.full_name or item.reviewed_by.username) if item.reviewed_by else None,
+            "reviewed_by_name": item.reviewed_by.actor_label if item.reviewed_by else None,
             "reviewed_at": item.reviewed_at,
             "created_at": item.created_at,
             "updated_at": item.updated_at,
@@ -541,8 +543,12 @@ class MemberActivationService:
             user_id=user.id,
             title="Welcome! Your account is active",
             message=with_islamic_greeting(
-                f"Your account for Member ID {member.member_code} has been approved. "
+                f"Your account for Member ID {member.member_code} has been approved"
+                f" by {actor_label_for(db, admin_id, staff=False) or 'the committee'}. "
                 "Your payment history is ready to view."
+                + (" You are not a monthly member on our records." if member.monthly_member is False else
+                   f" Your monthly fee on our records is ₹{float(member.monthly_amount or 0):,.0f}."
+                   " If this is not right, send a request from your Profile.")
             ),
             target_role=user.role,
             category="announcements",

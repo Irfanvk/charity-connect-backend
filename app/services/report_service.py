@@ -481,7 +481,7 @@ def year_grid(db: Session, year: int, status: str = "active", country: str | Non
     return {"organisation": org_name(db), "year": int(year), "months": months, "rows": rows}
 
 
-# ----------------------------------------------------------------- yearly paid list (Aug-Jul)
+# ----------------------------------------------------------------- yearly paid list (Jan-Dec)
 def _code_order(code: str | None):
     import re
     m = re.match(r"^MEM-?(\d+)$", str(code or ""), re.IGNORECASE)
@@ -489,20 +489,19 @@ def _code_order(code: str | None):
 
 
 def paid_list(db: Session, year: int) -> dict:
-    """The committee's yearly paid list for Aug `year` - Jul `year+1`.
+    """The committee's yearly paid list for January - December of `year`.
 
     One row per member (inactive too), in member-ID order: month marks P (paid, approved),
     W (proof sent, waiting), - (before the member joined), '' (not paid); and the amount each
     member gave to each campaign in that year (approved donations, by the day received).
     """
     today = today_business()
-    current_fy = today.year if today.month >= 8 else today.year - 1
-    if not 2024 <= int(year) <= current_fy:
-        raise HTTPException(status_code=400, detail="Pick a year from 2024-2025 onwards")
+    if not 2024 <= int(year) <= today.year:
+        raise HTTPException(status_code=400, detail="Pick a year from 2024 onwards")
     year = int(year)
-    months = [f"{year}-{m:02d}" for m in range(8, 13)] + [f"{year + 1}-{m:02d}" for m in range(1, 8)]
+    months = [f"{year}-{m:02d}" for m in range(1, 13)]
     this_month = _month(today.replace(day=1))
-    fy_start, fy_end = date(year, 8, 1), date(year + 1, 7, 1)
+    fy_start, fy_end = date(year, 1, 1), date(year, 12, 1)
 
     members = sorted(_members_query(db).all(), key=lambda m: _code_order(m.member_code))
     ids = [m.id for m in members]
@@ -578,7 +577,7 @@ def paid_list(db: Session, year: int) -> dict:
             "pledge": pledge,
         })
     return {
-        "organisation": org_name(db), "year": year, "label": f"{year}-{year + 1}",
+        "organisation": org_name(db), "year": year, "label": str(year),
         "months": months, "current_month": this_month, "campaigns": campaigns, "rows": rows,
     }
 
@@ -632,23 +631,23 @@ def payment_history(db: Session, member_id: int) -> list[dict]:
 
 
 def my_statement(db: Session, user_id: int, year: int | None = None) -> dict:
-    """The signed-in person's own statement: one Aug-Jul year month by month, and all payments."""
+    """The signed-in person's own statement: one year (January to December) month by month,
+    and all payments."""
     member = db.query(Member).filter(Member.user_id == user_id).first()
     if member is None:
         raise HTTPException(status_code=404, detail="There is no member record for your account, so there is no statement.")
     today = today_business()
-    current_fy = today.year if today.month >= 8 else today.year - 1
-    start_fy = max(PLATFORM_START.year if PLATFORM_START.month >= 8 else PLATFORM_START.year - 1,
-                   _start_month(member).year if _start_month(member).month >= 8 else _start_month(member).year - 1)
+    current_fy = today.year
+    start_fy = max(PLATFORM_START.year, _start_month(member).year)
     fy = current_fy if year is None else int(year)
     if fy < start_fy or fy > current_fy + 3:
         raise HTTPException(status_code=400, detail="There is no statement for that year.")
     joined = _start_month(member)
-    from_month = max(f"{fy}-08", _month(joined))  # months before joining are not owed
-    to_month = f"{fy + 1}-07"
+    from_month = max(f"{fy}-01", _month(joined))  # months before joining are not owed
+    to_month = f"{fy}-12"
     data = member_statement(db, member.id, from_month, to_month)
     data["year"] = fy
-    data["label"] = f"{fy}-{fy + 1}"
+    data["label"] = str(fy)
     data["years"] = list(range(start_fy, current_fy + 1))
     data["history"] = payment_history(db, member.id)
     return data

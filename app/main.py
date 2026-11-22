@@ -35,6 +35,7 @@ from app.routes.relief_routes import router as relief_router
 from app.routes.banner_routes import router as banner_router
 from app.routes.receipt_routes import router as receipt_router
 from app.routes.seasonal_routes import router as seasonal_router
+from app.routes.fee_confirm_routes import router as fee_confirm_router
 import app.models as _models
 
 try:
@@ -99,6 +100,7 @@ if not settings.DEBUG:
 app.include_router(auth_router)
 app.include_router(invite_router)
 app.include_router(seasonal_router)  # before members: /members/me/... must not hit /members/{id}
+app.include_router(fee_confirm_router)  # before members: /members/fees-to-confirm
 app.include_router(member_router)
 app.include_router(challan_router)
 app.include_router(bulk_challan_router)

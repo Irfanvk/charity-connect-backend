@@ -29,7 +29,7 @@ AREAS: dict[str, tuple[str, set[str]]] = {
     "reports": ("Reports", {"report"}),
     "settings": ("Settings & system", {"appsetting", "system", "banner"}),
 }
-ROLES = ("admin", "superadmin", "member", "system")
+ROLES = ("admin", "superadmin", "executive", "member", "system")
 SENSITIVE_HINTS = ("password", "token", "secret", "hash")
 MAX_LIMIT = 100
 

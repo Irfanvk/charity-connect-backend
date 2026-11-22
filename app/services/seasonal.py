@@ -5,9 +5,9 @@ Three tools, agreed with the committee (2026-11-20):
 - Excused month: an admin agrees the member owes nothing for that month (e.g. no work).
   A member can also ask from the app; an admin approves or rejects. Excused months are not
   owed, get no reminders, and show as "Excused" in statements, reports and the paid list.
-  A setting can limit how many months a member may be excused in one Aug-Jul year (0 = no limit).
+  A setting can limit how many months a member may be excused in one year, Jan-Dec (0 = no limit).
   A month that is paid (or sent for approval) cannot be excused; a payment always wins.
-- Yearly pledge (seasonal members): for one Aug-Jul year the member promises a total amount
+- Yearly pledge (seasonal members): for one year (Jan-Dec) the member promises a total amount
   instead of paying every month. They pay whenever they can, at their usual monthly fee or
   any amount an admin records; months are not owed one by one. What is left of the pledge is
   owed by the end of July. No monthly reminders in a pledge year.
@@ -33,18 +33,19 @@ MAX_REASON = 300
 
 
 # ---------------------------------------------------------------- small helpers
+# The organisation's year is the calendar year, January to December (until 2026-11-23 it was
+# August to July). Pledges and the excused-months limit count per year.
 def fy_of(month: str) -> int:
-    """The Aug-Jul year a month belongs to, as its August year: 2026-03 -> 2025."""
-    y, m = int(month[:4]), int(month[5:7])
-    return y if m >= 8 else y - 1
+    """The year a month belongs to: 2026-03 -> 2026."""
+    return int(month[:4])
 
 
 def fy_label(year: int) -> str:
-    return f"{year}-{year + 1}"
+    return str(year)
 
 
 def fy_months(year: int) -> list[str]:
-    return [f"{year}-{m:02d}" for m in range(8, 13)] + [f"{year + 1}-{m:02d}" for m in range(1, 8)]
+    return [f"{year}-{m:02d}" for m in range(1, 13)]
 
 
 def is_monthly(member: Member) -> bool:
@@ -139,18 +140,17 @@ def _excused_json(e: ExcusedMonth, names: dict[int, str]) -> dict:
     }
 
 
-def _names(db: Session, ids) -> dict[int, str]:
-    """Admins by their short code (as on receipts), members by name."""
-    from app.utils.admin_codes import admin_code
+def _by(db: Session, user_id: Optional[int]) -> str:
+    from app.utils.admin_codes import actor_label_for
 
-    ids = {i for i in ids if i}
-    if not ids:
-        return {}
-    out = {}
-    for u in db.query(User).filter(User.id.in_(ids)).all():
-        role = str(getattr(u.role, "value", u.role)).lower()
-        out[u.id] = admin_code(db, u.id) if role in ("admin", "superadmin") else (u.full_name or u.username)
-    return out
+    return actor_label_for(db, user_id, staff=False) or "the committee"  # told to the member
+
+
+def _names(db: Session, ids) -> dict[int, str]:
+    """Admins as "admin (A12)" (never their name), members by name."""
+    from app.utils.admin_codes import actor_labels
+
+    return actor_labels(db, ids)
 
 
 def overview(db: Session, member: Member) -> dict:
@@ -272,7 +272,7 @@ def excuse_months(db: Session, member: Member, months: list[str], reason: Option
     db.commit()
     if approved_requests:
         _tell_member(db, member, "Excused months approved",
-                     f"Your request was approved: nothing is owed for {_label(approved_requests)}.")
+                     f"Your request was approved by {_by(db, actor_id)}: nothing is owed for {_label(approved_requests)}.")
     return {"excused": months, "removed_unpaid_rows": removed}
 
 
@@ -340,10 +340,11 @@ def decide_request(db: Session, member: Member, excused_id: int, approve: bool, 
     e.decided_by_user_id, e.decided_at, e.decision_note = actor_id, datetime.utcnow(), note
     db.commit()
     if approve:
-        _tell_member(db, member, "Excused month approved", f"Nothing is owed for {_label([e.month])}.")
+        _tell_member(db, member, "Excused month approved",
+                     f"Approved by {_by(db, actor_id)}: nothing is owed for {_label([e.month])}.")
     else:
         _tell_member(db, member, "Excused month not approved",
-                     f"Your request for {_label([e.month])} was not approved: {note}")
+                     f"Your request for {_label([e.month])} was not approved by {_by(db, actor_id)}: {note}")
     return {"status": e.status}
 
 
@@ -357,13 +358,13 @@ def waiting_requests(db: Session) -> list[dict]:
 
 # ---------------------------------------------------------------- pledges
 def set_pledge(db: Session, member: Member, year: int, amount: float, note: Optional[str], actor_id: int) -> dict:
-    """Create or change the pledge for one Aug-Jul year. Commits."""
+    """Create or change the pledge for one year (Jan-Dec). Commits."""
     if not is_monthly(member):
         raise HTTPException(status_code=400, detail="This member is not a monthly member.")
     current = fy_of(current_month_business())
     year = int(year)
     if not 2024 <= year <= current + 1:
-        raise HTTPException(status_code=400, detail=f"Choose a year from 2024-2025 to {fy_label(current + 1)}.")
+        raise HTTPException(status_code=400, detail=f"Choose a year from 2024 to {fy_label(current + 1)}.")
     try:
         amount = round(float(amount), 2)
     except (TypeError, ValueError):

@@ -702,7 +702,7 @@ class MemberService:
             db.query(model).filter(model.member_id == member.id).delete(synchronize_session=False)
         db.flush()
         user = member.user
-        if user is not None and str(getattr(user.role, "value", user.role)).lower() == "member":
+        if user is not None and str(getattr(user.role, "value", user.role)).lower() in ("member", "executive"):
             user.is_active = False  # admins keep their admin login; only the member side is removed
         db.delete(member)
         db.commit()
