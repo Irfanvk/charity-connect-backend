@@ -308,8 +308,123 @@ def run_for_now() -> dict:
 
     db = SessionLocal()
     try:
+        try:
+            moved_back = run_moved_back_reminder(db)
+        except Exception:
+            logger.exception("Moved-back reminder failed")
+            db.rollback()
+            moved_back = {"status": "failed"}
         if not get_setting(db, "unfinished_payment_reminders"):
-            return {"status": "disabled"}
-        return {"members": run_member_reminders(db), "admins": run_admin_digest(db)}
+            return {"status": "disabled", "moved_back": moved_back}
+        return {"members": run_member_reminders(db), "admins": run_admin_digest(db), "moved_back": moved_back}
     finally:
         db.close()
+
+
+# ------------------------------------------------------------------ moved back, not approved again
+
+MOVED_BACK_REMIND_AFTER_DAYS = 7
+MOVED_BACK_LINK = "/Unfinished?view=moved-back"
+
+
+def list_moved_back(db: Session) -> dict:
+    """Payments that were approved, then moved back for checking, and are still waiting (oldest first)."""
+    from app.models.models import BulkChallanGroup
+
+    now = datetime.utcnow()  # reversed_at is stored in UTC
+    groups = (
+        db.query(BulkChallanGroup)
+        .filter(BulkChallanGroup.reversed_at.isnot(None), BulkChallanGroup.status == "pending_approval")
+        .all()
+    )
+    group_ids = {g.bulk_group_id for g in groups}
+    challans = (
+        db.query(Challan)
+        .options(joinedload(Challan.member).joinedload(Member.user), joinedload(Challan.campaign))
+        .filter(Challan.reversed_at.isnot(None), Challan.status == ChallanStatus.PENDING)
+        .all()
+    )
+    users = {}
+
+    def who(user_id):
+        if not user_id:
+            return None
+        if user_id not in users:
+            users[user_id] = db.query(User).filter(User.id == user_id).first()
+        u = users[user_id]
+        return u.actor_label if u is not None else None
+
+    def when(value):
+        return value.isoformat(timespec="seconds") + "Z" if value else None
+
+    items = []
+    for g in groups:
+        member = db.query(Member).filter(Member.id == g.member_id).first()
+        months = sorted(c.month for c in challans if c.bulk_group_id == g.bulk_group_id and c.month)
+        if not months:
+            try:
+                import json
+
+                months = sorted(json.loads(g.months_list or "[]"))
+            except ValueError:
+                months = []
+        what = (f"{_month_label(months[0])} – {_month_label(months[-1])} ({len(months)} months)"
+                if len(months) > 1 else (_month_label(months[0]) if months else "Monthly fee"))
+        items.append({
+            "kind": "bulk", "id": None, "bulk_group_id": g.bulk_group_id,
+            "number": g.challan_no or g.bulk_group_id,
+            "member_id": g.member_id,
+            "member_code": member.member_code if member is not None else None,
+            "member_name": member.full_name if member is not None else None,
+            "what": what, "amount": float(g.total_amount or 0),
+            "moved_back_at": when(g.reversed_at), "days": (now - g.reversed_at).days,
+            "reason": g.reversal_reason, "moved_back_by": who(g.reversed_by_admin_id),
+        })
+    for c in challans:
+        if c.bulk_group_id and c.bulk_group_id in group_ids:
+            continue
+        member = c.member
+        items.append({
+            "kind": "single", "id": c.id, "bulk_group_id": None,
+            "number": c.challan_no or f"CH-{c.id}",
+            "member_id": c.member_id,
+            "member_code": member.member_code if member is not None else None,
+            "member_name": member.full_name if member is not None else None,
+            "what": _what(c), "amount": float(c.amount or 0),
+            "moved_back_at": when(c.reversed_at), "days": (now - c.reversed_at).days,
+            "reason": c.reversal_reason, "moved_back_by": who(c.reversed_by_admin_id),
+        })
+    items.sort(key=lambda i: i["moved_back_at"] or "")
+    return {"items": items, "count": len(items), "remind_after_days": MOVED_BACK_REMIND_AFTER_DAYS}
+
+
+def run_moved_back_reminder(db: Session) -> dict:
+    """Once a week per payment, tell admins about payments moved back 7+ days ago and not approved again."""
+    if now_business().hour < DIGEST_FROM_HOUR:
+        return {"status": "too_early"}
+    due = []
+    for item in list_moved_back(db)["items"]:
+        if item["days"] < MOVED_BACK_REMIND_AFTER_DAYS:
+            continue
+        ref = item["bulk_group_id"] or item["id"]
+        week = item["days"] // MOVED_BACK_REMIND_AFTER_DAYS
+        if _log(db, f"moved-back:{item['kind']}:{ref}:{(item['moved_back_at'] or '')[:10]}:{week}"):
+            due.append(item)
+    if not due:
+        return {"status": "nothing_due"}
+    lines = [f"{i['member_code'] or i['member_name'] or 'Member'} ({i['what']}, {i['days']} days)" for i in due[:DIGEST_MAX_LINES]]
+    more = len(due) - len(lines)
+    message = (
+        f"{len(due)} payment{'s' if len(due) != 1 else ''} moved back for checking "
+        f"{'are' if len(due) != 1 else 'is'} still not approved again: " + "; ".join(lines)
+        + (f"; and {more} more" if more > 0 else "") + ". Until approved, this money is not counted."
+    )
+    admins = db.query(User).filter(User.role.in_([UserRole.ADMIN, UserRole.SUPERADMIN]), User.is_active == True).all()  # noqa: E712
+    for admin in admins:
+        try:
+            _notify(db, admin.id, admin.role, "Payments waiting to be approved again", message,
+                    MOVED_BACK_LINK, "admin_payment_reviews")
+        except Exception:
+            logger.exception("Moved-back reminder failed for admin %s", admin.id)
+            db.rollback()
+    return {"status": "sent", "payments": len(due), "admins": len(admins)}

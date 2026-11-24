@@ -2,6 +2,27 @@
 
 ## 2026-11-24
 
+### Who is who (staff)
+- New `GET /admin/staff-directory` (admins, superadmins, executives; members 403): `{items: [{user_id, code, name, role, member_code, is_you}], count}` for every active superadmin, admin and executive, superadmins first. `code` is the one the app shows ("A12", "E7"; "AD<id>"/"EX<id>" without a member record).
+
+### Screenshot always required; reference (UTR) optional
+- `POST /challans/admin-record` with `upi`, `bank_transfer` or `cheque`: the screenshot (or cheque photo) is now **always required**, also when a `transaction_ref` is given (400 "Add the payment screenshot (or photo of the cheque) ..."); the `transaction_ref` is optional (it used to be required). A reference that is given is still checked for duplicates (409).
+- Approval: unchanged on the server (the reference was already optional). The app now asks, when there is no reference, how the admin checked the money ("Seen in the bank statement", "Seen in the bank / UPI app", "Bank SMS or e-mail", or Other + note), saved in `verification_note` as "No reference · ...".
+
+### Undo many "not paid yet" payments made one by one
+- New `POST /challans/join` `{challan_ids}` (admins): 2-36 open monthly payments of one member (nothing handed in, never approved, not in a bulk payment) get one payment number (the earliest month's). The member then sees one payment and uploads one proof for all (pay together -> one bulk payment). Audit `challan_join` per payment (old number kept); history label "Joined into one payment".
+- New `POST /challans/cancel-many` `{challan_ids, reason?}` (admins): cancels up to 60 such payments of one member at once; each is logged as `challan_delete` with the reason. Same rules as a single cancel (only the admin who made an admin entry; not for your own member record).
+- An admin's "pay later" challan (`entry_source = admin`, status generated, no proof) now counts as **not paid yet**, not as money handed in: it can be joined, filled by "Money already received", and paid together by the member (it used to block all three).
+- `GET /challans/payable-months` with `include_upcoming` and `include_unpaid_placeholders` (admins) also lists later months that already have an open "not paid yet" payment, however far ahead; `POST /challans/admin-record` accepts them and fills those payments (one bulk payment for several months) instead of 422.
+
+### Moved back for checking, then approved again
+- **Two people every time**: `PATCH /challans/{id}/approve` and `PATCH /admin/bulk/{id}/approve` -> 403 "You moved this payment back or changed it, so a different admin must check and approve it again." for whoever moved the payment back, or changed it (edit, new proof, reject) since it was last approved. Only for payments approved once and moved back; first approvals are unchanged.
+- **Date received needed** when approving such a payment again (in the request or already on it), else 400, so it is counted in the right month.
+- **Story of a payment**: new `GET /challans/{id}/history` and `GET /challans/bulk/{bulk_group_id}/history` (staff: any; members: their own) -> `{number, moved_back, steps: [{id, action, label, at, by, reason, changes: [{field, from, to}]}]}` built from the audit log. Members see "the committee" for staff and "You" for themselves.
+- **Old values kept**: `challan_update` audit rows now have the old value of each changed field; `challan_proof_upload` has the old proof in `old_values`.
+- **Moved back list**: new `GET /challans/moved-back` (staff) -> `{items: [{kind, id, bulk_group_id, number, member_code, member_name, what, amount, moved_back_at, days, reason, moved_back_by}], count, remind_after_days: 7}`. Admins get a notification "Payments waiting to be approved again" once a week per payment after 7 days (with the unfinished-payment run, from 09:00 IST; not tied to the unfinished reminders setting).
+- **Corrected receipt**: receipts (`for_challan`, bulk, public view) have `corrected: true` when approved again after being moved back; the WhatsApp receipt says "Corrected receipt ... (replaces the earlier one)".
+
 ### Who changes their own profile photo (Settings)
 - Two new settings (superadmin, "Members & invites", public): `members_can_change_photo` and `admins_can_change_photo` (admins and executives), both default `false` (as before: a new photo goes to an admin as a profile update request). On: `POST /auth/me/avatar` and `DELETE /auth/me/avatar` work directly for them instead of 403. An account with no member record (e.g. a superadmin who is not a member) always changes it directly.
 - `GET /auth/me` has a new `can_change_photo` (true = change directly, false = send for approval).

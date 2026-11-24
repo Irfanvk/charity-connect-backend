@@ -495,6 +495,11 @@ class NotificationService:
                 f"Your payment of {NotificationService._format_inr(total)} for {label} "
                 f"has been received and verified. Receipt: {ids}."
             )
+            if any(getattr(c, "reversed_at", None) is not None for c in challans):
+                message = (
+                    f"Corrected receipt: your payment of {NotificationService._format_inr(total)} for {label} "
+                    f"was checked again and approved. Receipt: {ids} (replaces the earlier one)."
+                )
             from app.services.receipt_service import link_for_challans
 
             link = link_for_challans(db, challans)

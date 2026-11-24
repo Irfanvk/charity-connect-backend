@@ -516,3 +516,24 @@ def test_superadmin_creator_cannot_approve_own_fund_entry(db, world):
     created = _create_fund(db, world["super"])
     _forbidden(fund_utilization_routes.approve_fund_utilization, created.id, _ctx(world["super"]), db)
     fund_utilization_routes.approve_fund_utilization(created.id, _ctx(world["admin1"]), db)
+
+
+def test_fund_summary_ignores_rejected_and_members_see_reason(db, world):
+    _fund_world(db, world)
+    kept = _create_fund(db, world["admin1"], amount=2000)
+    dropped = _create_fund(db, world["admin1"], amount=3000)
+    fund_utilization_routes.approve_fund_utilization(kept.id, _ctx(world["admin2"]), db)
+    fund_utilization_routes.reject_fund_utilization(
+        dropped.id, FundUtilizationReasonAction(reason=REASON), _ctx(world["admin2"]), db
+    )
+
+    summary = fund_utilization_routes.get_fund_utilization_summary(_ctx(world["admin1"]), db)
+    assert summary.total_utilized == 2000
+    assert summary.available_balance == 8000
+    assert summary.pending_utilized_total == 0
+    assert summary.utilization_count == 1
+
+    listed = {r.id: r for r in fund_utilization_routes.list_fund_utilizations(
+        skip=0, limit=100, category=None, status_filter=None, _current_user=_ctx(world["admin1"]), db=db)}
+    assert listed[dropped.id].status == "rejected"
+    assert listed[dropped.id].rejection_reason == REASON

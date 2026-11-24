@@ -11,6 +11,7 @@ from app.utils import get_current_user, get_current_admin, get_current_staff, ge
 from app.utils.permissions import assert_not_self, assert_different_actor, assert_can_verify_entry, is_own_member_record, require_reason
 from app.services.settings_service import get_setting
 from typing import List, Optional
+from pydantic import BaseModel
 from app.services import admin_payment_service
 
 router = APIRouter(prefix="/challans", tags=["Challans"])
@@ -451,6 +452,142 @@ def get_unfinished_payments(
     return unfinished_service.list_unfinished(db, min_hours=0, member_id=member.id)
 
 
+class ManyChallans(BaseModel):
+    challan_ids: List[int]
+    reason: Optional[str] = None
+
+
+def _open_unpaid(db: Session, current_user: dict, ids: list[int], action: str):
+    """Several "not paid yet" payments of one member (nothing handed in, never approved)."""
+    from app.models.models import Challan as ChallanModel
+    from app.services.challan_state import is_submitted
+
+    ids = sorted({int(i) for i in ids or []})
+    if len(ids) < 2:
+        raise HTTPException(status_code=400, detail="Pick at least two payments.")
+    if len(ids) > 60:
+        raise HTTPException(status_code=400, detail="Pick at most 60 payments at a time.")
+    rows = db.query(ChallanModel).filter(ChallanModel.id.in_(ids)).with_for_update().all()
+    if len(rows) != len(ids):
+        raise HTTPException(status_code=404, detail="Some of these payments no longer exist. Please refresh.")
+    if len({c.member_id for c in rows}) != 1:
+        raise HTTPException(status_code=400, detail="These payments belong to different members.")
+    for c in rows:
+        status = getattr(c.status, "value", c.status)
+        if status not in ("generated", "pending") or is_submitted(c) or c.reversed_at is not None:
+            raise HTTPException(status_code=409, detail=(
+                f"{c.challan_no or f'CH-{c.id}'} already has a proof or was approved, so it cannot be {action}. Please refresh."))
+        if c.bulk_group_id:
+            raise HTTPException(status_code=409, detail=f"{c.challan_no or f'CH-{c.id}'} is already part of a bulk payment.")
+    assert_not_self(db, current_user, rows[0].member_id, action)
+    for c in rows:
+        _assert_creator_for_pending_admin_entry(current_user, c, action)
+    return rows
+
+
+@router.post("/join", response_model=dict)
+def join_into_one_payment(
+    payload: ManyChallans,
+    current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Join several "not paid yet" monthly payments of one member into one payment (one payment
+    number). The member then pays and uploads one proof for all, which makes it one bulk payment."""
+    from app.models.models import ChallanType
+
+    rows = _open_unpaid(db, current_user, payload.challan_ids, "joined")
+    if any(c.type != ChallanType.MONTHLY for c in rows):
+        raise HTTPException(status_code=400, detail="Only monthly payments can be joined.")
+    months = [c.month for c in rows]
+    if len(set(months)) != len(months):
+        raise HTTPException(status_code=400, detail="Each month can be in the payment only once.")
+    if len(rows) > 36:
+        raise HTTPException(status_code=400, detail="Join at most 36 months into one payment.")
+    rows.sort(key=lambda c: c.month or "")
+    number = next((c.challan_no for c in rows if c.challan_no), None)
+    if number is None:
+        from app.services.challan_numbers import next_number
+
+        number = next_number(db)
+    for c in rows:
+        old = c.challan_no
+        c.challan_no = number
+        log_audit(db, user_id=current_user.get("user_id"), action="challan_join", entity_type="Challan",
+                  entity_id=c.id, old_values={"challan_no": old},
+                  new_values={"challan_no": number, "months": len(rows)})
+    db.commit()
+    return {"challan_no": number, "challan_ids": [c.id for c in rows], "months": [c.month for c in rows],
+            "total_amount": round(sum(float(c.amount or 0) for c in rows), 2)}
+
+
+@router.post("/cancel-many", response_model=dict)
+def cancel_many_payments(
+    payload: ManyChallans,
+    current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Cancel several "not paid yet" payments of one member at once (e.g. made by mistake).
+    Only payments with nothing handed in; each is logged like a single cancel."""
+    rows = _open_unpaid(db, current_user, payload.challan_ids, "cancelled")
+    reason = (payload.reason or "").strip() or None
+    ids = [c.id for c in rows]
+    for challan_id in ids:
+        delete_challan(challan_id, current_user=current_user, db=db, reason=reason)
+    return {"cancelled": len(ids), "challan_ids": ids}
+
+
+@router.get("/moved-back", response_model=dict)
+def get_moved_back_payments(
+    current_user: dict = Depends(get_current_staff),
+    db: Session = Depends(get_db),
+):
+    """Payments that were approved, moved back and are not approved again yet (oldest first)."""
+    from app.services import unfinished_service
+
+    return unfinished_service.list_moved_back(db)
+
+
+@router.get("/bulk/{bulk_group_id}/history", response_model=dict)
+def get_bulk_payment_history(
+    bulk_group_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """The story of a bulk payment (several months, one proof)."""
+    from app.models.models import BulkChallanGroup
+    from app.services import payment_history
+
+    group = db.query(BulkChallanGroup).filter(BulkChallanGroup.bulk_group_id == bulk_group_id).first()
+    if group is None:
+        raise HTTPException(status_code=404, detail="Payment not found")
+    _assert_can_see_member(db, current_user, group.member_id)
+    return payment_history.history(db, group=group, viewer_id=current_user.get("user_id"),
+                                   viewer_is_staff=_is_staff(current_user))
+
+
+@router.get("/{challan_id}/history", response_model=dict)
+def get_payment_history(
+    challan_id: int,
+    current_user: dict = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """The story of a payment: created, proof, approved, moved back (why), changed, approved again."""
+    from app.services import payment_history
+
+    challan = ChallanService.get_challan(db, challan_id)
+    _assert_can_see_member(db, current_user, challan.member_id)
+    return payment_history.history(db, challan=challan, viewer_id=current_user.get("user_id"),
+                                   viewer_is_staff=_is_staff(current_user))
+
+
+def _assert_can_see_member(db: Session, current_user: dict, member_id: int) -> None:
+    if _is_staff(current_user):
+        return
+    member = MemberService.get_member_for_user(db, current_user["user_id"])
+    if member is None or member.id != member_id:
+        raise HTTPException(status_code=403, detail="Not authorized to see this payment")
+
+
 @router.post("/{challan_id}/remind", response_model=dict)
 def remind_unfinished_payment(
     challan_id: int,
@@ -526,6 +663,7 @@ def upload_proof(
     if len(content) > max_mb * 1024 * 1024:
         raise HTTPException(status_code=400, detail=f"File too large (max {max_mb}MB)")
 
+    old_proof = challan.proof_path
     result = ChallanService.upload_proof(db, challan_id, content, file.filename,
                                          uploaded_by=current_user["user_id"])
     log_audit(
@@ -534,6 +672,7 @@ def upload_proof(
         action="challan_proof_upload",
         entity_type="Challan",
         entity_id=challan_id,
+        old_values={"proof": old_proof} if old_proof else None,
         new_values={"status": "pending", "proof": result.proof_path, "duplicate_of": result.proof_duplicate_of},
         auto_commit=True,
     )
@@ -700,6 +839,8 @@ def update_challan(
     _assert_creator_for_pending_admin_entry(current_user, challan, "edit")
     old_status = challan.status
     changes = update_data.dict(exclude_unset=True)
+    before = {field: getattr(challan, field, None) for field in changes}
+    before = {k: (v.value if hasattr(v, "value") else v) for k, v in before.items()}
     if _is_admin(current_user) and {"amount", "month", "campaign_id"} & set(changes):
         assert_not_self(db, current_user, challan.member_id, "edit")
     result = ChallanService.update_challan(db, challan_id, update_data)
@@ -710,8 +851,8 @@ def update_challan(
             action="challan_update",
             entity_type="Challan",
             entity_id=challan_id,
-            old_values={"status": old_status},
-            new_values={"status": old_status, **changes},
+            old_values={"status": getattr(old_status, "value", old_status), **before},
+            new_values={"status": getattr(old_status, "value", old_status), **changes},
             auto_commit=True,
         )
     return result
@@ -731,6 +872,10 @@ def approve_challan(
     assert_not_self(db, current_user, challan.member_id, "approve")
     assert_can_verify_entry(current_user, challan)
     _not_part_of_bulk(db, challan, "approve")
+    from app.services import payment_history
+
+    payment_history.assert_can_approve_again(db, current_user.get("user_id"), [challan])
+    payment_history.assert_date_for_approve_again([challan], None, approve_data)
 
     if challan.status != ChallanStatus.PENDING.value:
         raise HTTPException(status_code=400, detail="Challan already processed")

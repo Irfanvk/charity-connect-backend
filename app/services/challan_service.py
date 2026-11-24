@@ -173,6 +173,21 @@ class ChallanService:
                 month_value = ChallanService._format_month(ChallanService._add_months(today, i))
                 if month_value not in paid_or_existing_months:
                     upcoming_months.append(month_value)
+        if include_upcoming and include_unpaid_placeholders:
+            # Admins: a later month that already has a "not paid yet" payment can be filled in,
+            # however far ahead it is (e.g. 36 months made in advance).
+            from app.services.challan_state import submitted_clause
+            from sqlalchemy import not_
+
+            far = db.query(Challan.month).filter(
+                Challan.member_id == member_id,
+                Challan.type == ChallanType.MONTHLY,
+                Challan.status.in_([ChallanStatus.GENERATED, ChallanStatus.PENDING]),
+                Challan.month > today.strftime("%Y-%m"),
+                not_(submitted_clause()),
+            ).all()
+            extra = {row[0] for row in far if row[0]} - set(upcoming_months) - set(excused_months)
+            upcoming_months = sorted(set(upcoming_months) | extra)
 
         all_months = list(pending_months)
         if current_month_payable:
