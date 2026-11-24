@@ -93,6 +93,10 @@ def test_member_reminders_48h_then_7_days_once(db):
 
 
 def test_month_paid_by_another_challan_is_a_leftover(db):
+    # Only older data can hold two live payments for one month (the database refuses it now).
+    from sqlalchemy import text
+
+    db.execute(text("DROP INDEX uq_challans_member_month_live"))
     _challan(db, 10, timedelta(days=3))
     _challan(db, 10, timedelta(days=2), status=ChallanStatus.APPROVED)
     assert us.run_member_reminders(db)["first"] == 0

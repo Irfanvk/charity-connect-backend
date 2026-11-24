@@ -156,12 +156,20 @@ def test_revert_allowed_when_months_are_still_free(db, world):
     assert db.query(BulkChallanGroup).one().status == "pending_approval"
 
 
-def test_approve_refused_if_month_already_paid_elsewhere(db, world):
-    r = _create(db, world["regular"], ["2026-08"])
+def test_second_live_payment_for_a_month_is_refused_by_the_database(db, world):
+    # Used to be possible (then caught when approving); the database rule now refuses it outright.
+    from sqlalchemy.exc import IntegrityError
+
+    _create(db, world["regular"], ["2026-08"])
     db.add(Challan(member_id=world["members"]["regular"].id, type=ChallanType.MONTHLY, month="2026-08",
                    amount=500, status=ChallanStatus.APPROVED))
+    with pytest.raises(IntegrityError):
+        db.commit()
+    db.rollback()
+    # A rejected payment for the same month doesn't count.
+    db.add(Challan(member_id=world["members"]["regular"].id, type=ChallanType.MONTHLY, month="2026-08",
+                   amount=500, status=ChallanStatus.REJECTED))
     db.commit()
-    _raises(409, _approve, db, r.bulk_group_id, world["admin1"])
 
 
 def test_single_payment_refused_for_an_approved_month(db, world):

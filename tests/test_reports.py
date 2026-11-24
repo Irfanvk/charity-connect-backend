@@ -167,3 +167,22 @@ def test_paid_list_year(db, world):
         rs.paid_list(db, 2023)
     with pytest.raises(HTTPException):
         rs.paid_list(db, 2027)
+
+
+def test_payments_method_filter_skips_not_paid_rows_and_search_finds_payment_numbers(db, world):
+    codes = lambda **kw: sorted((i["member_code"], i["month"] or i["campaign"]) for i in rs.payments(db, **kw)["items"])
+    # Aisha's Sept row is "not paid yet" with the default method cash: not a cash payment.
+    cash = codes(method="cash")
+    assert ("MEM-0001", "2026-09") not in cash
+    assert ("MEM-0001", "2026-08") in cash and ("MEM-0001", "2026-07") in cash
+    paid = rs.payments(db, month_from="2026-11", month_to="2026-11")["items"][0]
+    paid_row = db.get(Challan, paid["id"])
+    paid_row.challan_no, paid_row.transaction_ref = "PG-2026-0042", "UTR998877"
+    db.commit()
+    assert codes(search="pg-2026-0042") == [("MEM-0002", "2026-11")]
+    assert codes(search="utr9988") == [("MEM-0002", "2026-11")]
+    first = rs.payments(db, search=f"CH-{paid['id']}")["items"]
+    assert [i["id"] for i in first] == [paid["id"]]
+    rows = {i["id"]: i["payment_no"] for i in rs.payments(db)["items"]}
+    assert rows[paid["id"]] == "PG-2026-0042"
+    assert all(v == f"CH-{k}" for k, v in rows.items() if k != paid["id"])

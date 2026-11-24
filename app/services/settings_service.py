@@ -134,6 +134,12 @@ _ENTRIES = [
     _entry("invite_default_expiry_days", "int", 7, "Invite default expiry",
            "Expiry used when an invite is created without an explicit date.",
            "Members & invites", min_=1, max_=90, unit="days"),
+    _entry("members_can_change_photo", "bool", False, "Members change their own photo",
+           "On: members change or remove their profile photo straight away. "
+           "Off: a new photo waits for an admin's approval.", "Members & invites", public=True),
+    _entry("admins_can_change_photo", "bool", False, "Admins change their own photo",
+           "On: admins and executives change or remove their own profile photo straight away. "
+           "Off: it waits for another admin's approval.", "Members & invites", public=True),
     # Reminders & messaging
     _entry("monthly_reminder_enabled", "bool", True, "Monthly reminders",
            "Send the monthly membership reminders.", "Reminders & messaging"),

@@ -1,6 +1,35 @@
 # API Changelog
 
+## 2026-11-24
+
+### Who changes their own profile photo (Settings)
+- Two new settings (superadmin, "Members & invites", public): `members_can_change_photo` and `admins_can_change_photo` (admins and executives), both default `false` (as before: a new photo goes to an admin as a profile update request). On: `POST /auth/me/avatar` and `DELETE /auth/me/avatar` work directly for them instead of 403. An account with no member record (e.g. a superadmin who is not a member) always changes it directly.
+- `GET /auth/me` has a new `can_change_photo` (true = change directly, false = send for approval).
+- Direct changes are audited: `profile_photo_changed`, `profile_photo_removed`.
+
+### Record rules (committee's rules for payments, members and data)
+- **New members are approved before they can log in.** A member who joined by invite with their own fee (`fee_confirmed = false`) gets 403 on `POST /auth/login` ("Your account is waiting for the committee to approve it...") and 401 on any request from an open session. `POST /members/{id}/confirm-fee` now approves them (notification "Membership approved"). New `POST /members/{id}/decline-join` `{reason}` (admins): removes the waiting account and member while they have no payment records (else 400); audit `member_join_declined`. Admin task title: "Approve a new member".
+- **One live monthly payment per member per month** in the database: unique index `uq_challans_member_month_live` on `challans (member_id, month)` where `type = 'MONTHLY' AND status <> 'REJECTED'`. Added at startup only when no duplicates exist (otherwise a warning is logged; `Check-Records-And-Backups.cmd` lists them). A second one at the same moment -> 409 `duplicate_month` "A payment for this month already exists". History import skips such rows with a note instead of failing.
+- **Who uploaded the proof**: new `challans.proof_uploaded_by_user_id`; `proof_uploaded_by_name` in payment responses ("admin (A12)" / "executive (E7)" for staff, the member's name, "the committee" for members). `POST /challans/{id}/upload-proof` is now audited (`challan_proof_upload`).
+- **Payment records are never deleted once approved**: `DELETE /challans/{id}` -> 400 for a payment that was approved and moved back (reject it with a reason instead). `DELETE /members/{id}` -> 400 when the member has any payment handed in, approved or rejected (make them inactive; `TEST-` members can still be deleted). `DELETE /campaigns/{id}` -> 400 when donations were given to it (they used to be unlinked).
+- **Members' directory**: `GET /members/community` sends members `id`, `full_name`, `join_date` only (`member_code`, `status` are null) and searches by name only; staff get everything as before.
+- **System wipe needs two superadmins and a fresh backup**: `POST /admin/system/wipe/requests` `{purpose, password}` (asker; other superadmins are notified), `GET /admin/system/wipe/requests`, `POST /admin/system/wipe/requests/{id}/approve` `{password}` (a different superadmin, within 24 h), then `POST /admin/system/wipe` with the new `wipe_request_id` (asker, within 24 h of approval, once) and only when `/root/backups/last_ok` (env `WIPE_BACKUP_MARKER`) is under an hour old. New table `system_wipe_approvals`.
+
+### Joining by invite without re-typing
+- `GET /invites/status/{code}` (public): for a usable code it now also returns what the sign-up form needs. New member: `invite_email`, `invite_phone` (the contacts the admin typed). Existing member: `has_account` and `member` = `{full_name, member_code, phone_hint ("+971 ••••• 4567"), email_hint ("l•••@gmail.com"), check: "phone_last4" | "email", needs_location}`. Unusable codes still return only `status`.
+- `POST /auth/register` (invite): new optional `verify`. An existing member sends the last 4 digits of the mobile on record (or the email on record when there is no mobile) instead of their contacts; wrong or missing -> 400. Older apps that send the full mobile/email that matches the record still work. A blank `email`/`phone` means the invite's. The committee's contacts are kept (the form only fills ones the record lacks); country/city/address are saved when the record has none (they used to be dropped). An existing member who already has a login gets 409 "This member already has an account...".
+- Mobiles written differently match: spaces, dashes, `+`/`00`, and a local number with a leading 0 (`0501234567` = `+971501234567`). Used by invite matching, sign-up and `/invites/validate`.
+- New `GET /invites/match?email=&phone=` (admins): `{"member": {member_id, member_code, full_name, has_account}}` when the contact belongs to a member on record, else `{"member": null}`.
+
 ## 2026-11-23
+
+### All payments report: method filter, payment number search
+- `GET /reports/payments?method=cash`: now matches only payments someone made (paid, or proof handed in). "Not paid yet" rows carry a default method nobody chose, so they no longer match (they used to swamp the list).
+- `search` also finds the payment number (`PG-2026-0042`; older rows as `CH-<id>`) and the bank/UPI reference.
+- Each item has a new `payment_no` (the real number, or `CH-<id>`). Additive.
+
+### Dashboard top donors carry the member's name
+- `GET /admin/dashboard/charts`: each `top_donors` row has a new `full_name` (the member's name). `name` is still the login username. Additive.
 
 ### A month of a bulk payment can't be decided alone
 - `PATCH /challans/{id}/approve`, `/reject` and `/revert` now return 400 for a month that belongs to a bulk payment (several months, one proof): "This month is part of payment PG-2627-0006 (bulk BCH-0009, ...). Please approve the whole payment from its bulk payment details." Approving months one by one had left the bulk payment `pending_approval` (no receipt, "Approve all" offered again). Use `PATCH /admin/bulk/{id}/approve | reject | revert`.

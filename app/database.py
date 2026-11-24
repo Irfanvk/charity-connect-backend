@@ -200,6 +200,37 @@ def _ensure_executive_role(connection) -> None:
         connection.execute(text(f"ALTER TYPE \"{type_name}\" ADD VALUE IF NOT EXISTS '{wanted}'"))
 
 
+def _ensure_proof_uploader_column(connection, inspector) -> None:
+    _add_missing_columns(connection, inspector, "challans",
+                         {"proof_uploaded_by_user_id": "INTEGER REFERENCES users(id)"})
+
+
+LIVE_MONTH_INDEX = "uq_challans_member_month_live"
+
+
+def _ensure_one_live_payment_per_month(connection, inspector) -> None:
+    """Database rule: one live monthly payment per member per month (rejected ones don't count).
+    Added only when the data has no duplicates already; otherwise it is skipped with a warning
+    (list them with Check-Duplicate-Months.cmd and fix them first), so startup never fails."""
+    if not inspector.has_table("challans"):
+        return
+    if LIVE_MONTH_INDEX in {i["name"] for i in inspector.get_indexes("challans")}:
+        return
+    dupes = connection.execute(text(
+        "SELECT COUNT(*) FROM (SELECT member_id, month FROM challans "
+        "WHERE type = 'MONTHLY' AND status <> 'REJECTED' GROUP BY member_id, month HAVING COUNT(*) > 1) d"
+    )).scalar() or 0
+    if dupes:
+        logger.warning("Not adding %s: %d member/month pairs have more than one live payment.",
+                       LIVE_MONTH_INDEX, dupes)
+        return
+    connection.execute(text(
+        f"CREATE UNIQUE INDEX {LIVE_MONTH_INDEX} ON challans (member_id, month) "
+        "WHERE type = 'MONTHLY' AND status <> 'REJECTED'"
+    ))
+    logger.info("Added %s", LIVE_MONTH_INDEX)
+
+
 def ensure_runtime_schema() -> None:
     """Apply additive schema updates for existing deployments."""
     with engine.begin() as connection:
@@ -241,6 +272,8 @@ def ensure_runtime_schema() -> None:
         _ensure_seasonal_columns(connection, inspector)
         _ensure_rejected_by_columns(connection, inspector)
         _ensure_executive_role(connection)
+        _ensure_proof_uploader_column(connection, inspector)
+        _ensure_one_live_payment_per_month(connection, inspector)
 
         if not inspector.has_table("campaigns"):
             return

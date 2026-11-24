@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Boolean, Text, Enum, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Float, Date, DateTime, Boolean, Text, Enum, ForeignKey, UniqueConstraint, Index, text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -336,7 +336,17 @@ class Campaign(Base):
 
 class Challan(Base):
     __tablename__ = "challans"
-    
+    # One live monthly payment per member per month (rejected ones don't count). The app checks
+    # this too; the database rule stops two taps at once creating two. Added to existing
+    # databases at startup (see app/database.py) only when no duplicates exist.
+    __table_args__ = (
+        Index(
+            "uq_challans_member_month_live", "member_id", "month", unique=True,
+            postgresql_where=text("type = 'MONTHLY' AND status <> 'REJECTED'"),
+            sqlite_where=text("type = 'MONTHLY' AND status <> 'REJECTED'"),
+        ),
+    )
+
     id = Column(Integer, primary_key=True, index=True)
     member_id = Column(Integer, ForeignKey("members.id"), nullable=False)
     type = Column(Enum(ChallanType), nullable=False)  # monthly or campaign
@@ -351,6 +361,8 @@ class Challan(Base):
     bulk_group_id = Column(String(50), ForeignKey("challan_bulk_groups.bulk_group_id"), nullable=True, index=True)
     created_at = Column(DateTime, server_default=func.now())
     proof_uploaded_at = Column(DateTime, nullable=True)
+    # Who handed in the proof (the member, an executive or an admin). Older rows: unknown.
+    proof_uploaded_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     approved_at = Column(DateTime, nullable=True)
     reversed_at = Column(DateTime, nullable=True)
     reversed_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -395,6 +407,7 @@ class Challan(Base):
     rejected_by = relationship("User", foreign_keys=[rejected_by_admin_id])
     created_by = relationship("User", foreign_keys=[created_by_user_id])
     collected_by = relationship("User", foreign_keys=[collected_by_user_id])
+    proof_uploaded_by = relationship("User", foreign_keys=[proof_uploaded_by_user_id])
     bulk_group = relationship("BulkChallanGroup", back_populates="challans")
 
     @property
@@ -420,6 +433,10 @@ class Challan(Base):
     @property
     def rejected_by_name(self):
         return self.rejected_by.actor_label if self.rejected_by else None
+
+    @property
+    def proof_uploaded_by_name(self):
+        return self.proof_uploaded_by.actor_label if self.proof_uploaded_by else None
 
 
 class BulkChallanGroup(Base):
@@ -769,3 +786,17 @@ class PasswordResetRequest(Base):
     # Relationships
     user = relationship("User", foreign_keys=[user_id])
     admin = relationship("User", foreign_keys=[admin_id])
+
+
+class WipeApproval(Base):
+    """The superadmin "System wipe" needs a second superadmin: one asks (with a purpose), another
+    approves, then the first runs it within 24 hours, once. A fresh backup must exist too."""
+    __tablename__ = "system_wipe_approvals"
+
+    id = Column(Integer, primary_key=True, index=True)
+    requested_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    purpose = Column(Text, nullable=False)
+    requested_at = Column(DateTime, server_default=func.now(), nullable=False)
+    approved_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    used_at = Column(DateTime, nullable=True)

@@ -108,3 +108,10 @@ def test_member_still_cannot_see_others(env):
     assert c.get("/reports/dues", headers=h).status_code == 403
     admin_member = env["db"].query(Member).filter(Member.user_id == env["admin"].id).one()
     assert c.get(f"/members/{admin_member.id}", headers=h).status_code == 403
+
+
+def test_dashboard_top_donors_carry_the_members_name(env):
+    out = env["c"].get("/admin/dashboard/charts", headers=env["as"](env["admin"])).json()
+    top = out["top_donors"][0]
+    assert top["member_code"] == "MEM-0050"
+    assert top["full_name"] == "Mem Ber" and top["name"] == "mem"

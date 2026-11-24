@@ -12,6 +12,10 @@ from app.utils import get_current_admin, log_audit
 router = APIRouter(tags=["New members' fees"])
 
 
+class DeclineIn(BaseModel):
+    reason: str = Field(min_length=1, max_length=300)
+
+
 class ConfirmFeeIn(BaseModel):
     monthly_amount: Optional[float] = Field(default=None, ge=0, le=1_000_000)  # empty: keep what they chose
     note: Optional[str] = Field(default=None, max_length=300)
@@ -33,3 +37,14 @@ def confirm_fee(member_id: int, body: ConfirmFeeIn, admin: dict = Depends(get_cu
               entity_id=member.id, old_values={"monthly_amount": chosen, "fee_confirmed": False},
               new_values={"member_code": member.member_code, **out, "note": body.note}, auto_commit=True)
     return out
+
+
+@router.post("/members/{member_id}/decline-join")
+def decline_join(member_id: int, body: DeclineIn, admin: dict = Depends(get_current_admin),
+                 db: Session = Depends(get_db)):
+    """Refuse a new member waiting for approval (only while they have no payment records)."""
+    member = MemberService.get_member(db, member_id)
+    snapshot = fee_confirm.decline(db, member, body.reason, admin.get("user_id"))
+    log_audit(db, user_id=admin.get("user_id"), action="member_join_declined", entity_type="Member",
+              entity_id=member_id, old_values=snapshot, new_values={"reason": snapshot["reason"]}, auto_commit=True)
+    return {"declined": True, **snapshot}

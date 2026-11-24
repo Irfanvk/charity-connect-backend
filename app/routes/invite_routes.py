@@ -70,15 +70,33 @@ def get_pending_invites(
     return invites
 
 
+@router.get("/match")
+def match_invite_contacts(
+    email: Optional[str] = None,
+    phone: Optional[str] = None,
+    _current_user: dict = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin creating an invite: ``{"member": {...}}`` when this email/mobile belongs to a member
+    already on record (they will join as that member), else ``{"member": null}`` (new member)."""
+    return {"member": InviteService.match_contacts(db, email=email, phone=phone)}
+
+
 @router.get("/status/{invite_code}")
 def invite_status(invite_code: str, db: Session = Depends(get_db)):
     """Public: is this invite link still usable? ``status``: valid | used | expired | not_found.
     Lets the sign-up page say "already registered, log in" instead of showing the form again.
-    Nothing about the person is returned."""
+    For a usable code it also says what the form needs (see ``InviteService.signup_preview``)."""
     state = InviteService.invite_status(db, invite_code)
-    mode = InviteService.invite_mode(db, invite_code) if state == "valid" else None
-    out = {"status": state, "registration_mode": mode}
-    if mode == "new_member":  # the sign-up page is not signed in, so it can't read the settings
+    out = {"status": state, "registration_mode": None}
+    if state != "valid":
+        return out
+    from app.models import Invite
+    invite = db.query(Invite).filter(Invite.invite_code == str(invite_code).strip().upper()).first()
+    # Only someone holding a usable code gets this: what to fill in for a new member, or the
+    # existing member's name, ID and partly hidden contacts.
+    out.update(InviteService.signup_preview(db, invite))
+    if out["registration_mode"] == "new_member":  # the sign-up page is not signed in, so it can't read the settings
         from app.services.fee_confirm import min_fee
         out["min_monthly_fee"] = min_fee(db)
     return out
