@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 from typing import Optional
 from app.schemas import UserLogin, UserRegisterWithInvite, UserResponse, TokenResponse, ChangePasswordRequest
 from app.services import AuthService
-from app.utils import create_access_token, get_current_user
+from app.utils import create_access_token, get_current_user, log_audit
 from app.utils.auth import password_fingerprint
 from app.utils.file_handler import save_file, validate_file, delete_file
 from app.config import settings
@@ -88,6 +88,10 @@ def get_current_user_info(current_user: dict = Depends(get_current_user), db: Se
     Get current authenticated user details.
     """
     user = AuthService.get_current_user(db, current_user["user_id"])
+    from app.models import Member
+
+    has_member = db.query(Member.id).filter(Member.user_id == user.id).first() is not None
+    user.can_change_photo = photo_change_is_direct(db, current_user.get("role"), has_member)
     return user
 
 
@@ -183,11 +187,25 @@ def change_password(
     return {"message": "Password updated successfully.", "username": user.username}
 
 
+def photo_change_is_direct(db: Session, role: str | None, has_member: bool) -> bool:
+    """Whether this person changes their own photo straight away (else: a request an admin approves).
+    The superadmin decides in Settings: one switch for members, one for admins and executives.
+    An account with no member record (e.g. a superadmin who is not a member) always changes it directly."""
+    from app.services.settings_service import get_setting
+
+    role = str(role or "").lower()
+    if role == "member":
+        return bool(get_setting(db, "members_can_change_photo"))
+    if not has_member:
+        return True
+    return bool(get_setting(db, "admins_can_change_photo"))
+
+
 def _require_photo_request(db: Session, current_user: dict) -> None:
     from app.models import Member
 
     has_member = db.query(Member.id).filter(Member.user_id == int(current_user["user_id"])).first() is not None
-    if str(current_user.get("role", "")).lower() == "member" or has_member:
+    if not photo_change_is_direct(db, current_user.get("role"), has_member):
         raise HTTPException(
             status_code=403,
             detail="Photo changes are approved by an admin: please send a profile update request",
@@ -229,9 +247,12 @@ async def upload_avatar(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    old_url = user.avatar_url
     user.avatar_url = avatar_url
     db.commit()
     db.refresh(user)
+    log_audit(db, user_id=user.id, action="profile_photo_changed", entity_type="User", entity_id=user.id,
+              old_values={"avatar_url": old_url}, new_values={"avatar_url": avatar_url}, auto_commit=True)
     return user
 
 
@@ -251,6 +272,8 @@ def remove_avatar(
     user.avatar_url = None
     db.commit()
     db.refresh(user)
+    log_audit(db, user_id=user.id, action="profile_photo_removed", entity_type="User", entity_id=user.id,
+              old_values={"avatar_url": previous_avatar_url}, new_values={"avatar_url": None}, auto_commit=True)
     if previous_avatar_url:
         delete_file(previous_avatar_url)
     return user

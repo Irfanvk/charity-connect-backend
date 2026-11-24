@@ -17,6 +17,8 @@ from app.schemas.schemas import (
     BulkChallanDetails,
     BulkChallanLinkedChallan,
     SystemWipeRequest,
+    WipeAskIn,
+    WipeApproveIn,
     SystemWipeResponse,
     AppSettingsResponse,
 )
@@ -268,13 +270,14 @@ def get_dashboard_charts(
         db.query(
             Member.id.label("member_id"),
             Member.member_code,
+            Member.full_name,
             User.username,
             func.coalesce(func.sum(Challan.amount), 0.0).label("total_amount"),
         )
         .join(Challan, Challan.member_id == Member.id)
         .join(User, User.id == Member.user_id)
         .filter(Challan.status == ChallanStatus.APPROVED)
-        .group_by(Member.id, Member.member_code, User.username)
+        .group_by(Member.id, Member.member_code, Member.full_name, User.username)
         .order_by(func.sum(Challan.amount).desc())
         .limit(top_limit)
         .all()
@@ -285,6 +288,7 @@ def get_dashboard_charts(
             "member_id": row.member_id,
             "member_code": row.member_code,
             "name": row.username,
+            "full_name": row.full_name,
             "total_amount": float(row.total_amount or 0.0),
         }
         for row in top_donor_rows
@@ -496,6 +500,58 @@ def get_notification_delivery_overview(
 
 
 # ─── System Wipe ──────────────────────────────────────────────────────────────
+@router.post("/system/wipe/requests")
+def ask_for_system_wipe(
+    payload: WipeAskIn,
+    current_user: dict = Depends(get_current_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Step 1: a superadmin asks for a wipe (purpose + password). Another superadmin must approve."""
+    from app.services import wipe_guard
+
+    row = wipe_guard.request(db, current_user["user_id"], payload.purpose, payload.password)
+    log_audit(db, user_id=current_user["user_id"], action="system_wipe_requested", entity_type="System",
+              entity_id=row.id, new_values={"purpose": row.purpose}, auto_commit=True)
+    others = [u.id for u in db.query(User).filter(User.role == "superadmin", User.is_active.is_(True),
+                                                  User.id != current_user["user_id"]).all()]
+    for uid in others:
+        NotificationService._send_status_notification(
+            db, uid, "System wipe needs your approval",
+            f"A superadmin asked to wipe all data. Purpose: {row.purpose}. Approve only if you agree.",
+            "warning", category="admin_requests", entity_type="system_wipe", entity_id=row.id,
+        )
+    return {**wipe_guard.serialize(row), "approvers_told": len(others)}
+
+
+@router.get("/system/wipe/requests")
+def list_system_wipe_requests(
+    _current_user: dict = Depends(get_current_superadmin),
+    db: Session = Depends(get_db),
+):
+    from app.models.models import WipeApproval
+    from app.services import wipe_guard
+
+    rows = db.query(WipeApproval).order_by(WipeApproval.id.desc()).limit(20).all()
+    return [wipe_guard.serialize(r) for r in rows]
+
+
+@router.post("/system/wipe/requests/{request_id}/approve")
+def approve_system_wipe(
+    request_id: int,
+    payload: WipeApproveIn,
+    current_user: dict = Depends(get_current_superadmin),
+    db: Session = Depends(get_db),
+):
+    """Step 2: a different superadmin approves (with their own password), within 24 hours."""
+    from app.services import wipe_guard
+
+    row = wipe_guard.approve(db, request_id, current_user["user_id"], payload.password)
+    log_audit(db, user_id=current_user["user_id"], action="system_wipe_approved", entity_type="System",
+              entity_id=row.id, new_values={"purpose": row.purpose, "requested_by": row.requested_by_user_id},
+              auto_commit=True)
+    return wipe_guard.serialize(row)
+
+
 @router.post("/system/wipe", response_model=SystemWipeResponse)
 def wipe_system_data(
     payload: SystemWipeRequest,
@@ -531,6 +587,13 @@ def wipe_system_data(
             raise HTTPException(status_code=400, detail="All password confirmation fields are required.")
         if not verify_password(raw_attempt, actor.password_hash):
             raise HTTPException(status_code=403, detail="Password verification failed.")
+
+    # Step 3: approved by another superadmin, and a database backup from the last hour.
+    from app.services import wipe_guard
+
+    backup_note = wipe_guard.check_fresh_backup()
+    approval = wipe_guard.use(db, payload.wipe_request_id, actor.id)
+    db.commit()
 
     keep_roles = ["superadmin"]
     if payload.keep_admins:
@@ -571,6 +634,9 @@ def wipe_system_data(
                 "performed_by": {"user_id": actor.id, "role": str(actor.role)},
                 "keep_admins": payload.keep_admins,
                 "wipe_files": payload.wipe_files,
+                "wipe_request_id": approval.id,
+                "approved_by_user_id": approval.approved_by_user_id,
+                "backup": backup_note,
                 "users_deleted": users_deleted,
                 "members_deleted": members_deleted,
                 "challans_deleted": challans_deleted,

@@ -256,6 +256,7 @@ def record_payment(
             status=ChallanStatus.PENDING,
             proof_path=proof_path,
             proof_uploaded_at=datetime.utcnow() if proof_path else None,
+            proof_uploaded_by_user_id=actor_id if proof_path else None,
             entry_source="admin",
             created_by_user_id=actor_id,
             transaction_ref=reference,

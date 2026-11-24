@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 from sqlalchemy import text
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from app.database import engine, Base, ensure_runtime_schema
 from app.config import settings
 from app.routes import (
@@ -230,6 +230,18 @@ async def validation_exception_handler(_request: Request, exc: RequestValidation
 async def http_exception_handler(_request: Request, exc: HTTPException):
     detail = _ensure_detail_list(exc.detail, default_type="http_error")
     return JSONResponse(status_code=exc.status_code, content={"detail": detail}, headers=exc.headers)
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(_request: Request, exc: IntegrityError):
+    # Two submissions for the same member and month at once: the database rule refuses the second.
+    if "uq_challans_member_month_live" in str(getattr(exc, "orig", exc)):
+        detail = _ensure_detail_list("A payment for this month already exists. Please refresh and check.",
+                                     default_type="duplicate_month")
+        return JSONResponse(status_code=409, content={"detail": detail})
+    logger.exception("Database integrity error", exc_info=exc)
+    detail = _ensure_detail_list("Internal server error", default_type="server_error")
+    return JSONResponse(status_code=500, content={"detail": detail})
 
 
 @app.exception_handler(Exception)

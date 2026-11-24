@@ -1,7 +1,7 @@
-"""New members who joined by invite choose their own monthly fee; an admin confirms or changes it.
+"""New members who joined by invite wait for an admin to approve them, with the monthly fee they chose.
 
-Until then ``Member.fee_confirmed`` is False: the member sees "waiting for the committee" and
-admins see the member in a list with Confirm / Change. Confirming with a different amount
+Until then ``Member.fee_confirmed`` is False: they cannot log in ("waiting for the committee to
+approve your account") and admins see them in a list with Approve / Change fee / Decline. Confirming with a different amount
 sets the fee from the member's first month (it is their starting fee, not a later change) and
 updates any "not paid yet" monthly rows; payments already handed in keep their amount.
 """
@@ -17,6 +17,14 @@ from app.services.challan_state import unpaid_monthly_clause
 from app.services.settings_service import get_setting
 
 LINK = "/Members?member={id}&tab=fee"
+WAITING_MESSAGE = ("Your account is waiting for the committee to approve it. "
+                   "Please try again later; the committee will approve it soon.")
+
+
+def awaiting_approval(db: Session, user_id: int) -> bool:
+    """A new member who joined by invite and is not approved yet (cannot log in)."""
+    row = db.query(Member.fee_confirmed).filter(Member.user_id == user_id).first()
+    return row is not None and row[0] is False
 
 
 def min_fee(db: Session) -> float:
@@ -44,10 +52,11 @@ def tell_admins_new_fee(db: Session, member: Member) -> None:
 
     try:
         message = (f"New member {member.member_code} ({member.full_name or 'no name'}) joined by invite and chose "
-                   f"₹{float(member.monthly_amount or 0):,.0f} a month. Please confirm or change it.")
+                   f"₹{float(member.monthly_amount or 0):,.0f} a month. They can log in once you approve them "
+                   "(you can change the fee or decline).")
         for admin_id in NotificationService._active_admin_ids(db):
             NotificationService._send_status_notification(
-                db, admin_id, "Confirm a new member's fee", message, "info",
+                db, admin_id, "Approve a new member", message, "info",
                 category="admin_requests", link_url=LINK.format(id=member.id),
                 entity_type="member", entity_id=member.id,
             )
@@ -98,10 +107,47 @@ def confirm(db: Session, member: Member, amount: Optional[float], note: Optional
 
     user = db.query(User).filter(User.id == member.user_id).first() if member.user_id else None
     if user is not None:
-        text = (f"Your monthly fee of ₹{new:,.0f} is confirmed by the committee." if not changed else
-                f"Your monthly fee is set to ₹{new:,.0f} by the committee (you chose ₹{old:,.0f}). Reason: {note}")
+        text = (f"Welcome! The committee approved your membership. Your monthly fee of ₹{new:,.0f} is confirmed."
+                if not changed else
+                f"Welcome! The committee approved your membership. Your monthly fee is set to ₹{new:,.0f} "
+                f"(you chose ₹{old:,.0f}). Reason: {note}")
         NotificationService._send_status_notification(
-            db, user.id, "Monthly fee confirmed", text, "success",
+            db, user.id, "Membership approved", text, "success",
             category="requests", link_url="/MyStatement", entity_type="member", entity_id=member.id,
         )
     return {"member_id": member.id, "monthly_amount": new, "changed": changed, "unpaid_rows_updated": updated_rows}
+
+
+def decline(db: Session, member: Member, reason: Optional[str], actor_id: int) -> dict:
+    """Refuse a new member who joined by invite and is not approved yet: their account and member
+    record are removed (nothing financial exists yet). With any payment record it is refused:
+    approve them, or make them inactive. Commits."""
+    from app.services.challan_state import submitted_clause
+    from app.models.models import BulkChallanGroup, MemberFee, Notification
+
+    if member.fee_confirmed:
+        raise HTTPException(status_code=409, detail="This member is already approved.")
+    reason = " ".join(str(reason or "").split())[:300]
+    if not reason:
+        raise HTTPException(status_code=400, detail="Please give a reason.")
+    has_payments = (db.query(Challan).filter(Challan.member_id == member.id, submitted_clause()).count()
+                    + db.query(BulkChallanGroup).filter(BulkChallanGroup.member_id == member.id).count())
+    if has_payments:
+        raise HTTPException(status_code=400, detail=(
+            "This member already has payment records, which must stay on record. "
+            "Approve them, or make them inactive."))
+    snapshot = {"member_code": member.member_code, "full_name": member.full_name,
+                "monthly_amount": float(member.monthly_amount or 0), "reason": reason}
+    user = db.query(User).filter(User.id == member.user_id).first() if member.user_id else None
+    db.query(Challan).filter(Challan.member_id == member.id).delete(synchronize_session=False)
+    db.query(MemberFee).filter(MemberFee.member_id == member.id).delete(synchronize_session=False)
+    db.delete(member)
+    if user is not None:
+        db.query(Notification).filter(Notification.user_id == user.id).delete(synchronize_session=False)
+        from app.models import Invite
+
+        for inv in db.query(Invite).filter(Invite.used_by_user_id == user.id).all():
+            inv.used_by_user_id = None  # the invite stays used; it just no longer points at the account
+        db.delete(user)
+    db.commit()
+    return snapshot

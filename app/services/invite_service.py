@@ -17,6 +17,7 @@ from app.workers.runtime import can_enqueue_celery_tasks
 from fastapi import HTTPException, status
 from datetime import datetime, timedelta, timezone
 from app.services.settings_service import get_setting
+from app.utils.phones import find_users_by_phone, mask_email, mask_phone, phones_match
 
 
 class InviteService:
@@ -57,9 +58,10 @@ class InviteService:
                 candidates.append(user)
 
         if normalized_phone:
-            user = db.query(User).filter(User.phone == normalized_phone).first()
-            if user and user not in candidates:
-                candidates.append(user)
+            # +971 50 123 4567, 00971501234567 and 0501234567 are the same mobile
+            for user in find_users_by_phone(db, normalized_phone):
+                if user not in candidates:
+                    candidates.append(user)
 
         for user in candidates:
             # str() of the role enum is "UserRole.MEMBER", so compare its value
@@ -67,6 +69,46 @@ class InviteService:
                 return user
 
         return None
+
+    @staticmethod
+    def match_contacts(db: Session, email: str | None = None, phone: str | None = None) -> dict | None:
+        """Admin creating an invite: is this email/mobile a member already on record?"""
+        fake = Invite(email=InviteService._normalize_email(email), phone=InviteService._normalize_phone(phone))
+        user = InviteService._find_existing_member_user_for_invite(db, fake)
+        if user is None:
+            return None
+        m = user.member
+        return {
+            "member_id": m.id,
+            "member_code": m.member_code,
+            "full_name": m.full_name or user.full_name or user.username,
+            "has_account": bool(user.is_active),
+        }
+
+    @staticmethod
+    def signup_preview(db: Session, invite: Invite) -> dict:
+        """What the sign-up page may show for a usable invite (only to someone holding the code).
+
+        New member: the email/mobile the admin typed, to fill in (locked) on the form.
+        Existing member: name and member ID, the contacts on record partly hidden, which check
+        proves it is them (last 4 digits of the mobile, or the email when there is no mobile),
+        and whether their country/city is still missing."""
+        user = InviteService._find_existing_member_user_for_invite(db, invite)
+        if user is None:
+            return {"registration_mode": "new_member", "invite_email": invite.email, "invite_phone": invite.phone}
+        m = user.member
+        return {
+            "registration_mode": "existing_member",
+            "has_account": bool(user.is_active),
+            "member": {
+                "full_name": m.full_name or user.full_name or "",
+                "member_code": m.member_code,
+                "phone_hint": mask_phone(user.phone),
+                "email_hint": mask_email(user.email),
+                "check": "phone_last4" if user.phone else "email",
+                "needs_location": not (m.country and (m.city or "").strip()),
+            },
+        }
     
     @staticmethod
     def _enrich_invite(invite: Invite) -> Invite:
@@ -211,7 +253,7 @@ class InviteService:
                 "registration_mode": registration_mode,
             }
         
-        if invite.phone and InviteService._normalize_phone(invite.phone) == normalized_input_phone:
+        if invite.phone and phones_match(invite.phone, normalized_input_phone):
             return {
                 "valid": True,
                 "message": "Invite valid for phone",

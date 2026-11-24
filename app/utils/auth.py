@@ -144,6 +144,13 @@ async def get_current_user(credentials = Depends(http_bearer), db: Session = Dep
         ) from exc
     
     role = resolve_session_role(db, payload, user_id)
+    if str(role or "").lower() == "member":
+        from app.services import fee_confirm
+
+        if fee_confirm.awaiting_approval(db, user_id):
+            # 401 so the app signs them out; logging in again shows the waiting message.
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=fee_confirm.WAITING_MESSAGE,
+                                headers={"WWW-Authenticate": "Bearer"})
 
     try:
         now = datetime.utcnow()

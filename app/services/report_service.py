@@ -369,7 +369,13 @@ def _payments_query(
             except ValueError as exc:
                 raise HTTPException(status_code=400, detail=str(exc))
     if method:
-        query = query.filter(func.lower(func.coalesce(Challan.payment_method, "")) == method.lower())
+        # Only payments someone actually made (paid, or proof handed in). A "not paid yet" row
+        # carries a default method (cash) that nobody chose, so it never matches.
+        query = query.filter(
+            func.lower(func.coalesce(Challan.payment_method, "")) == method.lower(),
+            or_(Challan.status == ChallanStatus.APPROVED,
+                and_(Challan.status.in_([ChallanStatus.GENERATED, ChallanStatus.PENDING]), submitted_clause())),
+        )
     term = (search or "").strip().lower()
     if term:
         like = f"%{term}%"
@@ -378,6 +384,10 @@ def _payments_query(
             func.lower(Member.member_code).like(like),
             func.lower(func.coalesce(User.username, "")).like(like),
             func.coalesce(User.phone, "").like(like),
+            # Payment number (PG-2026-0001; older rows show as CH-<id>) and bank/UPI reference.
+            func.lower(func.coalesce(Challan.challan_no, "")).like(like),
+            func.lower(func.coalesce(Challan.transaction_ref, "")).like(like),
+            *([Challan.id == int(term[3:])] if term.startswith("ch-") and term[3:].isdigit() else []),
         ))
     return query
 
@@ -419,6 +429,7 @@ def payments(db: Session, *, skip: int = 0, limit: int = 50, sort: str = "month_
         m = c.member
         items.append({
             "id": c.id,
+            "payment_no": c.challan_no or f"CH-{c.id}",
             "member_id": m.id,
             "member_code": m.member_code,
             "member_name": _member_name(m),

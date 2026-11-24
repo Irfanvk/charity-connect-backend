@@ -75,7 +75,7 @@ def test_admin_confirms_or_changes_the_fee(db):
     assert member.fee_confirmed and member.monthly_amount == 500
     assert db.query(Challan).one().amount == 500
     assert db.query(MemberFee).filter(MemberFee.member_id == member.id).one().amount == 500
-    told = db.query(Notification).filter(Notification.user_id == user.id, Notification.title == "Monthly fee confirmed").one()
+    told = db.query(Notification).filter(Notification.user_id == user.id, Notification.title == "Membership approved").one()
     assert "₹500" in told.message and "Committee rate" in told.message
     with pytest.raises(HTTPException):
         fee_confirm.confirm(db, member, None, None, db.admin.id)  # already confirmed

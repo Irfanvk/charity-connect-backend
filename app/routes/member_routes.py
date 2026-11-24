@@ -33,15 +33,18 @@ def get_community_directory(
     _current_user: dict = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """Get a limited member directory (name, code, status, join date) for all authenticated users."""
+    """Member directory for every signed-in user. Members get names and join dates only (and
+    search by name); staff also get member IDs and status."""
+    staff = _is_admin(_current_user)  # admin, superadmin or executive
     query = db.query(MemberModel)
     if search:
         like = f"%{search}%"
-        query = query.filter(
-            MemberModel.full_name.ilike(like) | MemberModel.member_code.ilike(like)
-        )
+        match = MemberModel.full_name.ilike(like)
+        query = query.filter(match | MemberModel.member_code.ilike(like) if staff else match)
     records = query.order_by(MemberModel.full_name).offset(skip).limit(limit).all()
-    return records
+    if staff:
+        return records
+    return [MemberCommunityView(id=m.id, full_name=m.full_name, join_date=m.join_date) for m in records]
 
 
 @router.get("/")

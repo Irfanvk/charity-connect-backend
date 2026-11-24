@@ -89,6 +89,9 @@ class UserRegisterWithInvite(BaseModel):
     country: Optional[str] = None
     city: Optional[str] = None
     monthly_amount: Optional[float] = 0.0
+    # Existing member joining: last 4 digits of the mobile on record (or the email on record when
+    # there is no mobile), instead of re-typing their contacts.
+    verify: Optional[str] = None
 
     @field_validator("country", mode="before")
     @classmethod
@@ -149,6 +152,9 @@ class UserResponse(BaseModel):
     device_display_mode: Optional[str] = None
     whatsapp_phone: Optional[str] = None
     welcome_pending: bool = False
+    # From GET /auth/me: true = this person changes their own photo straight away (Settings),
+    # false = a new photo is sent to an admin for approval.
+    can_change_photo: Optional[bool] = None
     payment_reminder_enabled: Optional[bool] = None
     payment_reminder_day: Optional[int] = None
     onboarding_completed_at: Optional[datetime] = None
@@ -329,11 +335,12 @@ class MemberSummaryResponse(BaseModel):
 
 
 class MemberCommunityView(BaseModel):
-    """Limited member view exposed to all authenticated users for the community directory."""
+    """Limited member view for the community directory. Members get names (and join date) only;
+    member IDs and active/inactive status are sent to staff only."""
     id: int
     full_name: Optional[str] = None
-    member_code: str
-    status: str
+    member_code: Optional[str] = None
+    status: Optional[str] = None
     join_date: Optional[datetime] = None
 
     class Config:
@@ -382,6 +389,17 @@ class SystemWipeRequest(BaseModel):
     password_attempts: List[str] = Field(default_factory=list)
     keep_admins: bool = True
     wipe_files: bool = True
+    # The request another superadmin approved (POST /admin/system/wipe/requests, then .../approve).
+    wipe_request_id: Optional[int] = None
+
+
+class WipeAskIn(BaseModel):
+    purpose: str
+    password: str
+
+
+class WipeApproveIn(BaseModel):
+    password: str
 
 
 class SystemWipeResponse(BaseModel):
@@ -648,6 +666,7 @@ class ChallanResponse(BaseModel):
     rejected_by_name: Optional[str] = None
     created_by_user_id: Optional[int] = None
     created_by_name: Optional[str] = None
+    proof_uploaded_by_name: Optional[str] = None  # who handed in the proof (None on older rows)
     submitted: bool = True  # False = not paid yet (nothing handed in)
     entry_source: Optional[str] = None
     challan_no: Optional[str] = None  # real payment number, e.g. PG-2526-0042 (None on older rows)

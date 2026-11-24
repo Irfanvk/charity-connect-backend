@@ -223,6 +223,15 @@ class CampaignService:
     def delete_campaign(db: Session, campaign_id: int):
         """Delete campaign and unlink any associated challans."""
         campaign = CampaignService.get_campaign(db, campaign_id)
+        from app.services.challan_state import submitted_clause
+
+        given = db.query(Challan).filter(Challan.campaign_id == campaign_id, submitted_clause()).count()
+        if given:
+            raise HTTPException(
+                status_code=400,
+                detail=(f"{given} donation(s) were given to this campaign and must stay linked to it. "
+                        "End or close the campaign instead of deleting it."),
+            )
 
         db.query(Challan).filter(Challan.campaign_id == campaign_id).update(
             {"campaign_id": None}, synchronize_session=False

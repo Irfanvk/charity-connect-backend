@@ -504,6 +504,13 @@ class ChallanService:
             .filter(Challan.type == ChallanType.MONTHLY)
             .all()
         }
+        # One live payment per member per month (the database refuses a second one).
+        live_months = {
+            (c.member_id, c.month)
+            for c in db.query(Challan.member_id, Challan.month)
+            .filter(Challan.type == ChallanType.MONTHLY, Challan.status != ChallanStatus.REJECTED)
+            .all()
+        }
 
         for idx, raw_row in enumerate(rows, start=2):
             row = MemberService.normalized_row(raw_row)
@@ -565,6 +572,10 @@ class ChallanService:
                 duplicate_key = (member.id, donation_month, float(donation_amount))
                 if duplicate_key in existing_monthly_keys:
                     continue
+                if (member.id, donation_month) in live_months and normalized_status != "rejected":
+                    rows_skipped += 1
+                    errors.append(f"Row {idx}: {member.member_code} already has a payment for {donation_month}")
+                    continue
 
                 challan = Challan(
                     member_id=member.id,
@@ -579,6 +590,8 @@ class ChallanService:
                     challan.approved_at = datetime.utcnow()
                 db.add(challan)
                 existing_monthly_keys.add(duplicate_key)
+                if normalized_status != "rejected":
+                    live_months.add((member.id, donation_month))
                 challans_created += 1
             except (ValueError, TypeError) as exc:
                 rows_skipped += 1
@@ -602,8 +615,9 @@ class ChallanService:
         )
     
     @staticmethod
-    def upload_proof(db: Session, challan_id: int, file_content: bytes, filename: str):
-        """Upload payment proof for challan."""
+    def upload_proof(db: Session, challan_id: int, file_content: bytes, filename: str,
+                     uploaded_by: int | None = None):
+        """Upload payment proof for challan (``uploaded_by``: who handed it in)."""
         
         challan = db.query(Challan).filter(Challan.id == challan_id).first()
         if not challan:
@@ -632,6 +646,7 @@ class ChallanService:
         # Update challan
         challan.proof_path = proof_path
         challan.proof_uploaded_at = datetime.utcnow()
+        challan.proof_uploaded_by_user_id = uploaded_by
         challan.status = ChallanStatus.PENDING
         challan.rejection_reason = None
         challan.approved_by_admin_id = None
@@ -838,6 +853,13 @@ class ChallanService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Approved challans cannot be deleted",
+            )
+        # A payment that was approved once and then moved back stays on record for good: it can
+        # be rejected with a reason, never deleted.
+        if challan.reversed_at is not None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="This payment was approved before, so it stays on record. Reject it with a reason instead.",
             )
 
         bulk_group_id = challan.bulk_group_id

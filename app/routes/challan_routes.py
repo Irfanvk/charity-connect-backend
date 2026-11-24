@@ -526,7 +526,17 @@ def upload_proof(
     if len(content) > max_mb * 1024 * 1024:
         raise HTTPException(status_code=400, detail=f"File too large (max {max_mb}MB)")
 
-    result = ChallanService.upload_proof(db, challan_id, content, file.filename)
+    result = ChallanService.upload_proof(db, challan_id, content, file.filename,
+                                         uploaded_by=current_user["user_id"])
+    log_audit(
+        db,
+        user_id=current_user.get("user_id"),
+        action="challan_proof_upload",
+        entity_type="Challan",
+        entity_id=challan_id,
+        new_values={"status": "pending", "proof": result.proof_path, "duplicate_of": result.proof_duplicate_of},
+        auto_commit=True,
+    )
     NotificationService.notify_admins_proof_uploaded(
         db,
         challan.member,

@@ -694,6 +694,20 @@ class MemberService:
         from app.models import MemberActivation, MemberRequest, PaymentReminderLog, ReliefApproval, ReliefClaim
 
         member = MemberService.get_member(db, member_id)
+        # Payment records are never deleted with the member: a member with any payment that was
+        # handed in, approved or rejected is made inactive instead. Temporary test members
+        # (TEST-...) can still be removed completely.
+        if not str(member.member_code or "").upper().startswith("TEST-"):
+            from app.services.challan_state import submitted_clause
+
+            kept = db.query(Challan).filter(Challan.member_id == member.id, submitted_clause()).count()
+            kept += db.query(BulkChallanGroup).filter(BulkChallanGroup.member_id == member.id).count()
+            if kept:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(f"{member.member_code} has {kept} payment record(s), which must stay on record. "
+                            "Make the member inactive instead."),
+                )
         relief_ids = [rid for (rid,) in db.query(ReliefClaim.id).filter(ReliefClaim.member_id == member.id).all()]
         if relief_ids:
             db.query(ReliefApproval).filter(ReliefApproval.claim_id.in_(relief_ids)).delete(synchronize_session=False)

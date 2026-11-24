@@ -7,6 +7,7 @@ from app.utils.message_format import with_islamic_greeting
 from fastapi import HTTPException, status
 from datetime import datetime, timedelta
 from app.services.settings_service import get_setting, welcome_content
+from app.utils.phones import find_users_by_phone, last_digits, phone_digits, phones_match
 
 WELCOME_MESSAGE = with_islamic_greeting(
     "Your account is ready. Complete your profile and begin your charity journey."
@@ -141,6 +142,12 @@ class AuthService:
                 detail="User account is inactive",
             )
 
+        from app.services import fee_confirm
+
+        if str(getattr(user.role, "value", user.role)).lower() == "member" and fee_confirm.awaiting_approval(db, user.id):
+            AuthService._reset_failed_attempts(rate_limit_keys)
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=fee_confirm.WAITING_MESSAGE)
+
         AuthService._reset_failed_attempts(rate_limit_keys)
         
         return user
@@ -185,14 +192,22 @@ class AuthService:
                 detail="Invite code expired",
             )
         
-        # Validate invite matches email or phone
+        # The sign-up form no longer asks for contacts the invite already has: a blank email or
+        # mobile means the one on the invite.
+        typed_email, typed_phone = normalized_registration_email, normalized_registration_phone
+        normalized_registration_email = normalized_registration_email or normalized_invite_email
+        normalized_registration_phone = normalized_registration_phone or normalized_invite_phone
+        registration.email = normalized_registration_email
+        registration.phone = normalized_registration_phone
+
+        # Validate invite matches email or phone (a mobile written another way is the same mobile)
         if invite.email and normalized_registration_email != normalized_invite_email:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Email does not match invite",
             )
-        
-        if invite.phone and normalized_registration_phone != normalized_invite_phone:
+
+        if invite.phone and not phones_match(normalized_registration_phone, normalized_invite_phone):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Phone does not match invite",
@@ -208,10 +223,19 @@ class AuthService:
                     "Please submit a profile request after login for admin approval."
                 ),
             )
+        if existing_member_user and existing_member_user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=("This member already has an account. Please log in, or use Forgot password "
+                        "if you don't remember it."),
+            )
+        if existing_member_user:
+            # Checked against what they typed, not the invite's contacts filled in above.
+            AuthService._check_it_is_them(existing_member_user, registration, typed_email, typed_phone)
 
         # If this person already exists as an offline-imported member account,
         # claim and activate that same user to preserve a single member history.
-        claimable_user = AuthService._find_claimable_member_user(db, invite, registration)
+        claimable_user = existing_member_user
         if claimable_user:
             AuthService._claim_existing_member_user(db, claimable_user, invite, registration)
             db.refresh(claimable_user)
@@ -278,7 +302,7 @@ class AuthService:
         fee_confirm.tell_admins_new_fee(db, new_member)
         welcome_title, welcome_message = welcome_content(db, new_user.full_name)
         welcome_message += (f" Your monthly fee of ₹{float(new_member.monthly_amount or 0):,.0f} is waiting for the "
-                            "committee to confirm it.")
+                            "committee to confirm it. You can log in once the committee approves your account.")
         enqueue_result = NotificationService.enqueue_user_notification(
             user_id=new_user.id,
             title=welcome_title,
@@ -311,6 +335,37 @@ class AuthService:
                 " If this is not right, send a request from your Profile.")
 
     @staticmethod
+    def _check_it_is_them(user: User, registration: UserRegisterWithInvite,
+                          typed_email: str | None, typed_phone: str | None) -> None:
+        """An existing member proves it is them with the last 4 digits of the mobile on record
+        (or the email on record when there is no mobile). Older app versions send the full
+        mobile/email instead, which (having matched the invite) is accepted too."""
+        verify = str(registration.verify or "").strip()
+        if verify:
+            if user.phone:
+                digits = phone_digits(verify)
+                if (len(digits) == 4 and digits == last_digits(user.phone)) or phones_match(verify, user.phone):
+                    return
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Those are not the last 4 digits of the mobile number the committee has for you.",
+                )
+            if user.email and verify.lower() == user.email.lower():
+                return
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="That is not the email the committee has for you.",
+            )
+        if (user.phone and typed_phone and phones_match(typed_phone, user.phone)) or (
+            user.email and typed_email and typed_email.lower() == user.email.lower()
+        ):
+            return
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please enter the last 4 digits of your mobile number to confirm it is you.",
+        )
+
+    @staticmethod
     def _find_claimable_member_user(db: Session, invite: Invite, registration: UserRegisterWithInvite):
         candidates: list[User] = []
 
@@ -337,9 +392,9 @@ class AuthService:
                 candidates.append(user)
 
         for phone in possible_phones:
-            user = db.query(User).filter(User.phone == phone).first()
-            if user and user not in candidates:
-                candidates.append(user)
+            for user in find_users_by_phone(db, phone):
+                if user not in candidates:
+                    candidates.append(user)
 
         for user in candidates:
             # Only claim member-linked accounts that are currently offline/inactive.
@@ -379,9 +434,9 @@ class AuthService:
                 candidates.append(user)
 
         for phone in possible_phones:
-            user = db.query(User).filter(User.phone == phone).first()
-            if user and user not in candidates:
-                candidates.append(user)
+            for user in find_users_by_phone(db, phone):
+                if user not in candidates:
+                    candidates.append(user)
 
         for user in candidates:
             # str() of the role enum is "UserRole.MEMBER", so compare its value
@@ -411,7 +466,7 @@ class AuthService:
                 detail="Username already taken",
             )
 
-        if registration.email:
+        if registration.email and not user.email:
             email_owner = db.query(User).filter(
                 User.email == AuthService._normalize_email(registration.email),
                 User.id != user.id,
@@ -422,11 +477,8 @@ class AuthService:
                     detail="Email already taken",
                 )
 
-        if registration.phone:
-            phone_owner = db.query(User).filter(
-                User.phone == AuthService._normalize_phone(registration.phone),
-                User.id != user.id,
-            ).first()
+        if registration.phone and not user.phone:
+            phone_owner = next((u for u in find_users_by_phone(db, registration.phone) if u.id != user.id), None)
             if phone_owner:
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
@@ -434,16 +486,26 @@ class AuthService:
                 )
 
         user.username = normalized_username
-        if registration.email:
+        # The committee's contacts stay; the form only fills ones the record doesn't have.
+        if registration.email and not user.email:
             user.email = AuthService._normalize_email(registration.email)
-        if registration.phone:
+        if registration.phone and not user.phone:
             user.phone = AuthService._normalize_phone(registration.phone)
         user.password_hash = hash_password(registration.password)
         user.is_active = True
-        if registration.full_name:
-            user.full_name = registration.full_name
+        if registration.full_name and registration.full_name.strip():
+            user.full_name = registration.full_name.strip()
             if user.member:
-                user.member.full_name = registration.full_name
+                user.member.full_name = registration.full_name.strip()
+        member = user.member
+        if member is not None:
+            # Asked on the form only when the record has no location; saved (it used to be dropped).
+            if registration.country and not member.country:
+                member.country = registration.country
+            if registration.city and registration.city.strip() and not (member.city or "").strip():
+                member.city = registration.city.strip()
+            if registration.address and registration.address.strip() and not (member.address or "").strip():
+                member.address = registration.address.strip()
 
         # Keep invite tracking accurate.
         invite.is_used = True
