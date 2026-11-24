@@ -4,7 +4,8 @@ The 2026-04 import created a "pending" challan for every month a member had
 NOT paid yet, with no proof attached. In the app "pending" otherwise means
 "submitted, waiting for an admin". So a pending challan only counts as a real
 submission when something was handed in: a proof, a bulk payment (proof on the
-group), or a payment an admin recorded. Everything else is "not paid yet".
+group), or a payment an admin recorded. Everything else is "not paid yet", including a
+"pay later" challan an admin made for a member (status generated, nothing handed in).
 """
 from __future__ import annotations
 
@@ -21,7 +22,8 @@ def submitted_clause():
         Challan.proof_path.isnot(None),
         Challan.proof_uploaded_at.isnot(None),
         Challan.bulk_group_id.isnot(None),
-        func.coalesce(Challan.entry_source, "") == "admin",
+        # money an admin recorded; an admin's "pay later" challan (generated) is not paid yet
+        and_(func.coalesce(Challan.entry_source, "") == "admin", Challan.status != ChallanStatus.GENERATED),
     )
 
 
@@ -41,7 +43,7 @@ def is_submitted(challan: Challan) -> bool:
         or challan.proof_path
         or challan.proof_uploaded_at
         or challan.bulk_group_id
-        or (challan.entry_source or "") == "admin"
+        or ((challan.entry_source or "") == "admin" and status != "generated")
     )
 
 

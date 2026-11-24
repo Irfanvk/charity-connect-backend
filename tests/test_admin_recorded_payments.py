@@ -83,6 +83,10 @@ def _record(db, actor, member, **over):
         entry_notes="Collected at the mosque",
     )
     args.update(over)
+    # UPI / bank / cheque always need the screenshot (a different file each time)
+    if args["payment_method"] in ("upi", "bank_transfer", "cheque") and "proof_file_id" not in over:
+        _record.shots = getattr(_record, "shots", 0) + 1
+        args["proof_file_id"] = f"uploads/proofs/shot-{_record.shots}.png"
     return admin_payment_service.record_payment(db, _ctx(actor), **args)
 
 
@@ -131,7 +135,15 @@ def test_import_challans_not_subject_to_rules(db, world):
 
 def test_bank_and_upi_need_reference_and_duplicate_is_409(db, world):
     m = world["members"]["regular"]
-    _err(400, _record, db, world["admin1"], m, payment_method="upi", transaction_ref=None, entry_notes=None)
+    _err(400, _record, db, world["admin1"], m, payment_method="upi", transaction_ref=None, entry_notes=None,
+         proof_file_id=None)
+    # a reference without the screenshot is not enough either
+    _err(400, _record, db, world["admin1"], m, payment_method="upi", transaction_ref="UTR999", entry_notes=None,
+         proof_file_id=None)
+    # a screenshot alone is enough (the reference is often not visible on it)
+    shot = _record(db, world["admin1"], m, months=["2026-10"], payment_method="upi", transaction_ref=None,
+                   entry_notes=None, proof_file_id="uploads/proofs/upi-shot.png")[0]
+    assert shot.transaction_ref is None and shot.proof_path
     first = _record(db, world["admin1"], m, payment_method="bank_transfer", transaction_ref="UTR123", entry_notes=None)[0]
     detail = _err(409, _record, db, world["admin2"], m, months=["2026-09"], payment_method="upi", transaction_ref="utr123", entry_notes=None)
     assert f"#{first.id}" in detail

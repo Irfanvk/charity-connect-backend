@@ -121,6 +121,7 @@ def _for_group(db: Session, group: BulkChallanGroup) -> dict:
         "transaction_ref": group.transaction_ref,
         "approved_on": _date(group.approved_at),
         "approved_by": _name(db, group.approved_by_admin_id),
+        "corrected": valid and group.reversed_at is not None,
         "token": token,
         "verify_url": verify_url(token),
     }
@@ -150,6 +151,7 @@ def _for_challan(db: Session, challan: Challan) -> dict:
         "transaction_ref": challan.transaction_ref,
         "approved_on": _date(challan.approved_at),
         "approved_by": _name(db, challan.approved_by_admin_id),
+        "corrected": _status(challan.status) == ChallanStatus.APPROVED.value and challan.reversed_at is not None,
         "token": token,
         "verify_url": verify_url(token),
     }
@@ -192,7 +194,7 @@ def public_view(db: Session, token: str) -> dict:
     if data is None:
         raise HTTPException(status_code=404, detail="This receipt was not found.")
     keep = ("organisation", "logo_url", "number", "valid", "type", "months", "campaign_title", "amount",
-            "received_on", "approved_on")
+            "received_on", "approved_on", "corrected")
     out = {k: data[k] for k in keep}
     out["member_name"] = short_name(data["member_name"])
     out["member_code"] = data["member_code"]

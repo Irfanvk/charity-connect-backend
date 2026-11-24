@@ -942,6 +942,10 @@ def approve_bulk_challans(
     if bulk_group.created_by_user_id is not None and int(bulk_group.created_by_user_id) == int(admin_user_id):
         raise HTTPException(status_code=403, detail="Payments entered by an admin must be verified by a different admin.")
     _assert_months_free(db, bulk_group, group_challans, "approve")
+    from app.services import payment_history
+
+    payment_history.assert_can_approve_again(db, admin_user_id, group_challans, bulk_group)
+    payment_history.assert_date_for_approve_again(group_challans, bulk_group, request)
     from app.services import verification_service
 
     verification_service.apply(db, request, group_challans, bulk_group)  # checked against the bank
@@ -1204,3 +1208,37 @@ def revert_bulk_challans(
     except Exception as e:
         db.rollback()
         raise internal_error(e, "Bulk review") from e
+
+# ------------------------------------------------------------------
+# WHO IS WHO (STAFF ONLY): the committee with their codes
+# ------------------------------------------------------------------
+@router.get("/staff-directory")
+def staff_directory(
+    current_user: dict = Depends(get_current_staff),
+    db: Session = Depends(get_db),
+):
+    """Active superadmins, admins and executives with the code the app shows for them
+    ("A12", "E7"), so staff can tell who did what. Members never get this list."""
+    from app.models.models import UserRole
+    from app.utils.admin_codes import staff_code
+
+    order = {"superadmin": 0, "admin": 1, "executive": 2}
+    people = (
+        db.query(User)
+        .filter(User.role.in_([UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.EXECUTIVE]), User.is_active == True)  # noqa: E712
+        .all()
+    )
+    rows = []
+    for u in people:
+        role = u.role.value if hasattr(u.role, "value") else str(u.role)
+        member = getattr(u, "member", None)
+        rows.append({
+            "user_id": u.id,
+            "code": staff_code(u),
+            "name": (member.full_name if member is not None and member.full_name else None) or u.full_name or u.username,
+            "role": role,
+            "member_code": member.member_code if member is not None else None,
+            "is_you": u.id == current_user.get("user_id"),
+        })
+    rows.sort(key=lambda r: (order.get(r["role"], 9), str(r["name"] or "").lower()))
+    return {"items": rows, "count": len(rows)}

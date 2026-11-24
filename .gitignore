@@ -32,3 +32,6 @@ project_plan_extracted.txt
 
 # VAPID / TLS key material must never be committed
 *.pem
+
+# Local proof/file uploads (never commit member files)
+app/uploads/

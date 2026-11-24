@@ -163,8 +163,11 @@ def record_payment(
     if received is None:
         raise HTTPException(status_code=400, detail="received_on is required")
 
-    if method in REFERENCE_REQUIRED_METHODS and not reference:
-        raise HTTPException(status_code=400, detail="transaction_ref is required for bank transfer, UPI and cheque payments")
+    # UPI / bank / cheque: the screenshot (or cheque photo) is always required, with or without a
+    # reference number (often not visible); the admin who approves checks the money in the bank.
+    has_proof = bool(proof_file is not None or _clean(proof_file_id))
+    if method in REFERENCE_REQUIRED_METHODS and not has_proof:
+        raise HTTPException(status_code=400, detail="Add the payment screenshot (or photo of the cheque) for bank transfer, UPI and cheque payments")
     if method in NOTES_REQUIRED_METHODS and not notes:
         raise HTTPException(status_code=400, detail="entry_notes is required for cash and other payments")
     if reference and method != "cash":
@@ -193,9 +196,6 @@ def record_payment(
 
         payable = ChallanService.get_payable_months(db, member_id, include_upcoming=True,
                                                     include_unpaid_placeholders=True)
-        invalid = [m for m in unique_months if m not in set(payable["all_months"])]
-        if invalid:
-            raise HTTPException(status_code=422, detail=f"The following months are not available for this member: {invalid}")
         open_rows = (
             db.query(Challan)
             .filter(
@@ -209,6 +209,10 @@ def record_payment(
         # A "not paid yet" row (generated, or imported pending with nothing handed in) is filled in
         # by this entry; a row with something handed in is a real clash.
         placeholders = {c.month: c for c in open_rows if not is_submitted(c)}
+        # A month that already has an open "not paid yet" payment can always be filled, however far ahead.
+        invalid = [m for m in unique_months if m not in set(payable["all_months"]) and m not in placeholders]
+        if invalid:
+            raise HTTPException(status_code=422, detail=f"The following months are not available for this member: {invalid}")
         clash = [c for c in open_rows if is_submitted(c)]
         if clash:
             raise HTTPException(status_code=400, detail=f"Challans already exist for months: {sorted(c.month for c in clash)}")
